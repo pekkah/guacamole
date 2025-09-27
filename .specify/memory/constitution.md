@@ -1,21 +1,30 @@
 <!--
 Sync Impact Report
 ==================
-Version change: 2.2.2 → 2.3.0 (minor update - added C# coding practices standards)
+Version change: 2.3.0 → 2.3.1 (patch update - clarification of project purpose)
 Modified principles: None
 Added sections:
-- C# Coding Practices (comprehensive naming conventions and file organization)
+- Project Goal section (clarifies Guacamole's purpose as foundation for Fugu compiler)
 Modified sections:
-- Technical Guidelines (reorganized with new C# Coding Practices subsection)
+- Package Distribution Standards (clarified package purpose in context)
 Removed sections: None
 Templates requiring updates:
-- ✅ plan-template.md (version reference updated)
-- ✅ spec-template.md (consistent, no updates needed)
-- ✅ tasks-template.md (consistent, no updates needed)
+- ✅ plan-template.md (already references v2.3.0, compatible)
+- ✅ spec-template.md (no constitution references, compatible)
+- ✅ tasks-template.md (no constitution references, compatible)
 Follow-up TODOs: None
 -->
 
 # Guacamole Constitution
+
+## Project Goal
+
+Guacamole provides a foundation framework for building incremental compilers,
+with its primary consumer being the Fugu language compiler. The Fugu language
+is developed separately at https://github.com/pekkah/fugu-lang and will
+consume Guacamole as a NuGet package dependency. This framework focuses on
+providing robust incremental computation infrastructure that can power
+language tooling requiring sub-millisecond response times.
 
 ## Core Principles
 
@@ -119,6 +128,8 @@ MAY be used with explicit justification.
 - Semantic versioning MUST be strictly followed (MAJOR.MINOR.PATCH)
 - Pre-release versions MUST use standard suffixes (-alpha, -beta, -rc)
 - Package metadata MUST include: description, project URL, license, tags
+- Package description MUST clarify: "Foundation framework for incremental
+  compilers, powering the Fugu language compiler and similar tooling"
 
 ### API Surface Management
 - Public API MUST be minimal and well-documented
@@ -235,4 +246,4 @@ All pull requests MUST verify constitutional compliance. Complexity beyond
 these principles MUST be justified in writing. Violations without
 justification will result in PR rejection.
 
-**Version**: 2.3.0 | **Ratified**: 2025-09-26 | **Last Amended**: 2025-09-26
+**Version**: 2.3.1 | **Ratified**: 2025-09-26 | **Last Amended**: 2025-09-26
