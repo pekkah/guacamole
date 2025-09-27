@@ -142,7 +142,7 @@ MAY be used with explicit justification.
 ### Package Structure
 - Core package: Guacamole (engine core, Microsoft.Extensions.DependencyInjection only)
 - Extension packages: Guacamole.* (analyzers, visualizers, integrations)
-- Source generators MUST be in separate Guacamole.Generators package
+- Source generators MUST be in separate Guacamole.SourceGenerators package
 - Benchmarks and samples MUST NOT be included in distributed packages
 - Debug symbols MUST be published to symbol server
 - No executable assemblies or console applications

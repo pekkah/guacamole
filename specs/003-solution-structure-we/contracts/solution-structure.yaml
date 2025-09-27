@@ -1,0 +1,154 @@
+openapi: 3.0.0
+info:
+  title: Solution Structure Configuration API
+  version: 1.0.0
+  description: Configuration schema for Guacamole solution structure
+
+paths: {}
+
+components:
+  schemas:
+    Solution:
+      type: object
+      required:
+        - name
+        - projects
+        - buildConfiguration
+        - gitVersionConfig
+      properties:
+        name:
+          type: string
+          pattern: '^[A-Z][a-zA-Z0-9]*$'
+          example: "Guacamole"
+        projects:
+          type: array
+          items:
+            $ref: '#/components/schemas/Project'
+        buildConfiguration:
+          $ref: '#/components/schemas/BuildConfiguration'
+        gitVersionConfig:
+          $ref: '#/components/schemas/GitVersionConfiguration'
+
+    Project:
+      type: object
+      required:
+        - name
+        - type
+        - targetFramework
+        - isPackable
+        - projectPath
+      properties:
+        name:
+          type: string
+          pattern: '^Guacamole(\.[A-Z][a-zA-Z0-9]*)*$'
+          example: "Guacamole.SourceGenerators"
+        type:
+          type: string
+          enum: [Library, SourceGenerator, Test]
+        targetFramework:
+          type: string
+          pattern: '^net[0-9]+\.[0-9]+$'
+          example: "net10.0"
+        isPackable:
+          type: boolean
+        projectPath:
+          type: string
+          pattern: '^(src|tests|build)/.*\.csproj$'
+          example: "src/Guacamole/Guacamole.csproj"
+        dependencies:
+          type: array
+          items:
+            $ref: '#/components/schemas/PackageReference'
+
+    PackageReference:
+      type: object
+      required:
+        - packageId
+        - version
+      properties:
+        packageId:
+          type: string
+          pattern: '^[A-Za-z][A-Za-z0-9\._-]*$'
+          example: "Microsoft.Extensions.DependencyInjection"
+        version:
+          type: string
+          pattern: '^[0-9]+\.[0-9]+\.[0-9]+(-[a-z0-9\.-]+)?$'
+          example: "10.0.0-rc.1.25451.107"
+        includeAssets:
+          type: array
+          items:
+            type: string
+            enum: [compile, runtime, build, native, contentfiles, analyzers, all]
+        privateAssets:
+          type: array
+          items:
+            type: string
+            enum: [compile, runtime, build, native, contentfiles, analyzers, all]
+
+    BuildConfiguration:
+      type: object
+      required:
+        - targetFramework
+        - langVersion
+        - nullableEnabled
+        - treatWarningsAsErrors
+      properties:
+        targetFramework:
+          type: string
+          pattern: '^net[0-9]+\.[0-9]+$'
+          example: "net10.0"
+        langVersion:
+          type: string
+          enum: [latest, preview, "13.0"]
+        nullableEnabled:
+          type: boolean
+          default: true
+        treatWarningsAsErrors:
+          type: boolean
+          default: true
+        authors:
+          type: string
+        company:
+          type: string
+        product:
+          type: string
+          example: "Guacamole Framework"
+        packageLicenseExpression:
+          type: string
+          enum: [MIT, Apache-2.0, GPL-3.0, LGPL-3.0]
+
+    GitVersionConfiguration:
+      type: object
+      required:
+        - workflow
+        - nextVersion
+        - mode
+      properties:
+        workflow:
+          type: string
+          enum: [GitHubFlow/v1, GitFlow/v1]
+        nextVersion:
+          type: string
+          pattern: '^[0-9]+\.[0-9]+\.[0-9]+$'
+          example: "1.0.0"
+        mode:
+          type: string
+          enum: [ContinuousDelivery, ContinuousDeployment, ManualDeployment]
+        branchConfigurations:
+          type: object
+          additionalProperties:
+            $ref: '#/components/schemas/BranchConfig'
+
+    BranchConfig:
+      type: object
+      properties:
+        mode:
+          type: string
+          enum: [ContinuousDelivery, ContinuousDeployment, ManualDeployment]
+        label:
+          type: string
+        increment:
+          type: string
+          enum: [Major, Minor, Patch, None, Inherit]
+        regex:
+          type: string
