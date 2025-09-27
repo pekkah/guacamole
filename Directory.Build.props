@@ -1,0 +1,60 @@
+<Project>
+  <PropertyGroup>
+    <!-- Target framework consistency -->
+    <TargetFramework>net10.0</TargetFramework>
+    <LangVersion>latest</LangVersion>
+    <Nullable>enable</Nullable>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <WarningsNotAsErrors>CS1591</WarningsNotAsErrors>
+
+    <!-- Package metadata (synchronized across all packages) -->
+    <Authors>Pekka Heikura</Authors>
+    <Company>Guacamole</Company>
+    <Product>Guacamole Framework</Product>
+    <Description>Foundation framework for incremental compilers, powering the Fugu language compiler and similar tooling</Description>
+    <Copyright>Copyright © 2025</Copyright>
+    <PackageLicenseExpression>MIT</PackageLicenseExpression>
+    <PackageProjectUrl>https://github.com/pekkah/guacamole</PackageProjectUrl>
+    <PackageReadmeFile>README.md</PackageReadmeFile>
+    <PackageTags>incremental;query;engine;source-generators;compiler;framework</PackageTags>
+    <RepositoryUrl>https://github.com/pekkah/guacamole</RepositoryUrl>
+    <RepositoryType>git</RepositoryType>
+
+    <!-- GitVersion integration -->
+    <GenerateAssemblyInfo>true</GenerateAssemblyInfo>
+    <UpdateVersionProperties>true</UpdateVersionProperties>
+
+    <!-- Deterministic builds -->
+    <Deterministic>true</Deterministic>
+    <DeterministicSourcePaths>true</DeterministicSourcePaths>
+    <ContinuousIntegrationBuild Condition="'$(CI)' == 'true'">true</ContinuousIntegrationBuild>
+
+    <!-- Symbol packages -->
+    <IncludeSymbols>true</IncludeSymbols>
+    <SymbolPackageFormat>snupkg</SymbolPackageFormat>
+
+    <!-- Source link -->
+    <PublishRepositoryUrl>true</PublishRepositoryUrl>
+    <EmbedUntrackedSources>true</EmbedUntrackedSources>
+  </PropertyGroup>
+
+  <!-- GitVersion.MsBuild for automatic versioning -->
+  <ItemGroup>
+    <PackageReference Include="GitVersion.MsBuild" Version="6.4.0">
+      <PrivateAssets>all</PrivateAssets>
+      <IncludeAssets>runtime; build; native; contentfiles; analyzers</IncludeAssets>
+    </PackageReference>
+    <PackageReference Include="Microsoft.SourceLink.GitHub" Version="8.0.0" PrivateAssets="All"/>
+  </ItemGroup>
+
+  <!-- Test projects configuration -->
+  <PropertyGroup Condition="'$(MSBuildProjectName)' == 'Guacamole.Tests' OR '$(MSBuildProjectName)' == 'Guacamole.SourceGenerators.Tests'">
+    <IsPackable>false</IsPackable>
+    <IsTestProject>true</IsTestProject>
+  </PropertyGroup>
+
+  <!-- Include README in packages -->
+  <ItemGroup>
+    <None Include="$(MSBuildThisFileDirectory)README.md" Pack="true" PackagePath="\" />
+  </ItemGroup>
+</Project>
