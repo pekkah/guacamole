@@ -1,5 +1,5 @@
 workflow: GitHubFlow/v1
-next-version: 1.0.0
+next-version: 0.1.0
 mode: ContinuousDelivery
 
 # Assembly versioning optimized for libraries
