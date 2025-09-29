@@ -1,0 +1,176 @@
+openapi: 3.0.0
+info:
+  title: Roslyn Analysis Documentation Structure
+  description: Contract defining the structure and content requirements for Roslyn IIncrementalGenerator analysis documents
+  version: 1.0.0
+
+components:
+  schemas:
+    AnalysisDocument:
+      type: object
+      required:
+        - title
+        - overview
+        - sections
+        - examples
+        - references
+      properties:
+        title:
+          type: string
+          description: Document title
+        overview:
+          type: string
+          minLength: 200
+          description: Executive summary of document content
+        sections:
+          type: array
+          minItems: 3
+          items:
+            $ref: '#/components/schemas/Section'
+        examples:
+          type: array
+          items:
+            $ref: '#/components/schemas/CodeExample'
+        references:
+          type: array
+          items:
+            type: string
+            format: uri-reference
+
+    Section:
+      type: object
+      required:
+        - heading
+        - content
+      properties:
+        heading:
+          type: string
+        content:
+          type: string
+          minLength: 200
+        subsections:
+          type: array
+          items:
+            $ref: '#/components/schemas/Section'
+
+    CodeExample:
+      type: object
+      required:
+        - title
+        - description
+        - code
+        - language
+      properties:
+        title:
+          type: string
+        description:
+          type: string
+          minLength: 50
+        code:
+          type: string
+          maxLength: 2000  # ~50 lines
+        language:
+          type: string
+          enum: [csharp]
+        explanation:
+          type: string
+
+    ComparisonDocument:
+      allOf:
+        - $ref: '#/components/schemas/AnalysisDocument'
+        - type: object
+          required:
+            - comparisons
+          properties:
+            comparisons:
+              type: array
+              minItems: 5
+              items:
+                $ref: '#/components/schemas/ComparisonPoint'
+
+    ComparisonPoint:
+      type: object
+      required:
+        - aspect
+        - roslynApproach
+        - salsaApproach
+        - tradeoffs
+      properties:
+        aspect:
+          type: string
+        roslynApproach:
+          type: string
+          minLength: 100
+        salsaApproach:
+          type: string
+          minLength: 100
+        tradeoffs:
+          type: object
+          properties:
+            roslynPros:
+              type: array
+              items:
+                type: string
+            roslynCons:
+              type: array
+              items:
+                type: string
+            salsaPros:
+              type: array
+              items:
+                type: string
+            salsaCons:
+              type: array
+              items:
+                type: string
+
+    RecommendationDocument:
+      allOf:
+        - $ref: '#/components/schemas/AnalysisDocument'
+        - type: object
+          required:
+            - executiveSummary
+            - recommendation
+            - justification
+            - risks
+          properties:
+            executiveSummary:
+              type: string
+              minLength: 300
+            recommendation:
+              type: string
+              enum: [adopt_roslyn, keep_salsa, hybrid_approach, further_research]
+            justification:
+              type: string
+              minLength: 500
+            risks:
+              type: array
+              items:
+                type: object
+                properties:
+                  risk:
+                    type: string
+                  mitigation:
+                    type: string
+
+paths:
+  /documents:
+    get:
+      summary: List of all analysis documents
+      responses:
+        '200':
+          description: Document list
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    filename:
+                      type: string
+                    title:
+                      type: string
+                    type:
+                      type: string
+                      enum: [analysis, comparison, recommendation]
