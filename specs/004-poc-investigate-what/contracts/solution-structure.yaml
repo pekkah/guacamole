@@ -1,0 +1,230 @@
+attributes:
+  QueryAttribute:
+    description: Marks a class as a query for source generator discovery
+    usage: "[Query]"
+    target: Classes
+    inheritance: false
+
+  IQueryContext:
+    description: Provides access to other queries and framework services
+    properties:
+      - name: Queries
+        type: Dictionary<string, IQuery>
+        description: Registry of available queries
+      - name: CacheManager
+        type: ICacheManager
+        description: Cache management service
+      - name: DependencyTracker
+        type: IDependencyTracker
+        description: Dependency tracking service
+    methods:
+      GetQuery:
+        generic: T where T : IQuery
+        returns: T
+        description: Gets a strongly-typed query instance
+
+  ICacheManager:
+    description: Manages query result caching and invalidation
+    methods:
+      GetAsync:
+        parameters:
+          - name: key
+            type: string
+          - name: cancellationToken
+            type: CancellationToken
+        returns: Task<CacheEntry?>
+        description: Retrieves cached result by key
+
+      SetAsync:
+        parameters:
+          - name: key
+            type: string
+          - name: value
+            type: object
+          - name: dependencies
+            type: string[]
+          - name: cancellationToken
+            type: CancellationToken
+        returns: Task
+        description: Stores result in cache with dependencies
+
+      InvalidateAsync:
+        parameters:
+          - name: keys
+            type: string[]
+          - name: cascade
+            type: bool
+          - name: cancellationToken
+            type: CancellationToken
+        returns: Task
+        description: Invalidates cache entries and optionally cascades
+
+  IDependencyTracker:
+    description: Tracks query dependencies for incremental computation
+    methods:
+      StartTracking:
+        parameters:
+          - name: queryName
+            type: string
+        description: Begins dependency tracking for a query
+
+      RecordDependency:
+        parameters:
+          - name: dependentQuery
+            type: string
+          - name: dependency
+            type: string
+        description: Records a dependency relationship
+
+      EndTracking:
+        parameters:
+          - name: queryName
+            type: string
+        returns: string[]
+        description: Ends tracking and returns recorded dependencies
+
+classes:
+  QueryEngine:
+    description: Core engine for query execution and management
+    interfaces: [IQueryEngine]
+    constructor:
+      parameters:
+        - name: serviceProvider
+          type: IServiceProvider
+        - name: cacheManager
+          type: ICacheManager
+        - name: dependencyTracker
+          type: IDependencyTracker
+    methods:
+      ExecuteAsync:
+        generic: TInput, TOutput
+        parameters:
+          - name: queryType
+            type: Type
+          - name: input
+            type: object
+          - name: cancellationToken
+            type: CancellationToken
+        returns: Task<Result<object>>
+
+  QueryContext:
+    description: Implementation of IQueryContext
+    interfaces: [IQueryContext]
+    constructor:
+      parameters:
+        - name: queryRegistry
+          type: IQueryRegistry
+        - name: cacheManager
+          type: ICacheManager
+        - name: dependencyTracker
+          type: IDependencyTracker
+        - name: serviceProvider
+          type: IServiceProvider
+
+  Result:
+    description: Static factory for creating Result<T> instances
+    methods:
+      Success:
+        generic: T
+        parameters:
+          - name: value
+            type: T
+        returns: Result<T>
+        description: Creates successful result
+
+      Failure:
+        generic: T
+        parameters:
+          - name: error
+            type: QueryError
+        returns: Result<T>
+        description: Creates failed result
+
+  QueryGenerator:
+    description: Source generator for query registration boilerplate
+    interfaces: [IIncrementalGenerator]
+    methods:
+      Initialize:
+        parameters:
+          - name: context
+            type: IncrementalGeneratorInitializationContext
+        description: Initializes the source generator pipeline
+
+generated_code:
+  QueryContextExtensions:
+    description: Generated strongly-typed extensions for QueryContext
+    example: |
+      public static partial class QueryContextExtensions
+      {
+          public static async Task<Result<WeatherData>> Weather(
+              this QueryContext context,
+              string location,
+              CancellationToken cancellationToken = default) =>
+              await context.ExecuteAsync<WeatherQuery, string, WeatherData>(
+                  location, cancellationToken);
+
+          public static async Task<Result<UserData>> User(
+              this QueryContext context,
+              int userId,
+              CancellationToken cancellationToken = default) =>
+              await context.ExecuteAsync<UserQuery, int, UserData>(
+                  userId, cancellationToken);
+      }
+
+  ServiceCollectionExtensions:
+    description: Generated service registration extensions
+    example: |
+      public static partial class ServiceCollectionExtensions
+      {
+          public static IServiceCollection AddQueries(this IServiceCollection services)
+          {
+              services.AddScoped<WeatherQuery>();
+              services.AddScoped<UserQuery>();
+              // ... other queries discovered via [Query] attribute
+              return services;
+          }
+      }
+
+test_contracts:
+  snapshot_tests:
+    description: Verify generated code matches expected output
+    framework: Verify.SourceGenerators
+    example_test: |
+      [Fact]
+      public Task GeneratesQueryContextCorrectly()
+      {
+          var source = @"
+          [Query]
+          public class TestQuery
+          {
+              public async Task<Result<int>> ExecuteAsync(
+                  QueryContext context,
+                  string input,
+                  CancellationToken cancellationToken = default)
+              {
+                  return Result.Success(input.Length);
+              }
+          }";
+
+          return TestHelper.Verify(source);
+      }
+
+validation:
+  constitutional_alignment:
+    - incremental_computation: All queries support dependency tracking
+    - deterministic_execution: Pure functions with explicit dependencies
+    - performance_targets: Sub-millisecond cached execution
+    - modern_csharp: Source generators, records, nullable reference types
+    - dependency_injection: Microsoft.Extensions.DependencyInjection integration
+
+  salsa_rs_comparison:
+    similarities:
+      - Dependency-based invalidation
+      - Incremental recomputation
+      - Memoization with cache keys
+      - Query composition patterns
+    differences:
+      - C# async/await vs Rust futures
+      - .NET type system vs Rust traits
+      - DI container vs manual registration
+      - Source generators vs procedural macros

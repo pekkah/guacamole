@@ -1,0 +1,232 @@
+openapi: 3.0.3
+info:
+  title: Guacamole Query API Framework
+  description: Internal API contracts for the Query API framework components
+  version: 0.1.0
+
+components:
+  schemas:
+    QueryClass:
+      type: object
+      description: Class decorated with [Query] attribute
+      properties:
+        queryName:
+          type: string
+          description: Unique identifier for the query (derived from class name)
+        inputType:
+          type: string
+          description: .NET type name for input parameter (nullable for parameterless queries)
+        outputType:
+          type: string
+          description: .NET type name for output result
+        hasAttribute:
+          type: boolean
+          description: Whether class is decorated with [Query] attribute
+      required: [queryName, outputType, hasAttribute]
+
+    QueryContext:
+      type: object
+      description: Runtime context providing access to queries and services
+      properties:
+        queries:
+          type: object
+          additionalProperties:
+            $ref: '#/components/schemas/QueryClass'
+          description: Available queries by name
+        cacheEnabled:
+          type: boolean
+          description: Whether caching is enabled
+        dependencyTracking:
+          type: boolean
+          description: Whether dependency tracking is active
+      required: [queries, cacheEnabled, dependencyTracking]
+
+    QueryResult:
+      type: object
+      description: Result wrapper for query execution
+      properties:
+        isSuccess:
+          type: boolean
+          description: Indicates successful execution
+        value:
+          type: object
+          description: Result value (only present when isSuccess = true)
+        error:
+          $ref: '#/components/schemas/QueryError'
+        executionTimeMs:
+          type: number
+          description: Execution time in milliseconds
+        wasCached:
+          type: boolean
+          description: Whether result was retrieved from cache
+      required: [isSuccess, executionTimeMs, wasCached]
+
+    QueryError:
+      type: object
+      description: Error information for failed query execution
+      properties:
+        code:
+          type: string
+          description: Error code for categorization
+          enum: [INPUT_INVALID, DEPENDENCY_FAILED, CIRCULAR_DEPENDENCY, EXECUTION_TIMEOUT, CACHE_MISS]
+        message:
+          type: string
+          description: Human-readable error description
+        queryName:
+          type: string
+          description: Name of the query that failed
+        innerError:
+          $ref: '#/components/schemas/QueryError'
+      required: [code, message, queryName]
+
+    QueryRegistration:
+      type: object
+      description: Information for registering a query in the framework
+      properties:
+        queryType:
+          type: string
+          description: .NET type implementing IQuery
+        inputType:
+          type: string
+          description: Input parameter type (null for parameterless)
+        outputType:
+          type: string
+          description: Output result type
+        dependencies:
+          type: array
+          items:
+            type: string
+          description: List of dependent query types
+        lifetime:
+          type: string
+          enum: [Singleton, Scoped, Transient]
+          description: Service lifetime for DI registration
+      required: [queryType, outputType, dependencies, lifetime]
+
+    CacheEntry:
+      type: object
+      description: Cached query result with metadata
+      properties:
+        key:
+          type: string
+          description: Composite cache key
+        value:
+          type: object
+          description: Cached result value
+        version:
+          type: integer
+          description: Cache version for invalidation
+        dependencies:
+          type: array
+          items:
+            type: string
+          description: Cache keys of dependencies
+        createdAt:
+          type: string
+          format: date-time
+          description: When the cache entry was created
+        accessCount:
+          type: integer
+          description: Number of times this entry was accessed
+      required: [key, value, version, dependencies, createdAt, accessCount]
+
+paths:
+  # Note: This is a framework API, not a REST API
+  # These paths represent internal contracts for source generator validation
+
+  /internal/query/execute:
+    post:
+      summary: Execute a query (internal contract)
+      description: Internal contract for query execution flow
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                queryName:
+                  type: string
+                input:
+                  type: object
+                context:
+                  $ref: '#/components/schemas/QueryContext'
+              required: [queryName, context]
+      responses:
+        '200':
+          description: Query executed successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/QueryResult'
+        '400':
+          description: Invalid query or input
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/QueryError'
+
+  /internal/query/register:
+    post:
+      summary: Register a query (internal contract)
+      description: Internal contract for query registration
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/QueryRegistration'
+      responses:
+        '200':
+          description: Query registered successfully
+        '400':
+          description: Invalid query registration
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/QueryError'
+
+  /internal/cache/get:
+    get:
+      summary: Get cached result (internal contract)
+      description: Internal contract for cache retrieval
+      parameters:
+        - name: key
+          in: query
+          required: true
+          schema:
+            type: string
+          description: Cache key
+      responses:
+        '200':
+          description: Cache hit
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CacheEntry'
+        '404':
+          description: Cache miss
+
+  /internal/cache/invalidate:
+    post:
+      summary: Invalidate cache entries (internal contract)
+      description: Internal contract for cache invalidation
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                keys:
+                  type: array
+                  items:
+                    type: string
+                  description: Cache keys to invalidate
+                cascade:
+                  type: boolean
+                  description: Whether to cascade invalidation to dependents
+              required: [keys, cascade]
+      responses:
+        '200':
+          description: Cache invalidated successfully
