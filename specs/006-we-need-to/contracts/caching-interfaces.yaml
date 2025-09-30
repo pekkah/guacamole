@@ -1,0 +1,434 @@
+openapi: 3.0.0
+info:
+  title: Caching Interfaces API
+  description: API contracts for LRU cache and memory management interfaces
+  version: 1.0.0
+
+components:
+  schemas:
+    ILRUCache:
+      type: object
+      description: Interface for LRU cache implementation
+      properties:
+        capacity:
+          type: integer
+          minimum: 1
+          description: Maximum number of entries the cache can hold
+        count:
+          type: integer
+          minimum: 0
+          description: Current number of entries in cache
+        statistics:
+          $ref: '#/components/schemas/CacheStatistics'
+      required:
+        - capacity
+        - count
+        - statistics
+
+    CacheEntry:
+      type: object
+      description: Individual cache entry with metadata
+      properties:
+        key:
+          type: string
+          description: Cache key (typically NodeId)
+        value:
+          description: Cached computation result
+          oneOf:
+            - type: string
+            - type: number
+            - type: object
+            - type: array
+        lastAccessTime:
+          type: string
+          format: date-time
+          description: When entry was last accessed
+        computationTime:
+          type: integer
+          description: Time taken to compute value in milliseconds
+        size:
+          type: integer
+          description: Approximate memory size in bytes
+      required:
+        - key
+        - value
+        - lastAccessTime
+
+    CacheStatistics:
+      type: object
+      description: Comprehensive cache performance metrics
+      properties:
+        hitCount:
+          type: integer
+          minimum: 0
+          description: Total number of cache hits
+        missCount:
+          type: integer
+          minimum: 0
+          description: Total number of cache misses
+        evictionCount:
+          type: integer
+          minimum: 0
+          description: Total number of evictions performed
+        hitRate:
+          type: number
+          format: double
+          minimum: 0.0
+          maximum: 1.0
+          description: Cache hit rate (hits / total requests)
+        averageLoadTime:
+          type: number
+          format: double
+          description: Average time to load values on cache miss
+        totalLoadTime:
+          type: integer
+          description: Total time spent loading values in milliseconds
+        evictionRate:
+          type: number
+          format: double
+          minimum: 0.0
+          description: Rate of evictions per cache operation
+        memoryPressureLevel:
+          type: string
+          enum: ["None", "Low", "Medium", "High", "Critical"]
+          description: Current memory pressure assessment
+      required:
+        - hitCount
+        - missCount
+        - evictionCount
+        - hitRate
+
+    EvictionPolicy:
+      type: object
+      description: Configuration for cache eviction behavior
+      properties:
+        maxCapacity:
+          type: integer
+          minimum: 1
+          description: Maximum number of entries before eviction
+        memoryThreshold:
+          type: integer
+          minimum: 1
+          description: Memory threshold in bytes for pressure-based eviction
+        accessTimeWeight:
+          type: number
+          format: double
+          minimum: 0.0
+          maximum: 1.0
+          default: 1.0
+          description: Weight given to access time in eviction decisions
+        computationCostWeight:
+          type: number
+          format: double
+          minimum: 0.0
+          maximum: 1.0
+          default: 0.0
+          description: Weight given to computation cost in eviction decisions
+        enableMemoryPressureEviction:
+          type: boolean
+          default: true
+          description: Whether to evict entries under memory pressure
+      required:
+        - maxCapacity
+        - memoryThreshold
+
+    CacheConfiguration:
+      type: object
+      description: Overall cache system configuration
+      properties:
+        defaultCapacity:
+          type: integer
+          minimum: 1
+          default: 10000
+          description: Default cache capacity for new caches
+        evictionPolicy:
+          $ref: '#/components/schemas/EvictionPolicy'
+        enableStatistics:
+          type: boolean
+          default: true
+          description: Whether to collect detailed statistics
+        enableMetrics:
+          type: boolean
+          default: false
+          description: Whether to export metrics for monitoring
+        statisticsUpdateInterval:
+          type: integer
+          minimum: 100
+          default: 1000
+          description: Statistics update interval in milliseconds
+        memoryMonitoringEnabled:
+          type: boolean
+          default: true
+          description: Whether to monitor memory pressure
+      required:
+        - defaultCapacity
+        - evictionPolicy
+
+    ICacheInvalidator:
+      type: object
+      description: Interface for cache invalidation strategies
+      properties:
+        invalidationStrategy:
+          type: string
+          enum: ["Immediate", "Deferred", "Batch"]
+          description: How cache invalidation is performed
+        batchSize:
+          type: integer
+          minimum: 1
+          description: Batch size for batch invalidation strategy
+        deferralTime:
+          type: integer
+          minimum: 0
+          description: Deferral time in milliseconds for deferred invalidation
+
+    InvalidationEvent:
+      type: object
+      description: Event describing cache invalidation
+      properties:
+        nodeId:
+          type: string
+          description: ID of invalidated computation node
+        reason:
+          type: string
+          enum: ["DependencyChanged", "MemoryPressure", "Explicit", "TimeToLive"]
+          description: Reason for invalidation
+        timestamp:
+          type: string
+          format: date-time
+        affectedEntries:
+          type: integer
+          minimum: 0
+          description: Number of cache entries affected
+        cascadeLevel:
+          type: integer
+          minimum: 0
+          description: Level of cascade invalidation (0 = direct, 1+ = indirect)
+      required:
+        - nodeId
+        - reason
+        - timestamp
+
+# Cache Operations API
+paths:
+  /cache/get:
+    post:
+      summary: Retrieve value from cache
+      operationId: cacheGet
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                key:
+                  type: string
+                  description: Cache key to lookup
+              required:
+                - key
+      responses:
+        '200':
+          description: Cache hit - value found
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  found:
+                    type: boolean
+                    enum: [true]
+                  value:
+                    description: Cached value
+                  lastAccessTime:
+                    type: string
+                    format: date-time
+        '404':
+          description: Cache miss - value not found
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  found:
+                    type: boolean
+                    enum: [false]
+
+  /cache/set:
+    post:
+      summary: Store value in cache
+      operationId: cacheSet
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                key:
+                  type: string
+                value:
+                  description: Value to cache
+                computationTime:
+                  type: integer
+                  description: Time taken to compute value in milliseconds
+                dependencies:
+                  type: array
+                  items:
+                    type: string
+                  description: List of dependency keys for invalidation
+              required:
+                - key
+                - value
+      responses:
+        '200':
+          description: Value cached successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  evicted:
+                    type: boolean
+                    description: Whether any entries were evicted
+                  evictedKeys:
+                    type: array
+                    items:
+                      type: string
+                    description: Keys of evicted entries
+
+  /cache/invalidate:
+    post:
+      summary: Invalidate cache entries
+      operationId: cacheInvalidate
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                keys:
+                  type: array
+                  items:
+                    type: string
+                  description: Keys to invalidate
+                reason:
+                  type: string
+                  enum: ["DependencyChanged", "MemoryPressure", "Explicit"]
+                cascadeInvalidation:
+                  type: boolean
+                  default: true
+                  description: Whether to invalidate dependent entries
+              required:
+                - keys
+                - reason
+      responses:
+        '200':
+          description: Invalidation completed
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  invalidatedCount:
+                    type: integer
+                    minimum: 0
+                  cascadeCount:
+                    type: integer
+                    minimum: 0
+                  events:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/InvalidationEvent'
+
+  /cache/clear:
+    post:
+      summary: Clear all cache entries
+      operationId: cacheClear
+      responses:
+        '200':
+          description: Cache cleared successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  clearedCount:
+                    type: integer
+                    minimum: 0
+                  freedMemory:
+                    type: integer
+                    description: Approximate memory freed in bytes
+
+  /cache/statistics:
+    get:
+      summary: Get cache performance statistics
+      operationId: getCacheStatistics
+      responses:
+        '200':
+          description: Current cache statistics
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CacheStatistics'
+
+  /cache/configure:
+    post:
+      summary: Update cache configuration
+      operationId: configureCaching
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CacheConfiguration'
+      responses:
+        '200':
+          description: Configuration updated successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  applied:
+                    type: boolean
+                  restartRequired:
+                    type: boolean
+                    description: Whether cache restart is needed for changes to take effect
+
+  /cache/memory-pressure:
+    post:
+      summary: Simulate or report memory pressure for testing
+      operationId: memoryPressure
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                level:
+                  type: string
+                  enum: ["None", "Low", "Medium", "High", "Critical"]
+                duration:
+                  type: integer
+                  minimum: 0
+                  description: Duration in milliseconds (0 = permanent until reset)
+              required:
+                - level
+      responses:
+        '200':
+          description: Memory pressure simulation started
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  evictionsTriggered:
+                    type: integer
+                    minimum: 0
+                  memoryFreed:
+                    type: integer
+                    description: Approximate memory freed in bytes
+                  newCacheSize:
+                    type: integer

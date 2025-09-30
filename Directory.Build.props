@@ -20,9 +20,9 @@
     <RepositoryUrl>https://github.com/pekkah/guacamole</RepositoryUrl>
     <RepositoryType>git</RepositoryType>
 
-    <!-- GitVersion integration -->
+    <!-- Simple static versioning (GitVersion removed for cross-platform compatibility) -->
+    <Version>0.1.0-dev</Version>
     <GenerateAssemblyInfo>true</GenerateAssemblyInfo>
-    <UpdateVersionProperties>true</UpdateVersionProperties>
 
     <!-- Deterministic builds -->
     <Deterministic>true</Deterministic>
@@ -38,20 +38,10 @@
     <EmbedUntrackedSources>true</EmbedUntrackedSources>
   </PropertyGroup>
 
-  <!-- GitVersion.MsBuild for automatic versioning -->
+  <!-- Common package references -->
   <ItemGroup>
-    <PackageReference Include="GitVersion.MsBuild" Version="6.4.0">
-      <PrivateAssets>all</PrivateAssets>
-      <IncludeAssets>runtime; build; native; contentfiles; analyzers</IncludeAssets>
-    </PackageReference>
-    <PackageReference Include="Microsoft.SourceLink.GitHub" Version="8.0.0" PrivateAssets="All"/>
+    <!-- <PackageReference Include="Microsoft.SourceLink.GitHub" Version="8.0.0" PrivateAssets="All"/> -->
   </ItemGroup>
-
-  <!-- Test projects configuration -->
-  <PropertyGroup Condition="'$(MSBuildProjectName)' == 'Guacamole.Tests' OR '$(MSBuildProjectName)' == 'Guacamole.SourceGenerators.Tests'">
-    <IsPackable>false</IsPackable>
-    <IsTestProject>true</IsTestProject>
-  </PropertyGroup>
 
   <!-- Include README in packages -->
   <ItemGroup>

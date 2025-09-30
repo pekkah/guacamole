@@ -1,12 +1,11 @@
 <!--
 Sync Impact Report
 ==================
-Version change: 2.3.0 → 2.3.1 (patch update - clarification of project purpose)
+Version change: 2.3.2 → 2.3.3 (patch update - file organization clarification)
 Modified principles: None
-Added sections:
-- Project Goal section (clarifies Guacamole's purpose as foundation for Fugu compiler)
+Added sections: None
 Modified sections:
-- Package Distribution Standards (clarified package purpose in context)
+- C# Coding Practices/File Organization (clarified one type per file rule with exceptions)
 Removed sections: None
 Templates requiring updates:
 - ✅ plan-template.md (already references v2.3.0, compatible)
@@ -196,8 +195,12 @@ MAY be used with explicit justification.
   - Async methods MUST end with 'Async' suffix (e.g., `ExecuteQueryAsync`)
 
 - **File Organization**:
-  - File names MUST match class names exactly using PascalCase (e.g., `QueryEngine.cs`)
-  - One public type per file (classes, interfaces, enums)
+  - File names MUST match the primary type name exactly using PascalCase (e.g., `QueryEngine.cs`)
+  - One type per file MUST be the default unless types are short and tightly related
+  - Multiple types MAY share a file only when they are:
+    - Small utility types (< 20 lines each) tightly coupled to the primary type
+    - Related enums, delegates, or simple data structures used exclusively by the primary type
+    - Exception types specific to the primary type
   - Nested types are allowed within the primary type's file
   - Test files MUST end with 'Tests' suffix (e.g., `QueryEngineTests.cs`)
 
@@ -208,6 +211,7 @@ MAY be used with explicit justification.
   - Braces MUST be on new lines (Allman style)
   - No trailing whitespace
   - File MUST end with single newline
+  - #regions MUST NOT be used with code as they make it harder for humans to read the codebase
 
 ### .NET Specific Standards
 - Target .NET 10.0 only (upgrade to RTM when available)
@@ -246,4 +250,4 @@ All pull requests MUST verify constitutional compliance. Complexity beyond
 these principles MUST be justified in writing. Violations without
 justification will result in PR rejection.
 
-**Version**: 2.3.1 | **Ratified**: 2025-09-26 | **Last Amended**: 2025-09-26
+**Version**: 2.3.3 | **Ratified**: 2025-09-26 | **Last Amended**: 2025-09-30

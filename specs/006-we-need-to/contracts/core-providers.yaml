@@ -1,0 +1,422 @@
+openapi: 3.0.0
+info:
+  title: Incremental Value Providers API
+  description: Core API contracts for IncrementalValueProvider and IncrementalValuesProvider structures
+  version: 1.0.0
+
+components:
+  schemas:
+    IncrementalValueProvider:
+      type: object
+      description: Immutable structure representing a single value in transformation pipeline
+      properties:
+        node:
+          $ref: '#/components/schemas/InternalValueNode'
+        graph:
+          $ref: '#/components/schemas/ComputationGraph'
+        metadata:
+          $ref: '#/components/schemas/ProviderMetadata'
+      required:
+        - node
+        - graph
+        - metadata
+
+    IncrementalValuesProvider:
+      type: object
+      description: Immutable structure representing multiple values in transformation pipeline
+      properties:
+        node:
+          $ref: '#/components/schemas/InternalValuesNode'
+        graph:
+          $ref: '#/components/schemas/ComputationGraph'
+        metadata:
+          $ref: '#/components/schemas/ProviderMetadata'
+      required:
+        - node
+        - graph
+        - metadata
+
+    ComputationGraph:
+      type: object
+      description: Manages computation graph, dependencies, and caching
+      properties:
+        nodes:
+          type: object
+          additionalProperties:
+            $ref: '#/components/schemas/ComputationNode'
+        dependencies:
+          type: object
+          additionalProperties:
+            type: array
+            items:
+              type: string
+        valueCache:
+          $ref: '#/components/schemas/LRUCache'
+        diagnostics:
+          $ref: '#/components/schemas/DiagnosticCollector'
+
+    ComputationNode:
+      type: object
+      description: Base computation node in the graph
+      properties:
+        id:
+          type: string
+          description: Unique node identifier
+        outputType:
+          type: string
+          description: Type of value produced by this node
+        dependencies:
+          type: array
+          items:
+            type: string
+          description: Direct node dependencies
+      required:
+        - id
+        - outputType
+        - dependencies
+
+    InternalValueNode:
+      allOf:
+        - $ref: '#/components/schemas/ComputationNode'
+        - type: object
+          properties:
+            computeFunction:
+              type: object
+              description: Function that computes single value
+              properties:
+                inputType:
+                  type: string
+                outputType:
+                  type: string
+                errorType:
+                  type: string
+                  default: "ComputationError"
+
+    InternalValuesNode:
+      allOf:
+        - $ref: '#/components/schemas/ComputationNode'
+        - type: object
+          properties:
+            computeFunction:
+              type: object
+              description: Function that computes multiple values
+              properties:
+                inputType:
+                  type: string
+                outputType:
+                  type: string
+                  description: IEnumerable<T> return type
+                errorType:
+                  type: string
+                  default: "ComputationError"
+
+    ResultType:
+      type: object
+      description: Discriminated union for success/error handling
+      properties:
+        isSuccess:
+          type: boolean
+        value:
+          description: The computed value (when isSuccess = true)
+          oneOf:
+            - type: string
+            - type: number
+            - type: object
+        error:
+          $ref: '#/components/schemas/ComputationError'
+          description: Error information (when isSuccess = false)
+      required:
+        - isSuccess
+
+    ComputationError:
+      type: object
+      description: Error information for failed computations
+      properties:
+        message:
+          type: string
+        innerError:
+          $ref: '#/components/schemas/ComputationError'
+        sourceLocation:
+          $ref: '#/components/schemas/SourceLocation'
+        diagnosticId:
+          type: string
+      required:
+        - message
+
+    ProviderMetadata:
+      type: object
+      description: Debugging and diagnostic information
+      properties:
+        trackingName:
+          type: string
+          nullable: true
+        creationLocation:
+          $ref: '#/components/schemas/SourceLocation'
+        tags:
+          type: array
+          items:
+            type: string
+        metrics:
+          $ref: '#/components/schemas/PerformanceMetrics'
+
+    SourceLocation:
+      type: object
+      description: Source code location information
+      properties:
+        fileName:
+          type: string
+        lineNumber:
+          type: integer
+        columnNumber:
+          type: integer
+        memberName:
+          type: string
+      required:
+        - fileName
+        - lineNumber
+        - memberName
+
+    PerformanceMetrics:
+      type: object
+      description: Performance and timing statistics
+      properties:
+        cacheHitRate:
+          type: number
+          format: double
+          minimum: 0.0
+          maximum: 1.0
+        averageComputeTime:
+          type: integer
+          description: Average computation time in milliseconds
+        lastComputeTime:
+          type: integer
+          description: Last computation time in milliseconds
+        totalComputations:
+          type: integer
+          minimum: 0
+        totalCacheHits:
+          type: integer
+          minimum: 0
+
+    LRUCache:
+      type: object
+      description: Least-Recently-Used cache with predictable eviction
+      properties:
+        capacity:
+          type: integer
+          minimum: 1
+        currentSize:
+          type: integer
+          minimum: 0
+        statistics:
+          $ref: '#/components/schemas/CacheStatistics'
+
+    CacheStatistics:
+      type: object
+      description: Cache performance metrics
+      properties:
+        hitCount:
+          type: integer
+          minimum: 0
+        missCount:
+          type: integer
+          minimum: 0
+        evictionCount:
+          type: integer
+          minimum: 0
+        hitRate:
+          type: number
+          format: double
+          minimum: 0.0
+          maximum: 1.0
+
+# Extension Method Contracts
+paths:
+  /transformation/select:
+    post:
+      summary: Transform single value using Select operation
+      operationId: selectTransformation
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                provider:
+                  $ref: '#/components/schemas/IncrementalValueProvider'
+                transformFunction:
+                  type: object
+                  description: Pure function for value transformation
+                  properties:
+                    inputType:
+                      type: string
+                    outputType:
+                      type: string
+              required:
+                - provider
+                - transformFunction
+      responses:
+        '200':
+          description: New provider with transformation applied
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/IncrementalValueProvider'
+
+  /transformation/where:
+    post:
+      summary: Filter single value using Where operation
+      operationId: whereTransformation
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                provider:
+                  $ref: '#/components/schemas/IncrementalValueProvider'
+                predicateFunction:
+                  type: object
+                  description: Pure predicate function
+                  properties:
+                    inputType:
+                      type: string
+                    returnType:
+                      type: string
+                      enum: ["boolean"]
+              required:
+                - provider
+                - predicateFunction
+      responses:
+        '200':
+          description: New provider with filter applied
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/IncrementalValueProvider'
+
+  /transformation/combine:
+    post:
+      summary: Combine two providers using Combine operation
+      operationId: combineTransformation
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                leftProvider:
+                  $ref: '#/components/schemas/IncrementalValueProvider'
+                rightProvider:
+                  $ref: '#/components/schemas/IncrementalValueProvider'
+                combineFunction:
+                  type: object
+                  description: Pure function combining two values
+                  properties:
+                    leftInputType:
+                      type: string
+                    rightInputType:
+                      type: string
+                    outputType:
+                      type: string
+              required:
+                - leftProvider
+                - rightProvider
+                - combineFunction
+      responses:
+        '200':
+          description: New provider with combination result
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/IncrementalValueProvider'
+
+  /collection/select-many:
+    post:
+      summary: Transform and flatten collection using SelectMany
+      operationId: selectManyTransformation
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                provider:
+                  $ref: '#/components/schemas/IncrementalValuesProvider'
+                transformFunction:
+                  type: object
+                  description: Function that produces multiple results per input
+                  properties:
+                    inputType:
+                      type: string
+                    outputType:
+                      type: string
+                      description: IEnumerable<TResult>
+              required:
+                - provider
+                - transformFunction
+      responses:
+        '200':
+          description: New provider with flattened results
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/IncrementalValuesProvider'
+
+  /collection/collect:
+    post:
+      summary: Convert IncrementalValuesProvider to single collection
+      operationId: collectTransformation
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                provider:
+                  $ref: '#/components/schemas/IncrementalValuesProvider'
+              required:
+                - provider
+      responses:
+        '200':
+          description: Single provider containing collection of all values
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/IncrementalValueProvider'
+
+  /diagnostics/with-tracking-name:
+    post:
+      summary: Add tracking name for debugging
+      operationId: withTrackingName
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                provider:
+                  oneOf:
+                    - $ref: '#/components/schemas/IncrementalValueProvider'
+                    - $ref: '#/components/schemas/IncrementalValuesProvider'
+                trackingName:
+                  type: string
+                  minLength: 1
+              required:
+                - provider
+                - trackingName
+      responses:
+        '200':
+          description: Provider with updated metadata
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: '#/components/schemas/IncrementalValueProvider'
+                  - $ref: '#/components/schemas/IncrementalValuesProvider'
