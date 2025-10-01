@@ -111,7 +111,7 @@ namespace Test
                     Graph,
                     new Guacamole.Core.Diagnostics.ProviderMetadata(TrackingName: "Name"));
             }
-            return _NameProvider.Value;
+            return _NameProvider;
         }
         set
         {

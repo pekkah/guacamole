@@ -179,7 +179,7 @@ namespace Test
                     Graph,
                     new Guacamole.Core.Diagnostics.ProviderMetadata(TrackingName: "Count"));
             }
-            return _CountProvider.Value;
+            return _CountProvider;
         }
         set
         {
@@ -205,7 +205,7 @@ namespace Test
                     Graph,
                     new Guacamole.Core.Diagnostics.ProviderMetadata(TrackingName: "Items"));
             }
-            return _ItemsProvider.Value;
+            return _ItemsProvider;
         }
         set
         {

@@ -48,7 +48,7 @@ internal static class PropertyGenerator
                                     Graph,
                                     new Guacamole.Core.Diagnostics.ProviderMetadata(TrackingName: "{{propertyName}}"));
                             }
-                            return _{{propertyName}}Provider.Value;
+                            return _{{propertyName}}Provider;
                         }
                         set
                         {
@@ -115,7 +115,7 @@ internal static class PropertyGenerator
                                     Graph,
                                     new Guacamole.Core.Diagnostics.ProviderMetadata(TrackingName: "{{propertyName}}"));
                             }
-                            return _{{propertyName}}Provider.Value;
+                            return _{{propertyName}}Provider;
                         }
                         set
                         {
