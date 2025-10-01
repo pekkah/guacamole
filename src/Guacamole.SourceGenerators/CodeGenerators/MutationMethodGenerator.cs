@@ -51,6 +51,9 @@ internal static class MutationMethodGenerator
 
                         // Track change in property-specific list (zero boxing)
                         _{{propertyName}}Changes.Add(new {{changeTypeName}}.Add(item, System.DateTimeOffset.UtcNow));
+
+                        // Invalidate cache for this property and all dependents
+                        InvalidateNodeCache(_{{propertyName}}Node.Id);
                     }
                     finally
                     {
@@ -75,6 +78,10 @@ internal static class MutationMethodGenerator
                         }
 
                         _{{propertyName}}Changes.Add(new {{changeTypeName}}.Remove(item, System.DateTimeOffset.UtcNow));
+
+                        // Invalidate cache for this property and all dependents
+                        InvalidateNodeCache(_{{propertyName}}Node.Id);
+
                         return true;
                     }
                     finally
@@ -101,6 +108,9 @@ internal static class MutationMethodGenerator
                         }
 
                         _{{propertyName}}Changes.Add(new {{changeTypeName}}.Replace(oldItem, newItem, System.DateTimeOffset.UtcNow));
+
+                        // Invalidate cache for this property and all dependents
+                        InvalidateNodeCache(_{{propertyName}}Node.Id);
                     }
                     finally
                     {
@@ -132,6 +142,12 @@ internal static class MutationMethodGenerator
                             _{{propertyName}}Changes.Add(new {{changeTypeName}}.Add(item, System.DateTimeOffset.UtcNow));
                             index++;
                         }
+
+                        // Invalidate cache once after all additions
+                        if (index > 0)
+                        {
+                            InvalidateNodeCache(_{{propertyName}}Node.Id);
+                        }
                     }
                     finally
                     {
@@ -150,12 +166,20 @@ internal static class MutationMethodGenerator
                     Lock.EnterWriteLock();
                     try
                     {
+                        bool anyRemoved = false;
                         foreach (var item in items)
                         {
                             if (_current{{propertyName}}.Contains(item))
                             {
                                 _{{propertyName}}Changes.Add(new {{changeTypeName}}.Remove(item, System.DateTimeOffset.UtcNow));
+                                anyRemoved = true;
                             }
+                        }
+
+                        // Invalidate cache once after all removals
+                        if (anyRemoved)
+                        {
+                            InvalidateNodeCache(_{{propertyName}}Node.Id);
                         }
                     }
                     finally
@@ -187,6 +211,9 @@ internal static class MutationMethodGenerator
                     try
                     {
                         _{{propertyName}}Changes.Add(new {{changeTypeName}}.Set(value, System.DateTimeOffset.UtcNow));
+
+                        // Invalidate cache for this property and all dependents
+                        InvalidateNodeCache(_{{propertyName}}Node.Id);
                     }
                     finally
                     {

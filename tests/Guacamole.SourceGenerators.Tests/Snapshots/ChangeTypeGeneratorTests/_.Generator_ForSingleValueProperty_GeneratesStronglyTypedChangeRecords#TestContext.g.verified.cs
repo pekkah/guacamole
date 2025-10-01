@@ -136,6 +136,9 @@ namespace Test
         try
         {
             _CountChanges.Add(new CountChange.Set(value, System.DateTimeOffset.UtcNow));
+
+            // Invalidate cache for this property and all dependents
+            InvalidateNodeCache(_CountNode.Id);
         }
         finally
         {
@@ -210,6 +213,56 @@ namespace Test
             Lock.ExitWriteLock();
         }
     }
+
+
+
+        // ========================================
+        // Cache Invalidation Helper
+        // ========================================
+
+        /// <summary>
+        /// Invalidates cache for the specified node and all transitive dependents.
+        /// Called automatically by mutation methods to maintain cache consistency.
+        /// </summary>
+        private void InvalidateNodeCache(string nodeId)
+        {
+            // Remove the node itself from cache
+            Graph.ValueCache.Remove(nodeId);
+
+            // Find all nodes that depend on this node (transitively)
+            var dependentsToInvalidate = FindAllDependents(nodeId);
+            foreach (var dependent in dependentsToInvalidate)
+            {
+                Graph.ValueCache.Remove(dependent);
+            }
+        }
+
+        /// <summary>
+        /// Finds all nodes that transitively depend on the given node.
+        /// </summary>
+        private System.Collections.Generic.HashSet<string> FindAllDependents(string nodeId)
+        {
+            var dependents = new System.Collections.Generic.HashSet<string>();
+            var toCheck = new System.Collections.Generic.Queue<string>();
+            toCheck.Enqueue(nodeId);
+
+            while (toCheck.Count > 0)
+            {
+                var current = toCheck.Dequeue();
+
+                // Find all nodes that directly depend on current
+                foreach (var kvp in Graph.Dependencies)
+                {
+                    if (kvp.Value.Contains(current) && !dependents.Contains(kvp.Key))
+                    {
+                        dependents.Add(kvp.Key);
+                        toCheck.Enqueue(kvp.Key);
+                    }
+                }
+            }
+
+            return dependents;
+        }
 
     }
 }

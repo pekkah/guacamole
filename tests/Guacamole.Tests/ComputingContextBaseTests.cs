@@ -8,7 +8,7 @@ namespace Guacamole.Tests;
 /// Tests for ComputingContextBase basic instantiation and lifecycle.
 /// Progression: basic → edge → incremental → performance → chaos
 /// </summary>
-public class ComputingContextBaseTests
+public partial class ComputingContextBaseTests
 {
     // Test context for testing base class
     [ComputingContext]

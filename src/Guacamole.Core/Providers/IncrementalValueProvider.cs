@@ -56,6 +56,23 @@ public readonly record struct IncrementalValueProvider<T>(
     }
 
     /// <summary>
+    /// Convenience property to get the computed value directly.
+    /// Throws if computation fails. Use GetValue() for Result-based error handling.
+    /// </summary>
+    public T Value
+    {
+        get
+        {
+            var result = GetValue();
+            if (result.IsSuccess)
+                return result.Value!;
+
+            throw new InvalidOperationException(
+                $"Failed to compute value: {result.ErrorValue?.Message ?? "Unknown error"}");
+        }
+    }
+
+    /// <summary>
     /// Builds a dictionary of cached values relevant to this computation.
     /// Includes the node itself and all transitive dependencies.
     /// </summary>
@@ -151,6 +168,23 @@ public readonly record struct IncrementalValuesProvider<T>(
         }
 
         return result;
+    }
+
+    /// <summary>
+    /// Convenience property to get the computed values directly.
+    /// Throws if computation fails. Use GetValues() for Result-based error handling.
+    /// </summary>
+    public IEnumerable<T> Values
+    {
+        get
+        {
+            var result = GetValues();
+            if (result.IsSuccess)
+                return result.Value!;
+
+            throw new InvalidOperationException(
+                $"Failed to compute values: {result.ErrorValue?.Message ?? "Unknown error"}");
+        }
     }
 
     /// <summary>
