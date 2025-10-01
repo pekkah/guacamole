@@ -134,6 +134,12 @@ internal sealed class SelectManyValuesNode<TSource, TResult> : ICollectionComput
 
     public Result<IEnumerable<TResult>, ComputationError> Compute(ComputationContext context)
     {
+        // Check cache first
+        if (context.CachedValues.TryGetValue(Id, out var cachedValue) && cachedValue is IEnumerable<TResult> cached)
+        {
+            return Result<IEnumerable<TResult>, ComputationError>.Success(cached);
+        }
+
         try
         {
             var sourceResult = _source.Compute(context);
@@ -167,6 +173,12 @@ internal sealed class CollectValuesNode<T> : IComputationNode<ImmutableArray<T>>
 
     public Result<ImmutableArray<T>, ComputationError> Compute(ComputationContext context)
     {
+        // Check cache first
+        if (context.CachedValues.TryGetValue(Id, out var cachedValue) && cachedValue is ImmutableArray<T> cached)
+        {
+            return Result<ImmutableArray<T>, ComputationError>.Success(cached);
+        }
+
         try
         {
             var sourceResult = _source.Compute(context);
@@ -202,6 +214,12 @@ internal sealed class SelectValuesNode<TSource, TResult> : ICollectionComputatio
 
     public Result<IEnumerable<TResult>, ComputationError> Compute(ComputationContext context)
     {
+        // Check cache first
+        if (context.CachedValues.TryGetValue(Id, out var cachedValue) && cachedValue is IEnumerable<TResult> cached)
+        {
+            return Result<IEnumerable<TResult>, ComputationError>.Success(cached);
+        }
+
         try
         {
             var sourceResult = _source.Compute(context);
@@ -237,6 +255,12 @@ internal sealed class WhereValuesNode<T> : ICollectionComputationNode<T>
 
     public Result<IEnumerable<T>, ComputationError> Compute(ComputationContext context)
     {
+        // Check cache first
+        if (context.CachedValues.TryGetValue(Id, out var cachedValue) && cachedValue is IEnumerable<T> cached)
+        {
+            return Result<IEnumerable<T>, ComputationError>.Success(cached);
+        }
+
         try
         {
             var sourceResult = _source.Compute(context);

@@ -110,6 +110,12 @@ internal sealed class SelectValueNode<TSource, TResult> : IComputationNode<TResu
 
     public Result<TResult, ComputationError> Compute(ComputationContext context)
     {
+        // Check cache first
+        if (context.CachedValues.TryGetValue(Id, out var cachedValue) && cachedValue is TResult cached)
+        {
+            return Result<TResult, ComputationError>.Success(cached);
+        }
+
         try
         {
             var sourceResult = _source.Compute(context);
@@ -145,6 +151,12 @@ internal sealed class WhereValueNode<T> : IComputationNode<T>
 
     public Result<T, ComputationError> Compute(ComputationContext context)
     {
+        // Check cache first
+        if (context.CachedValues.TryGetValue(Id, out var cachedValue) && cachedValue is T cached)
+        {
+            return Result<T, ComputationError>.Success(cached);
+        }
+
         try
         {
             var sourceResult = _source.Compute(context);
@@ -182,6 +194,21 @@ internal sealed class CombineValueNode<TFirst, TSecond> : IComputationNode<(TFir
 
     public Result<(TFirst, TSecond), ComputationError> Compute(ComputationContext context)
     {
+        // Check cache first
+        if (context.CachedValues.TryGetValue(Id, out var cachedValue))
+        {
+            try
+            {
+                // Try to cast the cached value back to tuple
+                var cached = ((TFirst, TSecond))cachedValue;
+                return Result<(TFirst, TSecond), ComputationError>.Success(cached);
+            }
+            catch
+            {
+                // If cast fails, recompute
+            }
+        }
+
         try
         {
             var firstResult = _first.Compute(context);
