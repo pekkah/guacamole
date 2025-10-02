@@ -76,15 +76,15 @@ jobs:
           dotnet-version: '10.0.x'
 
       - name: Install GitVersion
-        uses: gittools/actions/gitversion/setup@v4.1.0
-        with:
-          versionSpec: '6.x'
+        run: dotnet tool install --global GitVersion.Tool --version 6.*
 
       - name: Calculate version
-        uses: gittools/actions/gitversion/execute@v4.1.0
         id: gitversion
-        with:
-          useConfigFile: true
+        run: |
+          dotnet-gitversion /output json | tee version.json
+          echo "semVer=$(jq -r .SemVer version.json)" >> $GITHUB_OUTPUT
+          echo "nuGetVersion=$(jq -r .NuGetVersionV2 version.json)" >> $GITHUB_OUTPUT
+          echo "preReleaseTag=$(jq -r .PreReleaseTag version.json)" >> $GITHUB_OUTPUT
 
       - name: Display version
         run: |
