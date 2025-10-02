@@ -2,6 +2,7 @@ workflow: TrunkBased/preview1
 tag-prefix: v
 branches:
   main:
+    mode: ContinuousDeployment
     label: alpha
     increment: Minor
     is-main-branch: false
