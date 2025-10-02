@@ -74,13 +74,13 @@ jobs:
         with:
           dotnet-version: '10.0.x'
 
-      - name: Install GitVersion
-        run: dotnet tool install --global GitVersion.Tool --version 6.*
+      - name: Restore tools
+        run: dotnet tool restore
 
       - name: Calculate version
         id: gitversion
         run: |
-          dotnet-gitversion /output json | tee version.json
+          dotnet gitversion /output json | tee version.json
           echo "semVer=$(jq -r .SemVer version.json)" >> $GITHUB_OUTPUT
           echo "nuGetVersion=$(jq -r .NuGetVersionV2 version.json)" >> $GITHUB_OUTPUT
 
