@@ -35,13 +35,13 @@ internal static class PropertyGenerator
                     /// Implementing declaration for partial property {{propertyName}}.
                     /// Provides backing storage and connects to computation node.
                     /// </summary>
-                    private Guacamole.Core.Providers.IncrementalValuesProvider<{{itemType}}>? _{{propertyName}}Provider;
+                    private Guacamole.Core.Providers.IncrementalValuesProvider<{{itemType}}> _{{propertyName}}Provider;
 
                     public partial Guacamole.Core.Providers.IncrementalValuesProvider<{{itemType}}> {{propertyName}}
                     {
                         get
                         {
-                            if (_{{propertyName}}Provider == null)
+                            if (_{{propertyName}}Provider.Node == null)
                             {
                                 _{{propertyName}}Provider = new Guacamole.Core.Providers.IncrementalValuesProvider<{{itemType}}>(
                                     _{{propertyName}}Node,
@@ -69,13 +69,13 @@ internal static class PropertyGenerator
                     /// Implementing declaration for partial derived property {{propertyName}}.
                     /// Must be initialized by user code (e.g., in ConfigurePipeline).
                     /// </summary>
-                    private Guacamole.Core.Providers.IncrementalValuesProvider<{{itemType}}>? _{{propertyName}}Field;
+                    private Guacamole.Core.Providers.IncrementalValuesProvider<{{itemType}}> _{{propertyName}}Field;
 
                     public partial Guacamole.Core.Providers.IncrementalValuesProvider<{{itemType}}> {{propertyName}}
                     {
                         get
                         {
-                            if (_{{propertyName}}Field == null)
+                            if (_{{propertyName}}Field.Node == null)
                             {
                                 throw new System.InvalidOperationException(
                                     $"Derived property {{propertyName}} has not been initialized. " +
@@ -102,13 +102,13 @@ internal static class PropertyGenerator
                     /// Implementing declaration for partial property {{propertyName}}.
                     /// Provides backing storage and connects to computation node.
                     /// </summary>
-                    private Guacamole.Core.Providers.IncrementalValueProvider<{{itemType}}>? _{{propertyName}}Provider;
+                    private Guacamole.Core.Providers.IncrementalValueProvider<{{itemType}}> _{{propertyName}}Provider;
 
                     public partial Guacamole.Core.Providers.IncrementalValueProvider<{{itemType}}> {{propertyName}}
                     {
                         get
                         {
-                            if (_{{propertyName}}Provider == null)
+                            if (_{{propertyName}}Provider.Node == null)
                             {
                                 _{{propertyName}}Provider = new Guacamole.Core.Providers.IncrementalValueProvider<{{itemType}}>(
                                     _{{propertyName}}Node,
@@ -133,13 +133,13 @@ internal static class PropertyGenerator
                     /// Implementing declaration for partial derived property {{propertyName}}.
                     /// Must be initialized by user code (e.g., in ConfigurePipeline).
                     /// </summary>
-                    private Guacamole.Core.Providers.IncrementalValueProvider<{{itemType}}>? _{{propertyName}}Field;
+                    private Guacamole.Core.Providers.IncrementalValueProvider<{{itemType}}> _{{propertyName}}Field;
 
                     public partial Guacamole.Core.Providers.IncrementalValueProvider<{{itemType}}> {{propertyName}}
                     {
                         get
                         {
-                            if (_{{propertyName}}Field == null)
+                            if (_{{propertyName}}Field.Node == null)
                             {
                                 throw new System.InvalidOperationException(
                                     $"Derived property {{propertyName}} has not been initialized. " +

@@ -28,7 +28,37 @@ public static class IncrementalValuesProviderExtensions
     {
         ArgumentNullException.ThrowIfNull(selector);
 
-        var selectManyNode = new SelectManyValuesNode<TSource, TResult>(source.Node, selector);
+        var selectManyNode = new SelectManyValuesNode<TSource, TResult>(source.Node, selector, null);
+
+        // Preserve metadata from source if no metadata is explicitly provided
+        var finalMetadata = metadata.TrackingName == null && metadata.CreationLocation == null
+            ? source.Metadata
+            : metadata;
+
+        return new IncrementalValuesProvider<TResult>(selectManyNode, source.Graph, finalMetadata);
+    }
+
+    /// <summary>
+    /// Transforms each value and flattens the results with custom equality comparison.
+    /// Creates a new provider that depends on the source and produces flattened results.
+    /// </summary>
+    /// <typeparam name="TSource">Source value type</typeparam>
+    /// <typeparam name="TResult">Result value type</typeparam>
+    /// <param name="source">Source provider</param>
+    /// <param name="selector">Transformation function that produces multiple results</param>
+    /// <param name="comparer">Custom equality comparer for result values</param>
+    /// <param name="metadata">Optional metadata for the new provider</param>
+    /// <returns>A new provider with flattened transformed values</returns>
+    public static IncrementalValuesProvider<TResult> SelectMany<TSource, TResult>(
+        this IncrementalValuesProvider<TSource> source,
+        Func<TSource, IEnumerable<TResult>> selector,
+        IEqualityComparer<TResult> comparer,
+        ProviderMetadata metadata = default)
+    {
+        ArgumentNullException.ThrowIfNull(selector);
+        ArgumentNullException.ThrowIfNull(comparer);
+
+        var selectManyNode = new SelectManyValuesNode<TSource, TResult>(source.Node, selector, comparer);
 
         // Preserve metadata from source if no metadata is explicitly provided
         var finalMetadata = metadata.TrackingName == null && metadata.CreationLocation == null
@@ -77,7 +107,37 @@ public static class IncrementalValuesProviderExtensions
     {
         ArgumentNullException.ThrowIfNull(selector);
 
-        var selectNode = new SelectValuesNode<TSource, TResult>(source.Node, selector);
+        var selectNode = new SelectValuesNode<TSource, TResult>(source.Node, selector, null);
+
+        // Preserve metadata from source if no metadata is explicitly provided
+        var finalMetadata = metadata.TrackingName == null && metadata.CreationLocation == null
+            ? source.Metadata
+            : metadata;
+
+        return new IncrementalValuesProvider<TResult>(selectNode, source.Graph, finalMetadata);
+    }
+
+    /// <summary>
+    /// Transforms each value using the specified function with custom equality comparison.
+    /// Creates a new values provider with transformed values.
+    /// </summary>
+    /// <typeparam name="TSource">Source value type</typeparam>
+    /// <typeparam name="TResult">Result value type</typeparam>
+    /// <param name="source">Source provider</param>
+    /// <param name="selector">Transformation function</param>
+    /// <param name="comparer">Custom equality comparer for result values</param>
+    /// <param name="metadata">Optional metadata for the new provider</param>
+    /// <returns>A new provider with transformed values</returns>
+    public static IncrementalValuesProvider<TResult> Select<TSource, TResult>(
+        this IncrementalValuesProvider<TSource> source,
+        Func<TSource, TResult> selector,
+        IEqualityComparer<TResult> comparer,
+        ProviderMetadata metadata = default)
+    {
+        ArgumentNullException.ThrowIfNull(selector);
+        ArgumentNullException.ThrowIfNull(comparer);
+
+        var selectNode = new SelectValuesNode<TSource, TResult>(source.Node, selector, comparer);
 
         // Preserve metadata from source if no metadata is explicitly provided
         var finalMetadata = metadata.TrackingName == null && metadata.CreationLocation == null
@@ -103,7 +163,36 @@ public static class IncrementalValuesProviderExtensions
     {
         ArgumentNullException.ThrowIfNull(predicate);
 
-        var whereNode = new WhereValuesNode<T>(source.Node, predicate);
+        var whereNode = new WhereValuesNode<T>(source.Node, predicate, null);
+
+        // Preserve metadata from source if no metadata is explicitly provided
+        var finalMetadata = metadata.TrackingName == null && metadata.CreationLocation == null
+            ? source.Metadata
+            : metadata;
+
+        return new IncrementalValuesProvider<T>(whereNode, source.Graph, finalMetadata);
+    }
+
+    /// <summary>
+    /// Filters values based on a predicate with custom equality comparison.
+    /// Creates a new values provider with filtered values.
+    /// </summary>
+    /// <typeparam name="T">Value type</typeparam>
+    /// <param name="source">Source provider</param>
+    /// <param name="predicate">Filter predicate</param>
+    /// <param name="comparer">Custom equality comparer for values</param>
+    /// <param name="metadata">Optional metadata for the new provider</param>
+    /// <returns>A new provider with filtered values</returns>
+    public static IncrementalValuesProvider<T> Where<T>(
+        this IncrementalValuesProvider<T> source,
+        Func<T, bool> predicate,
+        IEqualityComparer<T> comparer,
+        ProviderMetadata metadata = default)
+    {
+        ArgumentNullException.ThrowIfNull(predicate);
+        ArgumentNullException.ThrowIfNull(comparer);
+
+        var whereNode = new WhereValuesNode<T>(source.Node, predicate, comparer);
 
         // Preserve metadata from source if no metadata is explicitly provided
         var finalMetadata = metadata.TrackingName == null && metadata.CreationLocation == null
@@ -119,11 +208,13 @@ internal sealed class SelectManyValuesNode<TSource, TResult> : ICollectionComput
 {
     private readonly ICollectionComputationNode<TSource> _source;
     private readonly Func<TSource, IEnumerable<TResult>> _selector;
+    private readonly IEqualityComparer<TResult>? _comparer;
 
-    public SelectManyValuesNode(ICollectionComputationNode<TSource> source, Func<TSource, IEnumerable<TResult>> selector)
+    public SelectManyValuesNode(ICollectionComputationNode<TSource> source, Func<TSource, IEnumerable<TResult>> selector, IEqualityComparer<TResult>? comparer)
     {
         _source = source ?? throw new ArgumentNullException(nameof(source));
         _selector = selector ?? throw new ArgumentNullException(nameof(selector));
+        _comparer = comparer;
         Id = $"SelectMany_{Guid.NewGuid():N}";
         Dependencies = ImmutableHashSet.Create(_source.Id);
     }
@@ -131,6 +222,7 @@ internal sealed class SelectManyValuesNode<TSource, TResult> : ICollectionComput
     public string Id { get; }
     public Type OutputType => typeof(IEnumerable<TResult>);
     public ImmutableHashSet<string> Dependencies { get; }
+    public IEqualityComparer<TResult> Comparer => _comparer ?? EqualityComparer<TResult>.Default;
 
     public Result<IEnumerable<TResult>, ComputationError> Compute(ComputationContext context)
     {
@@ -199,11 +291,13 @@ internal sealed class SelectValuesNode<TSource, TResult> : ICollectionComputatio
 {
     private readonly ICollectionComputationNode<TSource> _source;
     private readonly Func<TSource, TResult> _selector;
+    private readonly IEqualityComparer<TResult>? _comparer;
 
-    public SelectValuesNode(ICollectionComputationNode<TSource> source, Func<TSource, TResult> selector)
+    public SelectValuesNode(ICollectionComputationNode<TSource> source, Func<TSource, TResult> selector, IEqualityComparer<TResult>? comparer)
     {
         _source = source ?? throw new ArgumentNullException(nameof(source));
         _selector = selector ?? throw new ArgumentNullException(nameof(selector));
+        _comparer = comparer;
         Id = $"SelectValues_{Guid.NewGuid():N}";
         Dependencies = ImmutableHashSet.Create(_source.Id);
     }
@@ -211,6 +305,7 @@ internal sealed class SelectValuesNode<TSource, TResult> : ICollectionComputatio
     public string Id { get; }
     public Type OutputType => typeof(IEnumerable<TResult>);
     public ImmutableHashSet<string> Dependencies { get; }
+    public IEqualityComparer<TResult> Comparer => _comparer ?? EqualityComparer<TResult>.Default;
 
     public Result<IEnumerable<TResult>, ComputationError> Compute(ComputationContext context)
     {
@@ -240,11 +335,13 @@ internal sealed class WhereValuesNode<T> : ICollectionComputationNode<T>
 {
     private readonly ICollectionComputationNode<T> _source;
     private readonly Func<T, bool> _predicate;
+    private readonly IEqualityComparer<T>? _comparer;
 
-    public WhereValuesNode(ICollectionComputationNode<T> source, Func<T, bool> predicate)
+    public WhereValuesNode(ICollectionComputationNode<T> source, Func<T, bool> predicate, IEqualityComparer<T>? comparer)
     {
         _source = source ?? throw new ArgumentNullException(nameof(source));
         _predicate = predicate ?? throw new ArgumentNullException(nameof(predicate));
+        _comparer = comparer;
         Id = $"WhereValues_{Guid.NewGuid():N}";
         Dependencies = ImmutableHashSet.Create(_source.Id);
     }
@@ -252,6 +349,7 @@ internal sealed class WhereValuesNode<T> : ICollectionComputationNode<T>
     public string Id { get; }
     public Type OutputType => typeof(IEnumerable<T>);
     public ImmutableHashSet<string> Dependencies { get; }
+    public IEqualityComparer<T> Comparer => _comparer ?? EqualityComparer<T>.Default;
 
     public Result<IEnumerable<T>, ComputationError> Compute(ComputationContext context)
     {

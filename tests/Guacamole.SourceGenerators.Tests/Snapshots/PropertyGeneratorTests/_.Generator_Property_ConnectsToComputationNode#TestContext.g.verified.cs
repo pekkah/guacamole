@@ -56,6 +56,13 @@ namespace Test
         public override Guacamole.Core.Common.Result<string, Guacamole.Core.Pipeline.ComputationError> Compute(
             Guacamole.Core.Pipeline.ComputationContext context)
         {
+            // Check cache first (incremental computation optimization)
+            if (context.CachedValues.TryGetValue(Id, out var cachedValue) && cachedValue is string cached)
+            {
+                return Guacamole.Core.Common.Result<string, Guacamole.Core.Pipeline.ComputationError>
+                    .Success(cached);
+            }
+
             try
             {
                 if (_context._currentName == null)
@@ -98,13 +105,13 @@ namespace Test
     /// Implementing declaration for partial property Name.
     /// Provides backing storage and connects to computation node.
     /// </summary>
-    private Guacamole.Core.Providers.IncrementalValueProvider<string>? _NameProvider;
+    private Guacamole.Core.Providers.IncrementalValueProvider<string> _NameProvider;
 
     public partial Guacamole.Core.Providers.IncrementalValueProvider<string> Name
     {
         get
         {
-            if (_NameProvider == null)
+            if (_NameProvider.Node == null)
             {
                 _NameProvider = new Guacamole.Core.Providers.IncrementalValueProvider<string>(
                     _NameNode,
@@ -135,10 +142,9 @@ namespace Test
         Lock.EnterWriteLock();
         try
         {
+            // Track change - cache invalidation deferred to SaveChanges()
+            // This allows equality comparison to prevent unnecessary invalidation
             _NameChanges.Add(new NameChange.Set(value, System.DateTimeOffset.UtcNow));
-
-            // Invalidate cache for this property and all dependents
-            InvalidateNodeCache(_NameNode.Id);
         }
         finally
         {
@@ -159,6 +165,7 @@ namespace Test
     /// <summary>
     /// Commits all tracked changes and triggers incremental recomputation.
     /// Fails fast on first error with detailed diagnostics.
+    /// After changes are committed, triggers all registered output handlers.
     /// </summary>
     public void SaveChanges()
     {
@@ -168,13 +175,19 @@ namespace Test
         try
         {
             // Apply changes for each property (fail-fast)
-            // Apply Name changes
+            // Apply Name changes with equality check
             if (_NameChanges.Count > 0)
             {
                 var lastChange = _NameChanges[_NameChanges.Count - 1];
                 if (lastChange is NameChange.Set set)
                 {
-                    _currentName = set.Value;
+                    // Only update and invalidate if value actually changed
+                    // EqualityComparer handles null values correctly
+                    if (!System.Collections.Generic.EqualityComparer<string>.Default.Equals(_currentName, set.Value))
+                    {
+                        _currentName = set.Value;
+                        InvalidateNodeCache(_NameNode.Id);
+                    }
                 }
             }
 
@@ -185,6 +198,10 @@ namespace Test
         {
             Lock.ExitWriteLock();
         }
+
+        // Trigger output handlers after changes are committed
+        // This recomputes registered providers and calls their handlers
+        TriggerOutputs();
     }
 
     /// <summary>

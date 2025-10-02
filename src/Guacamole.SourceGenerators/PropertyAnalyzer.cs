@@ -79,6 +79,9 @@ internal static class PropertyAnalyzer
         // T029b: Detect conflicting type parameters
         DetectConflictingTypeParameters(inputProperties, derivedProperties, diagnostics, classSymbol);
 
+        // T030: Detect types without proper equality implementation (perf warning)
+        DetectMissingEqualityImplementation(inputProperties, derivedProperties, diagnostics, classSymbol, context);
+
         return new PropertyAnalysisResult(
             inputProperties,
             derivedProperties,
@@ -173,6 +176,105 @@ internal static class PropertyAnalyzer
 
         var fullName = namedType.ConstructedFrom.ToDisplayString();
         return fullName == "Guacamole.Core.Providers.IncrementalValuesProvider<T>";
+    }
+
+    /// <summary>
+    /// Detects types that don't implement proper equality, which hurts incremental computation performance.
+    /// Produces diagnostic GUAC0004 (warning).
+    /// </summary>
+    private static void DetectMissingEqualityImplementation(
+        List<PropertyInfo> inputProperties,
+        List<PropertyInfo> derivedProperties,
+        List<Diagnostic> diagnostics,
+        INamedTypeSymbol classSymbol,
+        SourceProductionContext context)
+    {
+        var allProperties = inputProperties.Concat(derivedProperties).ToList();
+
+        foreach (var property in allProperties)
+        {
+            // Get the actual ITypeSymbol for the property's item type
+            var propertySymbol = classSymbol.GetMembers(property.Name).OfType<IPropertySymbol>().FirstOrDefault();
+            if (propertySymbol?.Type is not INamedTypeSymbol providerType)
+                continue;
+
+            if (providerType.TypeArguments.Length == 0)
+                continue;
+
+            var itemType = providerType.TypeArguments[0];
+
+            // Check if type needs equality checking
+            if (!RequiresEqualityCheck(itemType))
+                continue;
+
+            // Check if type has proper equality
+            if (HasProperEquality(itemType))
+                continue;
+
+            // Type requires equality but doesn't have it - emit warning
+            var diagnostic = Diagnostic.Create(
+                new DiagnosticDescriptor(
+                    "GUAC0004",
+                    "Type does not implement proper equality for incremental computation",
+                    "Type '{0}' in property '{1}' does not implement IEquatable<{0}>. For optimal incremental computation performance, use record types or implement IEquatable<T>. Without proper equality, cache invalidation will always occur even when values are logically equal.",
+                    "Guacamole.Performance",
+                    DiagnosticSeverity.Warning,
+                    isEnabledByDefault: true,
+                    description: "Incremental computation relies on equality comparison to minimize recomputation. Types should implement IEquatable<T> or be records for structural equality."),
+                propertySymbol.Locations.FirstOrDefault() ?? Location.None,
+                itemType.ToDisplayString(),
+                property.Name);
+
+            diagnostics.Add(diagnostic);
+        }
+    }
+
+    /// <summary>
+    /// Checks if a type requires equality checking for incremental computation.
+    /// Primitive types and strings have built-in equality, others need checking.
+    /// </summary>
+    private static bool RequiresEqualityCheck(ITypeSymbol type)
+    {
+        // Primitive types (int, bool, char, etc.) have built-in equality
+        if (type.SpecialType != SpecialType.None)
+        {
+            // String is a special type but we still want to check it (though it has proper equality)
+            return type.SpecialType == SpecialType.System_String;
+        }
+
+        // Value types like structs/enums have default equality
+        // But we should still check if they're records or have IEquatable
+        return true;
+    }
+
+    /// <summary>
+    /// Checks if a type has proper equality implementation.
+    /// Returns true if the type is a record, implements IEquatable<T>, or is a primitive.
+    /// </summary>
+    private static bool HasProperEquality(ITypeSymbol type)
+    {
+        // Records automatically have structural equality
+        if (type.IsRecord)
+            return true;
+
+        // Check if implements IEquatable<T>
+        if (type.AllInterfaces.Any(i =>
+            i.ConstructedFrom.ToDisplayString() == "System.IEquatable<T>" &&
+            i.TypeArguments.Length > 0 &&
+            SymbolEqualityComparer.Default.Equals(i.TypeArguments[0], type)))
+        {
+            return true;
+        }
+
+        // Primitive types have proper equality
+        if (type.SpecialType != SpecialType.None)
+            return true;
+
+        // Enums have proper equality
+        if (type.TypeKind == TypeKind.Enum)
+            return true;
+
+        return false;
     }
 
     private static string GetGenericTypeArgument(ITypeSymbol type)

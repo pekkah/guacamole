@@ -89,6 +89,13 @@ namespace Test
         public override Guacamole.Core.Common.Result<System.Collections.Generic.IEnumerable<string>, Guacamole.Core.Pipeline.ComputationError> Compute(
             Guacamole.Core.Pipeline.ComputationContext context)
         {
+            // Check cache first (incremental computation optimization)
+            if (context.CachedValues.TryGetValue(Id, out var cachedValue) && cachedValue is System.Collections.Generic.IEnumerable<string> cached)
+            {
+                return Guacamole.Core.Common.Result<System.Collections.Generic.IEnumerable<string>, Guacamole.Core.Pipeline.ComputationError>
+                    .Success(cached);
+            }
+
             try
             {
                 // Return current state from context
@@ -121,6 +128,13 @@ namespace Test
         public override Guacamole.Core.Common.Result<int, Guacamole.Core.Pipeline.ComputationError> Compute(
             Guacamole.Core.Pipeline.ComputationContext context)
         {
+            // Check cache first (incremental computation optimization)
+            if (context.CachedValues.TryGetValue(Id, out var cachedValue) && cachedValue is int cached)
+            {
+                return Guacamole.Core.Common.Result<int, Guacamole.Core.Pipeline.ComputationError>
+                    .Success(cached);
+            }
+
             try
             {
                 if (_context._currentCount == null)
@@ -166,13 +180,13 @@ namespace Test
     /// Implementing declaration for partial property Items.
     /// Provides backing storage and connects to computation node.
     /// </summary>
-    private Guacamole.Core.Providers.IncrementalValuesProvider<string>? _ItemsProvider;
+    private Guacamole.Core.Providers.IncrementalValuesProvider<string> _ItemsProvider;
 
     public partial Guacamole.Core.Providers.IncrementalValuesProvider<string> Items
     {
         get
         {
-            if (_ItemsProvider == null)
+            if (_ItemsProvider.Node == null)
             {
                 _ItemsProvider = new Guacamole.Core.Providers.IncrementalValuesProvider<string>(
                     _ItemsNode,
@@ -194,13 +208,13 @@ namespace Test
     /// Implementing declaration for partial property Count.
     /// Provides backing storage and connects to computation node.
     /// </summary>
-    private Guacamole.Core.Providers.IncrementalValueProvider<int>? _CountProvider;
+    private Guacamole.Core.Providers.IncrementalValueProvider<int> _CountProvider;
 
     public partial Guacamole.Core.Providers.IncrementalValueProvider<int> Count
     {
         get
         {
-            if (_CountProvider == null)
+            if (_CountProvider.Node == null)
             {
                 _CountProvider = new Guacamole.Core.Providers.IncrementalValueProvider<int>(
                     _CountNode,
@@ -238,10 +252,8 @@ namespace Test
             }
 
             // Track change in property-specific list (zero boxing)
+            // Cache invalidation is deferred to SaveChanges() for efficiency
             _ItemsChanges.Add(new ItemsChange.Add(item, System.DateTimeOffset.UtcNow));
-
-            // Invalidate cache for this property and all dependents
-            InvalidateNodeCache(_ItemsNode.Id);
         }
         finally
         {
@@ -265,10 +277,8 @@ namespace Test
                 return false;
             }
 
+            // Track change - cache invalidation deferred to SaveChanges()
             _ItemsChanges.Add(new ItemsChange.Remove(item, System.DateTimeOffset.UtcNow));
-
-            // Invalidate cache for this property and all dependents
-            InvalidateNodeCache(_ItemsNode.Id);
 
             return true;
         }
@@ -295,10 +305,8 @@ namespace Test
                 throw new System.InvalidOperationException($"Cannot replace item that doesn't exist in Items");
             }
 
+            // Track change - cache invalidation deferred to SaveChanges()
             _ItemsChanges.Add(new ItemsChange.Replace(oldItem, newItem, System.DateTimeOffset.UtcNow));
-
-            // Invalidate cache for this property and all dependents
-            InvalidateNodeCache(_ItemsNode.Id);
         }
         finally
         {
@@ -331,11 +339,7 @@ namespace Test
                 index++;
             }
 
-            // Invalidate cache once after all additions
-            if (index > 0)
-            {
-                InvalidateNodeCache(_ItemsNode.Id);
-            }
+            // Cache invalidation deferred to SaveChanges() for efficiency
         }
         finally
         {
@@ -354,21 +358,15 @@ namespace Test
         Lock.EnterWriteLock();
         try
         {
-            bool anyRemoved = false;
             foreach (var item in items)
             {
                 if (_currentItems.Contains(item))
                 {
                     _ItemsChanges.Add(new ItemsChange.Remove(item, System.DateTimeOffset.UtcNow));
-                    anyRemoved = true;
                 }
             }
 
-            // Invalidate cache once after all removals
-            if (anyRemoved)
-            {
-                InvalidateNodeCache(_ItemsNode.Id);
-            }
+            // Cache invalidation deferred to SaveChanges() for efficiency
         }
         finally
         {
@@ -388,10 +386,9 @@ namespace Test
         Lock.EnterWriteLock();
         try
         {
+            // Track change - cache invalidation deferred to SaveChanges()
+            // This allows equality comparison to prevent unnecessary invalidation
             _CountChanges.Add(new CountChange.Set(value, System.DateTimeOffset.UtcNow));
-
-            // Invalidate cache for this property and all dependents
-            InvalidateNodeCache(_CountNode.Id);
         }
         finally
         {
@@ -412,6 +409,7 @@ namespace Test
     /// <summary>
     /// Commits all tracked changes and triggers incremental recomputation.
     /// Fails fast on first error with detailed diagnostics.
+    /// After changes are committed, triggers all registered output handlers.
     /// </summary>
     public void SaveChanges()
     {
@@ -422,29 +420,50 @@ namespace Test
         {
             // Apply changes for each property (fail-fast)
             // Apply Items changes with fail-fast error handling
-            foreach (var change in _ItemsChanges)
+            if (_ItemsChanges.Count > 0)
             {
-                switch (change)
+                bool collectionChanged = false;
+                foreach (var change in _ItemsChanges)
                 {
-                    case ItemsChange.Add add:
-                        _currentItems.Add(add.Item);
-                        break;
-                    case ItemsChange.Remove remove:
-                        _currentItems.Remove(remove.Item);
-                        break;
-                    case ItemsChange.Replace replace:
-                        _currentItems.Remove(replace.OldItem);
-                        _currentItems.Add(replace.Item);
-                        break;
+                    switch (change)
+                    {
+                        case ItemsChange.Add add:
+                            _currentItems.Add(add.Item);
+                            collectionChanged = true;
+                            break;
+                        case ItemsChange.Remove remove:
+                            collectionChanged |= _currentItems.Remove(remove.Item);
+                            break;
+                        case ItemsChange.Replace replace:
+                            var removed = _currentItems.Remove(replace.OldItem);
+                            if (removed)
+                            {
+                                _currentItems.Add(replace.Item);
+                                collectionChanged = true;
+                            }
+                            break;
+                    }
+                }
+
+                // Only invalidate if collection actually changed
+                if (collectionChanged)
+                {
+                    InvalidateNodeCache(_ItemsNode.Id);
                 }
             }
-            // Apply Count changes
+            // Apply Count changes with equality check
             if (_CountChanges.Count > 0)
             {
                 var lastChange = _CountChanges[_CountChanges.Count - 1];
                 if (lastChange is CountChange.Set set)
                 {
-                    _currentCount = set.Value;
+                    // Only update and invalidate if value actually changed
+                    // EqualityComparer handles null values correctly
+                    if (!System.Collections.Generic.EqualityComparer<int>.Default.Equals(_currentCount, set.Value))
+                    {
+                        _currentCount = set.Value;
+                        InvalidateNodeCache(_CountNode.Id);
+                    }
                 }
             }
 
@@ -456,6 +475,10 @@ namespace Test
         {
             Lock.ExitWriteLock();
         }
+
+        // Trigger output handlers after changes are committed
+        // This recomputes registered providers and calls their handlers
+        TriggerOutputs();
     }
 
     /// <summary>

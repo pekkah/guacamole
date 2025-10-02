@@ -88,10 +88,8 @@ public class ProviderExtensionCachingTests
         while (toCheck.Count > 0)
         {
             var dep = toCheck.Dequeue();
-            if (checked_.Contains(dep))
+            if (!checked_.Add(dep))
                 continue;
-
-            checked_.Add(dep);
 
             // Try to get cached value for this dependency
             if (graph.ValueCache.TryGet(dep, out var value) && value != null)

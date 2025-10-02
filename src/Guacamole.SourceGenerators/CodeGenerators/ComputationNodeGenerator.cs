@@ -46,6 +46,13 @@ internal static class ComputationNodeGenerator
                     public override Guacamole.Core.Common.Result<System.Collections.Generic.IEnumerable<{{itemType}}>, Guacamole.Core.Pipeline.ComputationError> Compute(
                         Guacamole.Core.Pipeline.ComputationContext context)
                     {
+                        // Check cache first (incremental computation optimization)
+                        if (context.CachedValues.TryGetValue(Id, out var cachedValue) && cachedValue is System.Collections.Generic.IEnumerable<{{itemType}}> cached)
+                        {
+                            return Guacamole.Core.Common.Result<System.Collections.Generic.IEnumerable<{{itemType}}>, Guacamole.Core.Pipeline.ComputationError>
+                                .Success(cached);
+                        }
+
                         try
                         {
                             // Return current state from context
@@ -88,6 +95,13 @@ internal static class ComputationNodeGenerator
                     public override Guacamole.Core.Common.Result<{{itemType}}, Guacamole.Core.Pipeline.ComputationError> Compute(
                         Guacamole.Core.Pipeline.ComputationContext context)
                     {
+                        // Check cache first (incremental computation optimization)
+                        if (context.CachedValues.TryGetValue(Id, out var cachedValue) && cachedValue is {{itemType}} cached)
+                        {
+                            return Guacamole.Core.Common.Result<{{itemType}}, Guacamole.Core.Pipeline.ComputationError>
+                                .Success(cached);
+                        }
+
                         try
                         {
                             if (_context._current{{propertyName}} == null)

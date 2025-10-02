@@ -28,7 +28,37 @@ public static class IncrementalValueProviderExtensions
     {
         ArgumentNullException.ThrowIfNull(selector);
 
-        var transformNode = new SelectValueNode<TSource, TResult>(source.Node, selector);
+        var transformNode = new SelectValueNode<TSource, TResult>(source.Node, selector, null);
+
+        // Preserve metadata from source if no metadata is explicitly provided
+        var finalMetadata = metadata.TrackingName == null && metadata.CreationLocation == null
+            ? source.Metadata
+            : metadata;
+
+        return new IncrementalValueProvider<TResult>(transformNode, source.Graph, finalMetadata);
+    }
+
+    /// <summary>
+    /// Transforms the value using the specified function with custom equality comparison.
+    /// Creates a new provider in the pipeline with automatic dependency tracking.
+    /// </summary>
+    /// <typeparam name="TSource">Source value type</typeparam>
+    /// <typeparam name="TResult">Result value type</typeparam>
+    /// <param name="source">Source provider</param>
+    /// <param name="selector">Transformation function</param>
+    /// <param name="comparer">Custom equality comparer for result values</param>
+    /// <param name="metadata">Optional metadata for the new provider</param>
+    /// <returns>A new provider with the transformed value</returns>
+    public static IncrementalValueProvider<TResult> Select<TSource, TResult>(
+        this IncrementalValueProvider<TSource> source,
+        Func<TSource, TResult> selector,
+        IEqualityComparer<TResult> comparer,
+        ProviderMetadata metadata = default)
+    {
+        ArgumentNullException.ThrowIfNull(selector);
+        ArgumentNullException.ThrowIfNull(comparer);
+
+        var transformNode = new SelectValueNode<TSource, TResult>(source.Node, selector, comparer);
 
         // Preserve metadata from source if no metadata is explicitly provided
         var finalMetadata = metadata.TrackingName == null && metadata.CreationLocation == null
@@ -54,7 +84,36 @@ public static class IncrementalValueProviderExtensions
     {
         ArgumentNullException.ThrowIfNull(predicate);
 
-        var filterNode = new WhereValueNode<T>(source.Node, predicate);
+        var filterNode = new WhereValueNode<T>(source.Node, predicate, null);
+
+        // Preserve metadata from source if no metadata is explicitly provided
+        var finalMetadata = metadata.TrackingName == null && metadata.CreationLocation == null
+            ? source.Metadata
+            : metadata;
+
+        return new IncrementalValueProvider<T>(filterNode, source.Graph, finalMetadata);
+    }
+
+    /// <summary>
+    /// Filters the value based on a predicate with custom equality comparison.
+    /// Creates a provider that may or may not produce a value.
+    /// </summary>
+    /// <typeparam name="T">Value type</typeparam>
+    /// <param name="source">Source provider</param>
+    /// <param name="predicate">Filter predicate</param>
+    /// <param name="comparer">Custom equality comparer for values</param>
+    /// <param name="metadata">Optional metadata for the new provider</param>
+    /// <returns>A new provider with the filtered value</returns>
+    public static IncrementalValueProvider<T> Where<T>(
+        this IncrementalValueProvider<T> source,
+        Func<T, bool> predicate,
+        IEqualityComparer<T> comparer,
+        ProviderMetadata metadata = default)
+    {
+        ArgumentNullException.ThrowIfNull(predicate);
+        ArgumentNullException.ThrowIfNull(comparer);
+
+        var filterNode = new WhereValueNode<T>(source.Node, predicate, comparer);
 
         // Preserve metadata from source if no metadata is explicitly provided
         var finalMetadata = metadata.TrackingName == null && metadata.CreationLocation == null
@@ -95,11 +154,13 @@ internal sealed class SelectValueNode<TSource, TResult> : IComputationNode<TResu
 {
     private readonly IComputationNode<TSource> _source;
     private readonly Func<TSource, TResult> _selector;
+    private readonly IEqualityComparer<TResult>? _comparer;
 
-    public SelectValueNode(IComputationNode<TSource> source, Func<TSource, TResult> selector)
+    public SelectValueNode(IComputationNode<TSource> source, Func<TSource, TResult> selector, IEqualityComparer<TResult>? comparer)
     {
         _source = source ?? throw new ArgumentNullException(nameof(source));
         _selector = selector ?? throw new ArgumentNullException(nameof(selector));
+        _comparer = comparer;
         Id = $"Select_{Guid.NewGuid():N}";
         Dependencies = ImmutableHashSet.Create(_source.Id);
     }
@@ -107,6 +168,7 @@ internal sealed class SelectValueNode<TSource, TResult> : IComputationNode<TResu
     public string Id { get; }
     public Type OutputType => typeof(TResult);
     public ImmutableHashSet<string> Dependencies { get; }
+    public IEqualityComparer<TResult> Comparer => _comparer ?? EqualityComparer<TResult>.Default;
 
     public Result<TResult, ComputationError> Compute(ComputationContext context)
     {
@@ -136,11 +198,13 @@ internal sealed class WhereValueNode<T> : IComputationNode<T>
 {
     private readonly IComputationNode<T> _source;
     private readonly Func<T, bool> _predicate;
+    private readonly IEqualityComparer<T>? _comparer;
 
-    public WhereValueNode(IComputationNode<T> source, Func<T, bool> predicate)
+    public WhereValueNode(IComputationNode<T> source, Func<T, bool> predicate, IEqualityComparer<T>? comparer)
     {
         _source = source ?? throw new ArgumentNullException(nameof(source));
         _predicate = predicate ?? throw new ArgumentNullException(nameof(predicate));
+        _comparer = comparer;
         Id = $"Where_{Guid.NewGuid():N}";
         Dependencies = ImmutableHashSet.Create(_source.Id);
     }
@@ -148,6 +212,7 @@ internal sealed class WhereValueNode<T> : IComputationNode<T>
     public string Id { get; }
     public Type OutputType => typeof(T);
     public ImmutableHashSet<string> Dependencies { get; }
+    public IEqualityComparer<T> Comparer => _comparer ?? EqualityComparer<T>.Default;
 
     public Result<T, ComputationError> Compute(ComputationContext context)
     {

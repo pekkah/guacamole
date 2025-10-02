@@ -50,10 +50,8 @@ internal static class MutationMethodGenerator
                         }
 
                         // Track change in property-specific list (zero boxing)
+                        // Cache invalidation is deferred to SaveChanges() for efficiency
                         _{{propertyName}}Changes.Add(new {{changeTypeName}}.Add(item, System.DateTimeOffset.UtcNow));
-
-                        // Invalidate cache for this property and all dependents
-                        InvalidateNodeCache(_{{propertyName}}Node.Id);
                     }
                     finally
                     {
@@ -77,10 +75,8 @@ internal static class MutationMethodGenerator
                             return false;
                         }
 
+                        // Track change - cache invalidation deferred to SaveChanges()
                         _{{propertyName}}Changes.Add(new {{changeTypeName}}.Remove(item, System.DateTimeOffset.UtcNow));
-
-                        // Invalidate cache for this property and all dependents
-                        InvalidateNodeCache(_{{propertyName}}Node.Id);
 
                         return true;
                     }
@@ -107,10 +103,8 @@ internal static class MutationMethodGenerator
                             throw new System.InvalidOperationException($"Cannot replace item that doesn't exist in {{propertyName}}");
                         }
 
+                        // Track change - cache invalidation deferred to SaveChanges()
                         _{{propertyName}}Changes.Add(new {{changeTypeName}}.Replace(oldItem, newItem, System.DateTimeOffset.UtcNow));
-
-                        // Invalidate cache for this property and all dependents
-                        InvalidateNodeCache(_{{propertyName}}Node.Id);
                     }
                     finally
                     {
@@ -143,11 +137,7 @@ internal static class MutationMethodGenerator
                             index++;
                         }
 
-                        // Invalidate cache once after all additions
-                        if (index > 0)
-                        {
-                            InvalidateNodeCache(_{{propertyName}}Node.Id);
-                        }
+                        // Cache invalidation deferred to SaveChanges() for efficiency
                     }
                     finally
                     {
@@ -166,21 +156,15 @@ internal static class MutationMethodGenerator
                     Lock.EnterWriteLock();
                     try
                     {
-                        bool anyRemoved = false;
                         foreach (var item in items)
                         {
                             if (_current{{propertyName}}.Contains(item))
                             {
                                 _{{propertyName}}Changes.Add(new {{changeTypeName}}.Remove(item, System.DateTimeOffset.UtcNow));
-                                anyRemoved = true;
                             }
                         }
 
-                        // Invalidate cache once after all removals
-                        if (anyRemoved)
-                        {
-                            InvalidateNodeCache(_{{propertyName}}Node.Id);
-                        }
+                        // Cache invalidation deferred to SaveChanges() for efficiency
                     }
                     finally
                     {
@@ -210,10 +194,9 @@ internal static class MutationMethodGenerator
                     Lock.EnterWriteLock();
                     try
                     {
+                        // Track change - cache invalidation deferred to SaveChanges()
+                        // This allows equality comparison to prevent unnecessary invalidation
                         _{{propertyName}}Changes.Add(new {{changeTypeName}}.Set(value, System.DateTimeOffset.UtcNow));
-
-                        // Invalidate cache for this property and all dependents
-                        InvalidateNodeCache(_{{propertyName}}Node.Id);
                     }
                     finally
                     {

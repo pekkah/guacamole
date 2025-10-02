@@ -33,6 +33,7 @@ internal static class SaveChangesGenerator
                 /// <summary>
                 /// Commits all tracked changes and triggers incremental recomputation.
                 /// Fails fast on first error with detailed diagnostics.
+                /// After changes are committed, triggers all registered output handlers.
                 /// </summary>
                 public void SaveChanges()
                 {
@@ -51,6 +52,10 @@ internal static class SaveChangesGenerator
                     {
                         Lock.ExitWriteLock();
                     }
+
+                    // Trigger output handlers after changes are committed
+                    // This recomputes registered providers and calls their handlers
+                    TriggerOutputs();
                 }
 
                 /// <summary>
@@ -102,20 +107,35 @@ internal static class SaveChangesGenerator
 
         return $$"""
                         // Apply {{propertyName}} changes with fail-fast error handling
-                        foreach (var change in _{{propertyName}}Changes)
+                        if (_{{propertyName}}Changes.Count > 0)
                         {
-                            switch (change)
+                            bool collectionChanged = false;
+                            foreach (var change in _{{propertyName}}Changes)
                             {
-                                case {{changeTypeName}}.Add add:
-                                    _current{{propertyName}}.Add(add.Item);
-                                    break;
-                                case {{changeTypeName}}.Remove remove:
-                                    _current{{propertyName}}.Remove(remove.Item);
-                                    break;
-                                case {{changeTypeName}}.Replace replace:
-                                    _current{{propertyName}}.Remove(replace.OldItem);
-                                    _current{{propertyName}}.Add(replace.Item);
-                                    break;
+                                switch (change)
+                                {
+                                    case {{changeTypeName}}.Add add:
+                                        _current{{propertyName}}.Add(add.Item);
+                                        collectionChanged = true;
+                                        break;
+                                    case {{changeTypeName}}.Remove remove:
+                                        collectionChanged |= _current{{propertyName}}.Remove(remove.Item);
+                                        break;
+                                    case {{changeTypeName}}.Replace replace:
+                                        var removed = _current{{propertyName}}.Remove(replace.OldItem);
+                                        if (removed)
+                                        {
+                                            _current{{propertyName}}.Add(replace.Item);
+                                            collectionChanged = true;
+                                        }
+                                        break;
+                                }
+                            }
+
+                            // Only invalidate if collection actually changed
+                            if (collectionChanged)
+                            {
+                                InvalidateNodeCache(_{{propertyName}}Node.Id);
                             }
                         }
             """;
@@ -124,16 +144,23 @@ internal static class SaveChangesGenerator
     private static string GenerateSingleValueApply(PropertyInfo property)
     {
         var propertyName = property.Name;
+        var itemType = property.ItemType;
         var changeTypeName = $"{propertyName}Change";
 
         return $$"""
-                        // Apply {{propertyName}} changes
+                        // Apply {{propertyName}} changes with equality check
                         if (_{{propertyName}}Changes.Count > 0)
                         {
                             var lastChange = _{{propertyName}}Changes[_{{propertyName}}Changes.Count - 1];
                             if (lastChange is {{changeTypeName}}.Set set)
                             {
-                                _current{{propertyName}} = set.Value;
+                                // Only update and invalidate if value actually changed
+                                // EqualityComparer handles null values correctly
+                                if (!System.Collections.Generic.EqualityComparer<{{itemType}}>.Default.Equals(_current{{propertyName}}, set.Value))
+                                {
+                                    _current{{propertyName}} = set.Value;
+                                    InvalidateNodeCache(_{{propertyName}}Node.Id);
+                                }
                             }
                         }
             """;

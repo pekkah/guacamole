@@ -9,8 +9,24 @@ namespace Guacamole.Core.Providers;
 /// Immutable structure representing a single value in a transformation pipeline
 /// with automatic caching and incremental computation.
 /// Thread-safe without synchronization, supports pipeline transformations via extension methods.
+///
+/// <para>
+/// <b>Equality Requirements:</b> For optimal incremental computation performance,
+/// type <typeparamref name="T"/> should implement proper value equality:
+/// </para>
+/// <list type="bullet">
+/// <item><description>Use record types (automatic structural equality)</description></item>
+/// <item><description>Use value types with proper Equals() implementation</description></item>
+/// <item><description>Implement IEquatable&lt;T&gt; for custom reference types</description></item>
+/// <item><description>Override GetHashCode() when overriding Equals()</description></item>
+/// </list>
+/// <para>
+/// Similar to Roslyn's incremental generators, the framework uses EqualityComparer&lt;T&gt;.Default
+/// to compare old and new values. Only when values differ will dependent computations be invalidated
+/// and output handlers be triggered.
+/// </para>
 /// </summary>
-/// <typeparam name="T">Type of the value (must be equatable for caching)</typeparam>
+/// <typeparam name="T">Type of the value (should implement proper equality for optimal performance)</typeparam>
 public readonly record struct IncrementalValueProvider<T>(
     IComputationNode<T> Node,
     ComputationGraph Graph,
@@ -124,8 +140,22 @@ public readonly record struct IncrementalValueProvider<T>(
 /// Immutable structure representing zero or more values in a transformation pipeline
 /// with filtering, collection, and transformation capabilities.
 /// Thread-safe collection operations with efficient enumeration and lazy evaluation.
+///
+/// <para>
+/// <b>Equality Requirements:</b> For optimal incremental computation performance,
+/// element type <typeparamref name="T"/> should implement proper value equality:
+/// </para>
+/// <list type="bullet">
+/// <item><description>Use record types (automatic structural equality)</description></item>
+/// <item><description>Use value types with proper Equals() implementation</description></item>
+/// <item><description>Implement IEquatable&lt;T&gt; for custom reference types</description></item>
+/// </list>
+/// <para>
+/// Collection changes are detected using SequenceEqual with EqualityComparer&lt;T&gt;.Default.
+/// Output handlers are only triggered when the collection contents actually change.
+/// </para>
 /// </summary>
-/// <typeparam name="T">Type of the values</typeparam>
+/// <typeparam name="T">Type of the values (should implement proper equality for optimal performance)</typeparam>
 public readonly record struct IncrementalValuesProvider<T>(
     ICollectionComputationNode<T> Node,
     ComputationGraph Graph,
