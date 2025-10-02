@@ -1,7 +1,9 @@
 tag-prefix: v
-mode: ContinuousDeployment
+mode: ContinuousDelivery
 branches:
   main:
+    regex: ^main$
+    mode: ContinuousDelivery
     label: alpha
     increment: Minor
   pull-request:
