@@ -7,7 +7,6 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <GeneratePackageOnBuild>false</GeneratePackageOnBuild>
     <PackageId>Guacamole.Core</PackageId>
-    <PackageVersion>0.1.0-alpha</PackageVersion>
     <PackageDescription>Core incremental computation engine for the Guacamole framework. Foundation framework for incremental compilers, powering the Fugu language compiler and similar tooling.</PackageDescription>
     <PackageProjectUrl>https://github.com/pekkah/guacamole</PackageProjectUrl>
     <PackageLicenseExpression>MIT</PackageLicenseExpression>
