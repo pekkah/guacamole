@@ -1,5 +1,4 @@
 workflow: TrunkBased/preview1
-next-version: 1.0.0
 tag-prefix: v
 branches:
   main:
