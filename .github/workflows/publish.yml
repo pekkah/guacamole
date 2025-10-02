@@ -83,7 +83,7 @@ jobs:
         run: |
           dotnet gitversion /output json | tee version.json
           echo "semVer=$(jq -r .SemVer version.json)" >> $GITHUB_OUTPUT
-          echo "nuGetVersion=$(jq -r .NuGetVersionV2 version.json)" >> $GITHUB_OUTPUT
+          echo "nuGetVersion=$(jq -r .FullSemVer version.json)" >> $GITHUB_OUTPUT
           echo "preReleaseTag=$(jq -r .PreReleaseTag version.json)" >> $GITHUB_OUTPUT
 
       - name: Display version
