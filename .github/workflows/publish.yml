@@ -1,0 +1,114 @@
+name: Publish
+
+on:
+  push:
+    tags:
+      - 'v*'
+    branches:
+      - main
+
+permissions:
+  contents: write
+  packages: write
+
+env:
+  DOTNET_SKIP_FIRST_TIME_EXPERIENCE: true
+  DOTNET_CLI_TELEMETRY_OPTOUT: true
+
+jobs:
+  test:
+    name: Test on ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          fetch-tags: true
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+
+      - name: Cache NuGet packages
+        uses: actions/cache@v4
+        with:
+          path: ~/.nuget/packages
+          key: ${{ runner.os }}-nuget-${{ hashFiles('**/*.csproj') }}
+          restore-keys: |
+            ${{ runner.os }}-nuget-
+
+      - name: Restore dependencies
+        run: dotnet restore
+
+      - name: Build solution
+        run: dotnet build --no-restore --configuration Release
+
+      - name: Run tests
+        run: dotnet test --no-build --configuration Release --logger "trx;LogFileName=test-results.trx"
+
+      - name: Upload test results
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: test-results-${{ matrix.os }}
+          path: '**/test-results.trx'
+
+  publish:
+    name: Publish to NuGet.org
+    runs-on: ubuntu-latest
+    needs: test
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          fetch-tags: true
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+
+      - name: Restore tools
+        run: dotnet tool restore
+
+      - name: Calculate version
+        id: gitversion
+        run: |
+          dotnet gitversion /output json | tee version.json
+          echo "semVer=$(jq -r .SemVer version.json)" >> $GITHUB_OUTPUT
+          echo "nuGetVersion=$(jq -r .FullSemVer version.json)" >> $GITHUB_OUTPUT
+          echo "preReleaseTag=$(jq -r .PreReleaseTag version.json)" >> $GITHUB_OUTPUT
+
+      - name: Display version
+        run: |
+          echo "SemVer: ${{ steps.gitversion.outputs.semVer }}"
+          echo "NuGetVersion: ${{ steps.gitversion.outputs.nuGetVersion }}"
+          echo "IsPreRelease: ${{ steps.gitversion.outputs.preReleaseTag }}"
+
+      - name: Restore dependencies
+        run: dotnet restore
+
+      - name: Build packages
+        run: dotnet pack --no-restore --configuration Release -p:Version=${{ steps.gitversion.outputs.nuGetVersion }}
+
+      - name: Publish to NuGet.org
+        run: dotnet nuget push **/*.nupkg --api-key ${{ secrets.NUGET_API_KEY }} --source https://api.nuget.org/v3/index.json --skip-duplicate
+
+      - name: Create GitHub Release
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: actions/create-release@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tag_name: ${{ github.ref_name }}
+          release_name: Release ${{ steps.gitversion.outputs.semVer }}
+          draft: false
+          prerelease: false

@@ -1,71 +1,17 @@
-workflow: GitHubFlow/v1
-next-version: 0.1.0
-mode: ContinuousDelivery
-
-# Assembly versioning optimized for libraries
-assembly-versioning-scheme: MajorMinorPatch
-assembly-file-versioning-scheme: MajorMinorPatch
-assembly-informational-format: '{InformationalVersion}'
-
-# Semantic versioning with commit message support
-increment: Patch
+workflow: TrunkBased/preview1
+tag-prefix: v
+branches:
+  main:
+    label: alpha
+    increment: Minor
+  pull-request:
+    label: pr
+  feature:
+    label: alpha
 commit-message-incrementing: Enabled
 major-version-bump-message: '\+semver:\s?(breaking|major)'
 minor-version-bump-message: '\+semver:\s?(feature|minor)'
 patch-version-bump-message: '\+semver:\s?(fix|patch)'
-
-# Tag configuration
-tag-prefix: '[vV]?'
-tag-pre-release-weight: 60000
-
-# Branch configurations for Guacamole development workflow
-branches:
-  main:
-    mode: ContinuousDelivery
-    increment: Patch
-    regex: ^master$|^main$
-
-  feature:
-    mode: ManualDeployment
-    label: '{BranchName}'
-    increment: Inherit
-    regex: ^features?[\/-](?<BranchName>.+)
-
-  pull-request:
-    mode: ContinuousDelivery
-    label: 'PullRequest{Number}'
-    increment: Inherit
-    regex: ^(pull-requests|pull|pr)[\/-](?<Number>\d+)
-
-  hotfix:
-    mode: ManualDeployment
-    increment: Patch
-    regex: ^hotfix(es)?[\/-](?<BranchName>.+)
-
-  release:
-    mode: ManualDeployment
-    label: 'rc'
-    increment: None
-    regex: ^releases?[\/-](?<BranchName>.+)
-
-  alpha:
-    mode: ContinuousDeployment
-    label: 'alpha'
-    increment: Minor
-    regex: ^alpha[\/-](?<BranchName>.+)
-
-  beta:
-    mode: ManualDeployment
-    label: 'beta'
-    increment: None
-    regex: ^beta[\/-](?<BranchName>.+)
-
-# Performance optimization for large repositories
+no-bump-message: '\+semver:\s?(none|skip)'
 ignore:
-  paths:
-    - ^docs/.*
-    - '.*\.md$'
-    - ^specs/.*
   sha: []
-
-# MSBuild property updates are enabled via Directory.Build.props
