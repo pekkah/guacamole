@@ -1,32 +1,20 @@
 mode: Mainline
 next-version: 1.0.0
 tag-prefix: v
-tag-pre-release-weight: 60000
-
 branches:
   main:
-    tag: alpha
+    label: alpha
     increment: Minor
-    regex: ^main$
-    track-merge-target: false
-    is-mainline: true
-
   pull-request:
-    tag: pr
-    increment: None
-    regex: ^(pull|pull\-requests|pr)[/-]
-    tag-number-pattern: '[/-](?<number>\d+)'
-
+    label: pr
+    increment: Inherit
   feature:
-    tag: alpha
-    increment: None
-    regex: ^features?[/-]
-
+    label: alpha
+    increment: Inherit
 commit-message-incrementing: Enabled
 major-version-bump-message: '\+semver:\s?(breaking|major)'
 minor-version-bump-message: '\+semver:\s?(feature|minor)'
 patch-version-bump-message: '\+semver:\s?(fix|patch)'
 no-bump-message: '\+semver:\s?(none|skip)'
-
 ignore:
   sha: []
