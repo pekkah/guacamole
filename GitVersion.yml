@@ -4,7 +4,7 @@ branches:
   main:
     label: alpha
     increment: Minor
-    is-mainline: false
+    is-main-branch: false
   pull-request:
     label: pr
   feature:
