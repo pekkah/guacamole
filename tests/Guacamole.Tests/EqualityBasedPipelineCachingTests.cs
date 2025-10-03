@@ -17,7 +17,7 @@ public partial class EqualityBasedPipelineCachingTests
     {
         public partial IncrementalValueProvider<string> Name { get; set; }
 
-        public PipelineTestContext(System.IServiceProvider services) : base(services)
+        public PipelineTestContext(System.IServiceProvider services) : base()
         {
             InitializeComputationNodes();
         }

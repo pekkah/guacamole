@@ -18,7 +18,7 @@ public class ComputingContextGeneratorTests
                 [ComputingContext]
                 public partial class TestContext : ComputingContextBase
                 {
-                    public TestContext(IServiceProvider services) : base(services) { }
+                    public TestContext(IServiceProvider services) : base() { }
 
                     public partial IncrementalValuesProvider<string> Items { get; set; }
                 }
@@ -41,7 +41,7 @@ public class ComputingContextGeneratorTests
                 [ComputingContext]
                 public partial class TestContext : ComputingContextBase
                 {
-                    public TestContext(IServiceProvider services) : base(services) { }
+                    public TestContext(IServiceProvider services) : base() { }
 
                     public partial IncrementalValuesProvider<string> DerivedItems { get; }
                 }
@@ -63,7 +63,7 @@ public class ComputingContextGeneratorTests
                 [ComputingContext]
                 public partial class TestContext : ComputingContextBase
                 {
-                    public TestContext(IServiceProvider services) : base(services) { }
+                    public TestContext(IServiceProvider services) : base() { }
                 }
             }
             """;

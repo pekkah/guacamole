@@ -21,7 +21,7 @@ public partial class RegisterOutputTests
     {
         public partial IncrementalValueProvider<string> Name { get; set; }
 
-        public TestContextWithValue(IServiceProvider services) : base(services)
+        public TestContextWithValue(IServiceProvider services) : base()
         {
             InitializeComputationNodes();
         }
@@ -37,7 +37,7 @@ public partial class RegisterOutputTests
     {
         public partial IncrementalValuesProvider<string> Items { get; set; }
 
-        public TestContextWithCollection(IServiceProvider services) : base(services)
+        public TestContextWithCollection(IServiceProvider services) : base()
         {
             InitializeComputationNodes();
         }

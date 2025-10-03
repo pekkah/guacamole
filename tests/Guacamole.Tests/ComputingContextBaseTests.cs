@@ -14,7 +14,7 @@ public partial class ComputingContextBaseTests
     [ComputingContext]
     private partial class TestContext : ComputingContextBase
     {
-        public TestContext(IServiceProvider services) : base(services)
+        public TestContext(IServiceProvider services) : base()
         {
         }
     }
@@ -33,12 +33,6 @@ public partial class ComputingContextBaseTests
         Assert.False(context.IsDisposed);
     }
 
-    [Fact]
-    public void Constructor_WithNullServices_ThrowsArgumentNullException()
-    {
-        // Act & Assert
-        Assert.Throws<ArgumentNullException>(() => new TestContext(null!));
-    }
 
     [Fact]
     public void Dispose_AfterCreation_SetsIsDisposed()

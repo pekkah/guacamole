@@ -47,7 +47,7 @@ public partial class EqualityBasedComplexObjectCachingTests
     {
         public partial IncrementalValueProvider<PersonRecord> Person { get; set; }
 
-        public ComplexObjectContext(System.IServiceProvider services) : base(services)
+        public ComplexObjectContext(System.IServiceProvider services) : base()
         {
             InitializeComputationNodes();
         }
@@ -60,7 +60,7 @@ public partial class EqualityBasedComplexObjectCachingTests
     {
         public partial IncrementalValuesProvider<PersonRecord> People { get; set; }
 
-        public ComplexCollectionContext(System.IServiceProvider services) : base(services)
+        public ComplexCollectionContext(System.IServiceProvider services) : base()
         {
             InitializeComputationNodes();
         }

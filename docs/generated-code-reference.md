@@ -27,7 +27,7 @@ public partial class CompilerContext : ComputingContextBase
     // Derived computation (get-only) - no mutation methods
     public IncrementalValuesProvider<SyntaxTree> ParsedTrees { get; }
 
-    public CompilerContext(IServiceProvider services) : base(services)
+    public CompilerContext(IServiceProvider services) : base()
     {
         // Configure derived computations
         ParsedTrees = SourceFiles.Select(file => Parse(file));

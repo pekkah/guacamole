@@ -36,7 +36,7 @@ public partial class MyCompilerContext : ComputingContextBase
     public IncrementalValueProvider<ParseTree> ParsedTree { get; }
 
     public MyCompilerContext(IServiceProvider serviceProvider)
-        : base(serviceProvider)
+        : base()
     {
         SourceCode = CreateInput<string>();
         ParsedTree = SourceCode.Select(Parse);

@@ -20,7 +20,7 @@ public partial class EqualityBasedCachingTests
 
         public int ComputeCount => _computeCount;
 
-        public EqualityTestContext(System.IServiceProvider services) : base(services)
+        public EqualityTestContext(System.IServiceProvider services) : base()
         {
             InitializeComputationNodes();
         }
@@ -36,7 +36,7 @@ public partial class EqualityBasedCachingTests
     {
         public partial IncrementalValuesProvider<string> Items { get; set; }
 
-        public EqualityTestCollectionContext(System.IServiceProvider services) : base(services)
+        public EqualityTestCollectionContext(System.IServiceProvider services) : base()
         {
             InitializeComputationNodes();
         }
