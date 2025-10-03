@@ -16,6 +16,7 @@
   </ItemGroup>
 
   <ItemGroup>
+    <ProjectReference Include="..\..\src\Guacamole.Core\Guacamole.Core.csproj" />
     <ProjectReference Include="..\..\src\Guacamole\Guacamole.csproj" />
     <ProjectReference Include="..\..\src\Guacamole.SourceGenerators\Guacamole.SourceGenerators.csproj"
                       OutputItemType="Analyzer"

@@ -18,6 +18,9 @@
 
   <ItemGroup>
     <InternalsVisibleTo Include="Guacamole.Core.Tests" />
+    <InternalsVisibleTo Include="Guacamole" />
+    <InternalsVisibleTo Include="Guacamole.Tests" />
+    <InternalsVisibleTo Include="Guacamole.SourceGenerators.Tests" />
   </ItemGroup>
 
 </Project>
