@@ -19,7 +19,7 @@ public partial class RegisterOutputTests
     [ComputingContext]
     private partial class TestContextWithValue : ComputingContextBase
     {
-        public partial IncrementalValueProvider<string> Name { get; set; }
+        public partial IncrementalValueProvider<string> Name { get; }
 
         public TestContextWithValue(IServiceProvider services) : base()
         {
@@ -35,7 +35,7 @@ public partial class RegisterOutputTests
     [ComputingContext]
     private partial class TestContextWithCollection : ComputingContextBase
     {
-        public partial IncrementalValuesProvider<string> Items { get; set; }
+        public partial IncrementalValuesProvider<string> Items { get; }
 
         public TestContextWithCollection(IServiceProvider services) : base()
         {

@@ -110,7 +110,7 @@ namespace Test
 
     /// <summary>
     /// Implementing declaration for partial property Items.
-    /// Provides backing storage and connects to computation node.
+    /// Auto-managed by framework (get-only = automatic mutation methods).
     /// </summary>
     private Guacamole.Core.Providers.IncrementalValuesProvider<string> _ItemsProvider;
 
@@ -126,12 +126,6 @@ namespace Test
                     new Guacamole.Core.Diagnostics.ProviderMetadata(TrackingName: "Items"));
             }
             return _ItemsProvider;
-        }
-        set
-        {
-            // Setter required for partial property signature match
-            // Users interact through Add/Remove/Replace methods
-            _ItemsProvider = value;
         }
     }
 

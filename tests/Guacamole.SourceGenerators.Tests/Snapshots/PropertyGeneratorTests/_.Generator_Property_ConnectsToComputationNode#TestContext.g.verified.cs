@@ -103,7 +103,7 @@ namespace Test
 
     /// <summary>
     /// Implementing declaration for partial property Name.
-    /// Provides backing storage and connects to computation node.
+    /// Auto-managed by framework (get-only = automatic mutation methods).
     /// </summary>
     private Guacamole.Core.Providers.IncrementalValueProvider<string> _NameProvider;
 
@@ -119,10 +119,6 @@ namespace Test
                     new Guacamole.Core.Diagnostics.ProviderMetadata(TrackingName: "Name"));
             }
             return _NameProvider;
-        }
-        set
-        {
-            _NameProvider = value;
         }
     }
 

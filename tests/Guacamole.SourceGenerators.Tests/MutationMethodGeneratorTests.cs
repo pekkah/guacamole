@@ -20,8 +20,7 @@ public class MutationMethodGeneratorTests
                 {
                     public TestContext(IServiceProvider services) : base() { }
 
-                    [Input]
-                    public partial IncrementalValuesProvider<string> Items { get; set; }
+                    public partial IncrementalValuesProvider<string> Items { get; }
                 }
             }
             """;
@@ -44,8 +43,7 @@ public class MutationMethodGeneratorTests
                 {
                     public TestContext(IServiceProvider services) : base() { }
 
-                    [Input]
-                    public partial IncrementalValueProvider<int> Count { get; set; }
+                    public partial IncrementalValueProvider<int> Count { get; }
                 }
             }
             """;

@@ -6,7 +6,7 @@ namespace Guacamole.SourceGenerators.Tests;
 public class ComputingContextGeneratorTests
 {
     [Fact]
-    public Task Generator_WithPropertyWithSetter_GeneratesMutationMethods()
+    public Task Generator_WithGetOnlyProperty_GeneratesMutationMethods()
     {
         var source = """
             using Guacamole;
@@ -20,7 +20,7 @@ public class ComputingContextGeneratorTests
                 {
                     public TestContext(IServiceProvider services) : base() { }
 
-                    public partial IncrementalValuesProvider<string> Items { get; set; }
+                    public partial IncrementalValuesProvider<string> Items { get; }
                 }
             }
             """;
@@ -29,7 +29,7 @@ public class ComputingContextGeneratorTests
     }
 
     [Fact]
-    public Task Generator_WithGetOnlyProperty_DoesNotGenerateMutationMethods()
+    public Task Generator_WithPropertyWithSetter_DoesNotGenerateMutationMethods()
     {
         var source = """
             using Guacamole;
@@ -43,7 +43,7 @@ public class ComputingContextGeneratorTests
                 {
                     public TestContext(IServiceProvider services) : base() { }
 
-                    public partial IncrementalValuesProvider<string> DerivedItems { get; }
+                    public partial IncrementalValuesProvider<string> DerivedItems { get; set; }
                 }
             }
             """;

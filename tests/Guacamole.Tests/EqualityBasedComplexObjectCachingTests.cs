@@ -45,7 +45,7 @@ public partial class EqualityBasedComplexObjectCachingTests
     [ComputingContext]
     private partial class ComplexObjectContext : ComputingContextBase
     {
-        public partial IncrementalValueProvider<PersonRecord> Person { get; set; }
+        public partial IncrementalValueProvider<PersonRecord> Person { get; }
 
         public ComplexObjectContext(System.IServiceProvider services) : base()
         {
@@ -58,7 +58,7 @@ public partial class EqualityBasedComplexObjectCachingTests
     [ComputingContext]
     private partial class ComplexCollectionContext : ComputingContextBase
     {
-        public partial IncrementalValuesProvider<PersonRecord> People { get; set; }
+        public partial IncrementalValuesProvider<PersonRecord> People { get; }
 
         public ComplexCollectionContext(System.IServiceProvider services) : base()
         {

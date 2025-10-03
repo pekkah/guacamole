@@ -11,9 +11,11 @@ namespace CompilerContext;
 [ComputingContext]
 public partial class MyCompilerContext : ComputingContextBase
 {
-    public partial IncrementalValueProvider<Project> Project { get; set; }
+    // Get-only properties are auto-managed (NEW convention)
+    // Framework generates SetProject(), AddSourceFile(), etc.
+    public partial IncrementalValueProvider<Project> Project { get; }
 
-    public partial IncrementalValuesProvider<SourceFile> SourceFiles { get; set; }
+    public partial IncrementalValuesProvider<SourceFile> SourceFiles { get; }
 
     public MyCompilerContext(IServiceProvider services) : base()
     {

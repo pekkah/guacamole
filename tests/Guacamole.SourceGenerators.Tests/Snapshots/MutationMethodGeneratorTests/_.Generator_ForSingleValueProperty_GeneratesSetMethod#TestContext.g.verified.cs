@@ -103,7 +103,7 @@ namespace Test
 
     /// <summary>
     /// Implementing declaration for partial property Count.
-    /// Provides backing storage and connects to computation node.
+    /// Auto-managed by framework (get-only = automatic mutation methods).
     /// </summary>
     private Guacamole.Core.Providers.IncrementalValueProvider<int> _CountProvider;
 
@@ -119,10 +119,6 @@ namespace Test
                     new Guacamole.Core.Diagnostics.ProviderMetadata(TrackingName: "Count"));
             }
             return _CountProvider;
-        }
-        set
-        {
-            _CountProvider = value;
         }
     }
 

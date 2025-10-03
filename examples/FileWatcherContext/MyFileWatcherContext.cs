@@ -13,7 +13,8 @@ namespace FileWatcherContext;
 [ComputingContext]
 public partial class MyFileWatcherContext : ComputingContextBase
 {
-    // Properties with setters will generate mutation methods:
+    // Get-only properties are auto-managed (NEW convention):
+    // Framework generates:
     // - AddFile(TrackedFile file)
     // - AddFiles(IEnumerable<TrackedFile> files)
     // - RemoveFile(TrackedFile file)
@@ -21,7 +22,7 @@ public partial class MyFileWatcherContext : ComputingContextBase
     // - SaveChangesAsync() / SaveChanges()
     // - DiscardChanges()
 
-    public partial IncrementalValuesProvider<TrackedFile> Files { get; set; }
+    public partial IncrementalValuesProvider<TrackedFile> Files { get; }
 
     public MyFileWatcherContext(IServiceProvider services) : base()
     {

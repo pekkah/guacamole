@@ -21,17 +21,21 @@ using Guacamole.Core.Providers;
 [ComputingContext]
 public partial class CompilerContext : ComputingContextBase
 {
-    // Input source (has setter) - generates mutation methods
-    public IncrementalValuesProvider<SourceFile> SourceFiles { get; set; }
+    // Input source (get-only) - generates mutation methods (auto-managed)
+    public partial IncrementalValuesProvider<SourceFile> SourceFiles { get; }
 
-    // Derived computation (get-only) - no mutation methods
-    public IncrementalValuesProvider<SyntaxTree> ParsedTrees { get; }
+    // Derived computation (has setter) - no mutation methods (user-managed)
+    public partial IncrementalValuesProvider<SyntaxTree> ParsedTrees { get; set; }
 
     public CompilerContext(IServiceProvider services) : base()
     {
+        InitializeComputationNodes();
+
         // Configure derived computations
         ParsedTrees = SourceFiles.Select(file => Parse(file));
     }
+
+    partial void InitializeComputationNodes();
 }
 ```
 
@@ -39,7 +43,7 @@ public partial class CompilerContext : ComputingContextBase
 
 ### 1. Change Record Types
 
-For each property with a setter, strongly-typed change records are generated:
+For each **get-only property** (auto-managed), strongly-typed change records are generated:
 
 ```csharp
 // For collection properties (IncrementalValuesProvider<T>)
@@ -248,28 +252,28 @@ public void DiscardChanges()
 
 ### 6. Property Implementations
 
-```csharp
-private IncrementalValuesProvider<SourceFile>? _SourceFilesProvider;
+For **get-only properties** (auto-managed):
 
-public IncrementalValuesProvider<SourceFile> SourceFiles
+```csharp
+private IncrementalValuesProvider<SourceFile> _SourceFilesProvider;
+
+public partial IncrementalValuesProvider<SourceFile> SourceFiles
 {
     get
     {
-        if (_SourceFilesProvider == null)
+        if (_SourceFilesProvider.Node == null)
         {
             _SourceFilesProvider = new IncrementalValuesProvider<SourceFile>(
                 _SourceFilesNode,
                 Graph,
-                new ProviderMetadata($"SourceFiles"));
+                new ProviderMetadata(TrackingName: "SourceFiles"));
         }
-        return _SourceFilesProvider.Value;
-    }
-    set
-    {
-        _SourceFilesProvider = value;
+        return _SourceFilesProvider;
     }
 }
 ```
+
+For **properties with setters** (user-managed), no implementation is generated - you provide the backing field and logic yourself.
 
 ### 7. Node Registration
 

@@ -26,14 +26,15 @@ internal static class PropertyGenerator
         var propertyName = property.Name;
         var itemType = property.ItemType;
 
-        // For input properties with setters, generate implementing declaration for partial property
-        if (property.HasSetter)
+        // REVERSED LOGIC: InputProperties now contains get-only properties (HasSetter=false)
+        // Generate auto-managed implementation for get-only properties
+        if (!property.HasSetter)  // Changed from HasSetter to !HasSetter
         {
             return $$"""
 
                     /// <summary>
                     /// Implementing declaration for partial property {{propertyName}}.
-                    /// Provides backing storage and connects to computation node.
+                    /// Auto-managed by framework (get-only = automatic mutation methods).
                     /// </summary>
                     private Guacamole.Core.Providers.IncrementalValuesProvider<{{itemType}}> _{{propertyName}}Provider;
 
@@ -50,24 +51,19 @@ internal static class PropertyGenerator
                             }
                             return _{{propertyName}}Provider;
                         }
-                        set
-                        {
-                            // Setter required for partial property signature match
-                            // Users interact through Add/Remove/Replace methods
-                            _{{propertyName}}Provider = value;
-                        }
                     }
 
                 """;
         }
         else
         {
-            // Derived properties (read-only) - implementing declaration
+            // User-managed properties (with setter) - should not be in InputProperties list
+            // This code path should not be reached after classification logic reversal
             return $$"""
 
                     /// <summary>
-                    /// Implementing declaration for partial derived property {{propertyName}}.
-                    /// Must be initialized by user code (e.g., in ConfigurePipeline).
+                    /// Implementing declaration for partial user-managed property {{propertyName}}.
+                    /// Must be initialized by user code (has setter = manual management).
                     /// </summary>
                     private Guacamole.Core.Providers.IncrementalValuesProvider<{{itemType}}> _{{propertyName}}Field;
 
@@ -78,10 +74,14 @@ internal static class PropertyGenerator
                             if (_{{propertyName}}Field.Node == null)
                             {
                                 throw new System.InvalidOperationException(
-                                    $"Derived property {{propertyName}} has not been initialized. " +
-                                    "Initialize it in the constructor or ConfigurePipeline method.");
+                                    $"User-managed property {{propertyName}} has not been initialized. " +
+                                    "Initialize it in the constructor.");
                             }
                             return _{{propertyName}}Field;
+                        }
+                        set
+                        {
+                            _{{propertyName}}Field = value;
                         }
                     }
 
@@ -94,13 +94,14 @@ internal static class PropertyGenerator
         var propertyName = property.Name;
         var itemType = property.ItemType;
 
-        if (property.HasSetter)
+        // REVERSED LOGIC: InputProperties now contains get-only properties (HasSetter=false)
+        if (!property.HasSetter)  // Changed from HasSetter to !HasSetter
         {
             return $$"""
 
                     /// <summary>
                     /// Implementing declaration for partial property {{propertyName}}.
-                    /// Provides backing storage and connects to computation node.
+                    /// Auto-managed by framework (get-only = automatic mutation methods).
                     /// </summary>
                     private Guacamole.Core.Providers.IncrementalValueProvider<{{itemType}}> _{{propertyName}}Provider;
 
@@ -117,21 +118,18 @@ internal static class PropertyGenerator
                             }
                             return _{{propertyName}}Provider;
                         }
-                        set
-                        {
-                            _{{propertyName}}Provider = value;
-                        }
                     }
 
                 """;
         }
         else
         {
+            // User-managed properties (with setter) - should not be in InputProperties list
             return $$"""
 
                     /// <summary>
-                    /// Implementing declaration for partial derived property {{propertyName}}.
-                    /// Must be initialized by user code (e.g., in ConfigurePipeline).
+                    /// Implementing declaration for partial user-managed property {{propertyName}}.
+                    /// Must be initialized by user code (has setter = manual management).
                     /// </summary>
                     private Guacamole.Core.Providers.IncrementalValueProvider<{{itemType}}> _{{propertyName}}Field;
 
@@ -142,10 +140,14 @@ internal static class PropertyGenerator
                             if (_{{propertyName}}Field.Node == null)
                             {
                                 throw new System.InvalidOperationException(
-                                    $"Derived property {{propertyName}} has not been initialized. " +
-                                    "Initialize it in the constructor or ConfigurePipeline method.");
+                                    $"User-managed property {{propertyName}} has not been initialized. " +
+                                    "Initialize it in the constructor.");
                             }
                             return _{{propertyName}}Field;
+                        }
+                        set
+                        {
+                            _{{propertyName}}Field = value;
                         }
                     }
 
