@@ -132,6 +132,7 @@ namespace Test
     /// </summary>
     public void SetName(string value)
     {
+        ThrowIfNotInitialized();
         ThrowIfDisposed();
         System.ArgumentNullException.ThrowIfNull(value);
 
@@ -165,6 +166,7 @@ namespace Test
     /// </summary>
     public void SaveChanges()
     {
+        ThrowIfNotInitialized();
         ThrowIfDisposed();
 
         Lock.EnterWriteLock();
@@ -214,6 +216,7 @@ namespace Test
     /// </summary>
     public void DiscardChanges()
     {
+        ThrowIfNotInitialized();
         ThrowIfDisposed();
 
         Lock.EnterWriteLock();

@@ -49,7 +49,7 @@ public partial class EqualityBasedComplexObjectCachingTests
 
         public ComplexObjectContext(System.IServiceProvider services) : base()
         {
-            InitializeComputationNodes();
+            Initialize();
         }
 
         partial void InitializeComputationNodes();
@@ -62,7 +62,7 @@ public partial class EqualityBasedComplexObjectCachingTests
 
         public ComplexCollectionContext(System.IServiceProvider services) : base()
         {
-            InitializeComputationNodes();
+            Initialize();
         }
 
         partial void InitializeComputationNodes();

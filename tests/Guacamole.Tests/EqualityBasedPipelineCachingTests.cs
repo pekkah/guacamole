@@ -19,7 +19,7 @@ public partial class EqualityBasedPipelineCachingTests
 
         public PipelineTestContext(System.IServiceProvider services) : base()
         {
-            InitializeComputationNodes();
+            Initialize();
         }
 
         partial void InitializeComputationNodes();

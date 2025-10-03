@@ -18,7 +18,10 @@ public class MutationMethodGeneratorTests
                 [ComputingContext]
                 public partial class TestContext : ComputingContextBase
                 {
-                    public TestContext(IServiceProvider services) : base() { }
+                    public TestContext(IServiceProvider services) : base()
+                    {
+                        Initialize();
+                    }
 
                     public partial IncrementalValuesProvider<string> Items { get; }
                 }
@@ -41,7 +44,10 @@ public class MutationMethodGeneratorTests
                 [ComputingContext]
                 public partial class TestContext : ComputingContextBase
                 {
-                    public TestContext(IServiceProvider services) : base() { }
+                    public TestContext(IServiceProvider services) : base()
+                    {
+                        Initialize();
+                    }
 
                     public partial IncrementalValueProvider<int> Count { get; }
                 }

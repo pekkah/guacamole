@@ -26,7 +26,7 @@ public partial class MyFileWatcherContext : ComputingContextBase
 
     public MyFileWatcherContext(IServiceProvider services) : base()
     {
-        InitializeComputationNodes();
+        Initialize();
     }
 
     partial void InitializeComputationNodes();

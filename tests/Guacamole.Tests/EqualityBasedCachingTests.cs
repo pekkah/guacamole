@@ -22,7 +22,7 @@ public partial class EqualityBasedCachingTests
 
         public EqualityTestContext(System.IServiceProvider services) : base()
         {
-            InitializeComputationNodes();
+            Initialize();
         }
 
         partial void InitializeComputationNodes();
@@ -38,7 +38,7 @@ public partial class EqualityBasedCachingTests
 
         public EqualityTestCollectionContext(System.IServiceProvider services) : base()
         {
-            InitializeComputationNodes();
+            Initialize();
         }
 
         partial void InitializeComputationNodes();

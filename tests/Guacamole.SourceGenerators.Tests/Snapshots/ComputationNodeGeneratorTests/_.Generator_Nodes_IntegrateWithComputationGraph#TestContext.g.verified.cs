@@ -229,6 +229,7 @@ namespace Test
     /// </summary>
     public void SetCount(int value)
     {
+        ThrowIfNotInitialized();
         ThrowIfDisposed();
         System.ArgumentNullException.ThrowIfNull(value);
 
@@ -251,6 +252,7 @@ namespace Test
     /// </summary>
     public void AddItems(string item)
     {
+        ThrowIfNotInitialized();
         ThrowIfDisposed();
         System.ArgumentNullException.ThrowIfNull(item);
 
@@ -278,6 +280,7 @@ namespace Test
     /// </summary>
     public bool RemoveItems(string item)
     {
+        ThrowIfNotInitialized();
         ThrowIfDisposed();
         System.ArgumentNullException.ThrowIfNull(item);
 
@@ -305,6 +308,7 @@ namespace Test
     /// </summary>
     public void ReplaceItems(string oldItem, string newItem)
     {
+        ThrowIfNotInitialized();
         ThrowIfDisposed();
         System.ArgumentNullException.ThrowIfNull(oldItem);
         System.ArgumentNullException.ThrowIfNull(newItem);
@@ -331,6 +335,7 @@ namespace Test
     /// </summary>
     public void AddItemss(System.Collections.Generic.IEnumerable<string> items)
     {
+        ThrowIfNotInitialized();
         ThrowIfDisposed();
         System.ArgumentNullException.ThrowIfNull(items);
 
@@ -364,6 +369,7 @@ namespace Test
     /// </summary>
     public void RemoveItemss(System.Collections.Generic.IEnumerable<string> items)
     {
+        ThrowIfNotInitialized();
         ThrowIfDisposed();
         System.ArgumentNullException.ThrowIfNull(items);
 
@@ -403,6 +409,7 @@ namespace Test
     /// </summary>
     public void SaveChanges()
     {
+        ThrowIfNotInitialized();
         ThrowIfDisposed();
 
         Lock.EnterWriteLock();
@@ -485,6 +492,7 @@ namespace Test
     /// </summary>
     public void DiscardChanges()
     {
+        ThrowIfNotInitialized();
         ThrowIfDisposed();
 
         Lock.EnterWriteLock();

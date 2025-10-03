@@ -37,6 +37,7 @@ internal static class SaveChangesGenerator
                 /// </summary>
                 public void SaveChanges()
                 {
+                    ThrowIfNotInitialized();
                     ThrowIfDisposed();
 
                     Lock.EnterWriteLock();
@@ -72,6 +73,7 @@ internal static class SaveChangesGenerator
                 /// </summary>
                 public void DiscardChanges()
                 {
+                    ThrowIfNotInitialized();
                     ThrowIfDisposed();
 
                     Lock.EnterWriteLock();

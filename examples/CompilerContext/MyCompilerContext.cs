@@ -19,7 +19,7 @@ public partial class MyCompilerContext : ComputingContextBase
 
     public MyCompilerContext(IServiceProvider services) : base()
     {
-        InitializeComputationNodes();
+        Initialize();
     }
 
     partial void InitializeComputationNodes();

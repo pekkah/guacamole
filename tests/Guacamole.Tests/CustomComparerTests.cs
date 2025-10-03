@@ -60,7 +60,7 @@ public partial class CustomComparerTests
 
         public SingleValueContext(System.IServiceProvider services) : base()
         {
-            InitializeComputationNodes();
+            Initialize();
         }
 
         partial void InitializeComputationNodes();
@@ -73,7 +73,7 @@ public partial class CustomComparerTests
 
         public CollectionContext(System.IServiceProvider services) : base()
         {
-            InitializeComputationNodes();
+            Initialize();
         }
 
         partial void InitializeComputationNodes();
@@ -86,7 +86,7 @@ public partial class CustomComparerTests
 
         public StringContext(System.IServiceProvider services) : base()
         {
-            InitializeComputationNodes();
+            Initialize();
         }
 
         partial void InitializeComputationNodes();

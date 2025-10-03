@@ -23,7 +23,7 @@ public partial class RegisterOutputTests
 
         public TestContextWithValue(IServiceProvider services) : base()
         {
-            InitializeComputationNodes();
+            Initialize();
         }
 
         partial void InitializeComputationNodes();
@@ -39,7 +39,7 @@ public partial class RegisterOutputTests
 
         public TestContextWithCollection(IServiceProvider services) : base()
         {
-            InitializeComputationNodes();
+            Initialize();
         }
 
         partial void InitializeComputationNodes();
