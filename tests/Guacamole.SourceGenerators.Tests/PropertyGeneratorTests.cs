@@ -18,10 +18,9 @@ public class PropertyGeneratorTests
                 [ComputingContext]
                 public partial class TestContext : ComputingContextBase
                 {
-                    public TestContext(IServiceProvider services) : base(services) { }
+                    public TestContext(IServiceProvider services) : base() { }
 
-                    [Input]
-                    public partial IncrementalValuesProvider<string> Items { get; set; }
+                    public partial IncrementalValuesProvider<string> Items { get; }
                 }
             }
             """;
@@ -42,10 +41,9 @@ public class PropertyGeneratorTests
                 [ComputingContext]
                 public partial class TestContext : ComputingContextBase
                 {
-                    public TestContext(IServiceProvider services) : base(services) { }
+                    public TestContext(IServiceProvider services) : base() { }
 
-                    [Input]
-                    public partial IncrementalValueProvider<string> Name { get; set; }
+                    public partial IncrementalValueProvider<string> Name { get; }
                 }
             }
             """;

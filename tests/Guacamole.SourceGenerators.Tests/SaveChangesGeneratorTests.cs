@@ -18,10 +18,9 @@ public class SaveChangesGeneratorTests
                 [ComputingContext]
                 public partial class TestContext : ComputingContextBase
                 {
-                    public TestContext(IServiceProvider services) : base(services) { }
+                    public TestContext(IServiceProvider services) : base() { }
 
-                    [Input]
-                    public partial IncrementalValuesProvider<string> Items { get; set; }
+                    public partial IncrementalValuesProvider<string> Items { get; }
                 }
             }
             """;
@@ -42,13 +41,11 @@ public class SaveChangesGeneratorTests
                 [ComputingContext]
                 public partial class TestContext : ComputingContextBase
                 {
-                    public TestContext(IServiceProvider services) : base(services) { }
+                    public TestContext(IServiceProvider services) : base() { }
 
-                    [Input]
-                    public partial IncrementalValuesProvider<string> Items { get; set; }
+                    public partial IncrementalValuesProvider<string> Items { get; }
 
-                    [Input]
-                    public partial IncrementalValueProvider<int> Count { get; set; }
+                    public partial IncrementalValueProvider<int> Count { get; }
                 }
             }
             """;

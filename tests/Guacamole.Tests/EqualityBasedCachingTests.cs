@@ -14,13 +14,13 @@ public partial class EqualityBasedCachingTests
     [ComputingContext]
     private partial class EqualityTestContext : ComputingContextBase
     {
-        public partial IncrementalValueProvider<string> Name { get; set; }
+        public partial IncrementalValueProvider<string> Name { get; }
 
         private int _computeCount = 0;
 
         public int ComputeCount => _computeCount;
 
-        public EqualityTestContext(System.IServiceProvider services) : base(services)
+        public EqualityTestContext(System.IServiceProvider services) : base()
         {
             InitializeComputationNodes();
         }
@@ -34,9 +34,9 @@ public partial class EqualityBasedCachingTests
     [ComputingContext]
     private partial class EqualityTestCollectionContext : ComputingContextBase
     {
-        public partial IncrementalValuesProvider<string> Items { get; set; }
+        public partial IncrementalValuesProvider<string> Items { get; }
 
-        public EqualityTestCollectionContext(System.IServiceProvider services) : base(services)
+        public EqualityTestCollectionContext(System.IServiceProvider services) : base()
         {
             InitializeComputationNodes();
         }

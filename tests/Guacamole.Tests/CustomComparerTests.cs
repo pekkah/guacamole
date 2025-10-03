@@ -56,9 +56,9 @@ public partial class CustomComparerTests
     [ComputingContext]
     private partial class SingleValueContext : ComputingContextBase
     {
-        public partial IncrementalValueProvider<Person> Person { get; set; }
+        public partial IncrementalValueProvider<Person> Person { get; }
 
-        public SingleValueContext(System.IServiceProvider services) : base(services)
+        public SingleValueContext(System.IServiceProvider services) : base()
         {
             InitializeComputationNodes();
         }
@@ -69,9 +69,9 @@ public partial class CustomComparerTests
     [ComputingContext]
     private partial class CollectionContext : ComputingContextBase
     {
-        public partial IncrementalValuesProvider<Person> People { get; set; }
+        public partial IncrementalValuesProvider<Person> People { get; }
 
-        public CollectionContext(System.IServiceProvider services) : base(services)
+        public CollectionContext(System.IServiceProvider services) : base()
         {
             InitializeComputationNodes();
         }
@@ -82,9 +82,9 @@ public partial class CustomComparerTests
     [ComputingContext]
     private partial class StringContext : ComputingContextBase
     {
-        public partial IncrementalValueProvider<string> Text { get; set; }
+        public partial IncrementalValueProvider<string> Text { get; }
 
-        public StringContext(System.IServiceProvider services) : base(services)
+        public StringContext(System.IServiceProvider services) : base()
         {
             InitializeComputationNodes();
         }

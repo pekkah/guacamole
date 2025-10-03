@@ -6,8 +6,8 @@ namespace Guacamole.SourceGenerators;
 
 /// <summary>
 /// Analyzes properties in computing context classes to classify them as input sources or derived computations.
-/// Properties with setters are input sources (generate mutation methods).
-/// Properties without setters are derived computations (read-only).
+/// Properties WITHOUT setters (get-only) are input sources (generate mutation methods).
+/// Properties WITH setters are derived computations (user-managed).
 /// </summary>
 internal static class PropertyAnalyzer
 {
@@ -63,7 +63,9 @@ internal static class PropertyAnalyzer
                 property.SetMethod != null,
                 IsCollectionProvider(propertyType));
 
-            if (property.SetMethod != null)
+            // REVERSED LOGIC: Get-only properties are now auto-managed (input sources)
+            // Properties with setters are user-managed (derived/manual)
+            if (property.SetMethod == null)
             {
                 inputProperties.Add(propertyInfo);
             }

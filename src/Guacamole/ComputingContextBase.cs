@@ -40,13 +40,10 @@ public abstract class ComputingContextBase : IDisposable
     public bool IsDisposed => _disposed;
 
     /// <summary>
-    /// Creates a new computing context with dependency injection support.
+    /// Creates a new computing context.
     /// </summary>
-    /// <param name="serviceProvider">Service provider for resolving dependencies</param>
-    protected ComputingContextBase(IServiceProvider serviceProvider)
+    protected ComputingContextBase()
     {
-        ArgumentNullException.ThrowIfNull(serviceProvider);
-
         Graph = new ComputationGraph();
         Lock = new ReaderWriterLockSlim(LockRecursionPolicy.NoRecursion);
     }
