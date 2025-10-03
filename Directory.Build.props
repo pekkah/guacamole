@@ -16,7 +16,7 @@
     <PackageLicenseExpression>MIT</PackageLicenseExpression>
     <PackageProjectUrl>https://github.com/pekkah/guacamole</PackageProjectUrl>
     <PackageReadmeFile>README.md</PackageReadmeFile>
-    <PackageTags>incremental;query;engine;source-generators;compiler;framework</PackageTags>
+    <PackageTags>incremental;query;engine;source-generators;compiler;framework;roslyn;incremental-computation;dependency-injection;caching</PackageTags>
     <RepositoryUrl>https://github.com/pekkah/guacamole</RepositoryUrl>
     <RepositoryType>git</RepositoryType>
 
@@ -39,11 +39,17 @@
     <!-- Source link -->
     <PublishRepositoryUrl>true</PublishRepositoryUrl>
     <EmbedUntrackedSources>true</EmbedUntrackedSources>
+
+    <!-- Package validation -->
+    <EnablePackageValidation>true</EnablePackageValidation>
+    <!-- Uncomment after first 0.1.0 release:
+    <PackageValidationBaselineVersion>0.1.0</PackageValidationBaselineVersion>
+    -->
   </PropertyGroup>
 
   <!-- Common package references -->
   <ItemGroup>
-    <!-- <PackageReference Include="Microsoft.SourceLink.GitHub" Version="8.0.0" PrivateAssets="All"/> -->
+    <PackageReference Include="Microsoft.SourceLink.GitHub" Version="8.0.0" PrivateAssets="All"/>
   </ItemGroup>
 
   <!-- Include README in packages -->
