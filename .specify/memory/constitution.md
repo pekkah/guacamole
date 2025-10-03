@@ -1,14 +1,14 @@
 <!--
 Sync Impact Report
 ==================
-Version change: 2.3.2 → 2.3.3 (patch update - file organization clarification)
+Version change: 2.3.3 → 2.4.0 (minor update - new development standard)
 Modified principles: None
-Added sections: None
-Modified sections:
-- C# Coding Practices/File Organization (clarified one type per file rule with exceptions)
+Added sections:
+- Development Standards/Branch Protection (new principle mandating PR workflow)
+Modified sections: None
 Removed sections: None
 Templates requiring updates:
-- ✅ plan-template.md (already references v2.3.0, compatible)
+- ✅ plan-template.md (already references branching strategy, compatible)
 - ✅ spec-template.md (no constitution references, compatible)
 - ✅ tasks-template.md (no constitution references, compatible)
 Follow-up TODOs: None
@@ -155,6 +155,15 @@ MAY be used with explicit justification.
 
 ## Development Standards
 
+### Branch Protection
+Main/master branch MUST have branch protection enabled requiring:
+- All changes through pull requests (no direct commits)
+- Code review approval before merge
+- All CI status checks passing
+- Resolution of all PR review comments before merge
+This ensures code quality, prevents accidental breakage, and maintains
+audit trail for all changes.
+
 ### Branching Strategy
 - No direct commits to master/main branch
 - Feature branches for new work: `feature/[name]` or `[ticket-id]-[name]`
@@ -250,4 +259,4 @@ All pull requests MUST verify constitutional compliance. Complexity beyond
 these principles MUST be justified in writing. Violations without
 justification will result in PR rejection.
 
-**Version**: 2.3.3 | **Ratified**: 2025-09-26 | **Last Amended**: 2025-09-30
+**Version**: 2.4.0 | **Ratified**: 2025-09-26 | **Last Amended**: 2025-10-03
