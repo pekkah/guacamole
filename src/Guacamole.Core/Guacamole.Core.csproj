@@ -5,12 +5,7 @@
     <LangVersion>13</LangVersion>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
-    <GeneratePackageOnBuild>false</GeneratePackageOnBuild>
-    <PackageId>Guacamole.Core</PackageId>
-    <PackageDescription>Core incremental computation engine for the Guacamole framework. Foundation framework for incremental compilers, powering the Fugu language compiler and similar tooling.</PackageDescription>
-    <PackageProjectUrl>https://github.com/pekkah/guacamole</PackageProjectUrl>
-    <PackageLicenseExpression>MIT</PackageLicenseExpression>
-    <PackageTags>incremental;computation;compiler;framework;roslyn</PackageTags>
+    <IsPackable>false</IsPackable>
     <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
     <WarningsNotAsErrors />
     <EnableNETAnalyzers>true</EnableNETAnalyzers>
@@ -23,6 +18,9 @@
 
   <ItemGroup>
     <InternalsVisibleTo Include="Guacamole.Core.Tests" />
+    <InternalsVisibleTo Include="Guacamole" />
+    <InternalsVisibleTo Include="Guacamole.Tests" />
+    <InternalsVisibleTo Include="Guacamole.SourceGenerators.Tests" />
   </ItemGroup>
 
 </Project>

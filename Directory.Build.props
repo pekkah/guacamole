@@ -24,6 +24,9 @@
     <Version>0.1.0-dev</Version>
     <GenerateAssemblyInfo>true</GenerateAssemblyInfo>
 
+    <!-- Output directories -->
+    <PackageOutputPath>$(MSBuildThisFileDirectory)artifacts</PackageOutputPath>
+
     <!-- Deterministic builds -->
     <Deterministic>true</Deterministic>
     <DeterministicSourcePaths>true</DeterministicSourcePaths>
