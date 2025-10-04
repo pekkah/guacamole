@@ -62,9 +62,14 @@ public static class ServiceCollectionExtensions
         this IServiceCollection services,
         CacheOptions options)
     {
-        // Register LRU cache as singleton with configured capacity
+        // Register LRU cache as singleton - create once and reuse the same instance
+        // NOTE: The cache instance is shared across all graphs. Each ComputationGraph
+        // gets its own instance via scoped registration in AddGuacamolePipeline.
         services.TryAddSingleton<ICache<string, object>>(serviceProvider =>
-            new LRUCache<string, object>(options.DefaultCapacity));
+        {
+            var cache = new LRUCache<string, object>(options.DefaultCapacity);
+            return cache;
+        });
 
         // Register cache statistics provider
         services.TryAddSingleton<ICacheStatisticsProvider>(serviceProvider =>
@@ -81,8 +86,10 @@ public static class ServiceCollectionExtensions
         this IServiceCollection services,
         PipelineOptions options)
     {
-        // Register computation graph as singleton
-        services.TryAddSingleton<ComputationGraph>();
+        // Register computation graph as scoped to avoid shared mutable state across contexts
+        // Each scoped service gets its own graph instance
+        // NOTE: The graph creates its own cache internally with default capacity
+        services.TryAddScoped<ComputationGraph>();
 
         // Register computation context factory
         services.TryAddScoped<IComputationContextFactory, ComputationContextFactory>();

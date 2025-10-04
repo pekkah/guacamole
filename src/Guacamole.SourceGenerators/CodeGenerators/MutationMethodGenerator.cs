@@ -1,3 +1,4 @@
+using System.Linq;
 using System.Text;
 
 namespace Guacamole.SourceGenerators.CodeGenerators;
@@ -23,14 +24,72 @@ internal static class MutationMethodGenerator
         }
     }
 
+    /// <summary>
+    /// Determines if a type requires null checking.
+    /// Value types (except Nullable<T>) don't need null checks.
+    /// </summary>
+    private static bool RequiresNullCheck(string itemType)
+    {
+        // Check if it's a nullable value type (ends with ?)
+        if (itemType.EndsWith("?"))
+        {
+            // It's nullable, so it needs null check
+            return true;
+        }
+
+        // Common value types that don't need null checks
+        var nonNullableValueTypes = new[]
+        {
+            "int", "long", "short", "byte", "sbyte",
+            "uint", "ulong", "ushort",
+            "float", "double", "decimal",
+            "bool", "char",
+            "System.Int32", "System.Int64", "System.Int16", "System.Byte", "System.SByte",
+            "System.UInt32", "System.UInt64", "System.UInt16",
+            "System.Single", "System.Double", "System.Decimal",
+            "System.Boolean", "System.Char",
+            "System.DateTime", "System.DateTimeOffset", "System.TimeSpan", "System.Guid"
+        };
+
+        // If it's a known non-nullable value type, no null check needed
+        if (nonNullableValueTypes.Contains(itemType))
+        {
+            return false;
+        }
+
+        // For reference types and unknown types, require null check
+        // This is conservative - we assume it needs checking unless we know otherwise
+        return true;
+    }
+
+    /// <summary>
+    /// Generates the null check code if required for the type.
+    /// </summary>
+    private static string GenerateNullCheck(string itemType, string parameterName)
+    {
+        if (RequiresNullCheck(itemType))
+        {
+            return $"System.ArgumentNullException.ThrowIfNull({parameterName});";
+        }
+        return string.Empty;
+    }
+
     private static string GenerateCollectionMethods(PropertyInfo property, string className)
     {
         var propertyName = property.Name;
         var itemType = property.ItemType;
         var changeTypeName = $"{propertyName}Change";
+        var nullCheckItem = GenerateNullCheck(itemType, "item");
+        var nullCheckOldItem = GenerateNullCheck(itemType, "oldItem");
+        var nullCheckNewItem = GenerateNullCheck(itemType, "newItem");
+
+        // Fix naming: use "Batch" suffix instead of double-s for plural properties
+        var batchSuffix = propertyName.EndsWith("s") ? "Batch" : "s";
 
         // Using raw string literals for clean code generation
-        return $$"""
+        var code = new StringBuilder();
+
+        code.AppendLine($$"""
 
                 /// <summary>
                 /// Adds an item to {{propertyName}}. Throws if item already exists (fail-fast).
@@ -38,7 +97,7 @@ internal static class MutationMethodGenerator
                 public void Add{{propertyName}}({{itemType}} item)
                 {
                     ThrowIfDisposed();
-                    System.ArgumentNullException.ThrowIfNull(item);
+                    {{nullCheckItem}}
 
                     Lock.EnterWriteLock();
                     try
@@ -65,7 +124,7 @@ internal static class MutationMethodGenerator
                 public bool Remove{{propertyName}}({{itemType}} item)
                 {
                     ThrowIfDisposed();
-                    System.ArgumentNullException.ThrowIfNull(item);
+                    {{nullCheckItem}}
 
                     Lock.EnterWriteLock();
                     try
@@ -92,15 +151,27 @@ internal static class MutationMethodGenerator
                 public void Replace{{propertyName}}({{itemType}} oldItem, {{itemType}} newItem)
                 {
                     ThrowIfDisposed();
-                    System.ArgumentNullException.ThrowIfNull(oldItem);
-                    System.ArgumentNullException.ThrowIfNull(newItem);
+                    {{nullCheckOldItem}}
+                    {{nullCheckNewItem}}
 
                     Lock.EnterWriteLock();
                     try
                     {
+                        // Early exit if replacing with same item (no-op)
+                        if (System.Collections.Generic.EqualityComparer<{{itemType}}>.Default.Equals(oldItem, newItem))
+                        {
+                            return;
+                        }
+
                         if (!_current{{propertyName}}.Contains(oldItem))
                         {
                             throw new System.InvalidOperationException($"Cannot replace item that doesn't exist in {{propertyName}}");
+                        }
+
+                        // Check if new item already exists
+                        if (_current{{propertyName}}.Contains(newItem))
+                        {
+                            throw new System.InvalidOperationException($"Cannot replace with item that already exists in {{propertyName}}");
                         }
 
                         // Track change - cache invalidation deferred to SaveChanges()
@@ -115,7 +186,7 @@ internal static class MutationMethodGenerator
                 /// <summary>
                 /// Adds multiple items to {{propertyName}} in a batch.
                 /// </summary>
-                public void Add{{propertyName}}s(System.Collections.Generic.IEnumerable<{{itemType}}> items)
+                public void Add{{propertyName}}{{batchSuffix}}(System.Collections.Generic.IEnumerable<{{itemType}}> items)
                 {
                     ThrowIfDisposed();
                     System.ArgumentNullException.ThrowIfNull(items);
@@ -123,10 +194,14 @@ internal static class MutationMethodGenerator
                     Lock.EnterWriteLock();
                     try
                     {
+                        // Track items added in this batch to prevent duplicates within the batch
+                        var addedInBatch = new System.Collections.Generic.HashSet<{{itemType}}>();
                         int index = 0;
+
                         foreach (var item in items)
                         {
-                            if (_current{{propertyName}}.Contains(item))
+                            // Check against both current state and items added in this batch
+                            if (_current{{propertyName}}.Contains(item) || addedInBatch.Contains(item))
                             {
                                 throw Guacamole.Exceptions.ContextOperationException.BatchOperationFailed(
                                     "Add", "{{propertyName}}", index, item,
@@ -134,6 +209,7 @@ internal static class MutationMethodGenerator
                             }
 
                             _{{propertyName}}Changes.Add(new {{changeTypeName}}.Add(item, System.DateTimeOffset.UtcNow));
+                            addedInBatch.Add(item);
                             index++;
                         }
 
@@ -148,7 +224,7 @@ internal static class MutationMethodGenerator
                 /// <summary>
                 /// Removes multiple items from {{propertyName}} in a batch.
                 /// </summary>
-                public void Remove{{propertyName}}s(System.Collections.Generic.IEnumerable<{{itemType}}> items)
+                public void Remove{{propertyName}}{{batchSuffix}}(System.Collections.Generic.IEnumerable<{{itemType}}> items)
                 {
                     ThrowIfDisposed();
                     System.ArgumentNullException.ThrowIfNull(items);
@@ -172,7 +248,9 @@ internal static class MutationMethodGenerator
                     }
                 }
 
-            """;
+            """);
+
+        return code.ToString();
     }
 
     private static string GenerateSingleValueMethod(PropertyInfo property, string className)
@@ -180,6 +258,7 @@ internal static class MutationMethodGenerator
         var propertyName = property.Name;
         var itemType = property.ItemType;
         var changeTypeName = $"{propertyName}Change";
+        var nullCheckValue = GenerateNullCheck(itemType, "value");
 
         return $$"""
 
@@ -189,7 +268,7 @@ internal static class MutationMethodGenerator
                 public void Set{{propertyName}}({{itemType}} value)
                 {
                     ThrowIfDisposed();
-                    System.ArgumentNullException.ThrowIfNull(value);
+                    {{nullCheckValue}}
 
                     Lock.EnterWriteLock();
                     try

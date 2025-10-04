@@ -1,9 +1,33 @@
 using System.Collections.Immutable;
+using System.Security.Cryptography;
+using System.Text;
 using Guacamole.Core.Common;
 using Guacamole.Core.Diagnostics;
 using Guacamole.Core.Pipeline;
 
 namespace Guacamole.Core.Providers.Extensions;
+
+/// <summary>
+/// Generates deterministic node IDs based on operation type and parent IDs.
+/// </summary>
+internal static class NodeIdGenerator
+{
+    /// <summary>
+    /// Generates a deterministic ID based on operation name and dependencies.
+    /// Uses SHA256 hash of the input to create a stable, reproducible identifier.
+    /// </summary>
+    public static string Generate(string operation, params string[] dependencies)
+    {
+        // Create a stable string representation
+        var combined = operation + ":" + string.Join(",", dependencies.OrderBy(d => d));
+
+        // Hash it to create a fixed-length deterministic ID
+        var hashBytes = SHA256.HashData(Encoding.UTF8.GetBytes(combined));
+
+        // Take first 16 bytes (128 bits) for reasonable length
+        return operation + "_" + Convert.ToHexString(hashBytes[..16]).ToLowerInvariant();
+    }
+}
 
 /// <summary>
 /// Extension methods for IncrementalValueProvider transformations and pipeline operations.
@@ -161,7 +185,7 @@ internal sealed class SelectValueNode<TSource, TResult> : IComputationNode<TResu
         _source = source ?? throw new ArgumentNullException(nameof(source));
         _selector = selector ?? throw new ArgumentNullException(nameof(selector));
         _comparer = comparer;
-        Id = $"Select_{Guid.NewGuid():N}";
+        Id = NodeIdGenerator.Generate("Select", _source.Id);
         Dependencies = ImmutableHashSet.Create(_source.Id);
     }
 
@@ -205,7 +229,7 @@ internal sealed class WhereValueNode<T> : IComputationNode<T>
         _source = source ?? throw new ArgumentNullException(nameof(source));
         _predicate = predicate ?? throw new ArgumentNullException(nameof(predicate));
         _comparer = comparer;
-        Id = $"Where_{Guid.NewGuid():N}";
+        Id = NodeIdGenerator.Generate("Where", _source.Id);
         Dependencies = ImmutableHashSet.Create(_source.Id);
     }
 
@@ -249,7 +273,7 @@ internal sealed class CombineValueNode<TFirst, TSecond> : IComputationNode<(TFir
     {
         _first = first ?? throw new ArgumentNullException(nameof(first));
         _second = second ?? throw new ArgumentNullException(nameof(second));
-        Id = $"Combine_{Guid.NewGuid():N}";
+        Id = NodeIdGenerator.Generate("Combine", _first.Id, _second.Id);
         Dependencies = ImmutableHashSet.Create(_first.Id, _second.Id);
     }
 

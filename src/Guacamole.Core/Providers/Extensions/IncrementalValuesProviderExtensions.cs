@@ -5,6 +5,8 @@ using Guacamole.Core.Pipeline;
 
 namespace Guacamole.Core.Providers.Extensions;
 
+// NodeIdGenerator is defined in IncrementalValueProviderExtensions.cs and shared across both files
+
 /// <summary>
 /// Extension methods for IncrementalValuesProvider transformations and collection operations.
 /// Provides functional programming style transformations for multiple values with automatic caching.
@@ -215,7 +217,7 @@ internal sealed class SelectManyValuesNode<TSource, TResult> : ICollectionComput
         _source = source ?? throw new ArgumentNullException(nameof(source));
         _selector = selector ?? throw new ArgumentNullException(nameof(selector));
         _comparer = comparer;
-        Id = $"SelectMany_{Guid.NewGuid():N}";
+        Id = NodeIdGenerator.Generate("SelectMany", _source.Id);
         Dependencies = ImmutableHashSet.Create(_source.Id);
     }
 
@@ -255,7 +257,7 @@ internal sealed class CollectValuesNode<T> : IComputationNode<ImmutableArray<T>>
     public CollectValuesNode(ICollectionComputationNode<T> source)
     {
         _source = source ?? throw new ArgumentNullException(nameof(source));
-        Id = $"Collect_{Guid.NewGuid():N}";
+        Id = NodeIdGenerator.Generate("Collect", _source.Id);
         Dependencies = ImmutableHashSet.Create(_source.Id);
     }
 
@@ -298,7 +300,7 @@ internal sealed class SelectValuesNode<TSource, TResult> : ICollectionComputatio
         _source = source ?? throw new ArgumentNullException(nameof(source));
         _selector = selector ?? throw new ArgumentNullException(nameof(selector));
         _comparer = comparer;
-        Id = $"SelectValues_{Guid.NewGuid():N}";
+        Id = NodeIdGenerator.Generate("SelectValues", _source.Id);
         Dependencies = ImmutableHashSet.Create(_source.Id);
     }
 
@@ -342,7 +344,7 @@ internal sealed class WhereValuesNode<T> : ICollectionComputationNode<T>
         _source = source ?? throw new ArgumentNullException(nameof(source));
         _predicate = predicate ?? throw new ArgumentNullException(nameof(predicate));
         _comparer = comparer;
-        Id = $"WhereValues_{Guid.NewGuid():N}";
+        Id = NodeIdGenerator.Generate("WhereValues", _source.Id);
         Dependencies = ImmutableHashSet.Create(_source.Id);
     }
 

@@ -121,6 +121,7 @@ namespace Test
     /// Auto-managed by framework (get-only = automatic mutation methods).
     /// </summary>
     private Guacamole.Core.Providers.IncrementalValueProvider<int> _CountProvider;
+    private readonly object _CountProviderLock = new object();
 
     public partial Guacamole.Core.Providers.IncrementalValueProvider<int> Count
     {
@@ -128,10 +129,16 @@ namespace Test
         {
             if (_CountProvider.Node == null)
             {
-                _CountProvider = new Guacamole.Core.Providers.IncrementalValueProvider<int>(
-                    CountNodeLazy,
-                    Graph,
-                    new Guacamole.Core.Diagnostics.ProviderMetadata(TrackingName: "Count"));
+                lock (_CountProviderLock)
+                {
+                    if (_CountProvider.Node == null)
+                    {
+                        _CountProvider = new Guacamole.Core.Providers.IncrementalValueProvider<int>(
+                            CountNodeLazy,
+                            Graph,
+                            new Guacamole.Core.Diagnostics.ProviderMetadata(TrackingName: "Count"));
+                    }
+                }
             }
             return _CountProvider;
         }
@@ -148,7 +155,7 @@ namespace Test
     public void SetCount(int value)
     {
         ThrowIfDisposed();
-        System.ArgumentNullException.ThrowIfNull(value);
+        
 
         Lock.EnterWriteLock();
         try
