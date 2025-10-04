@@ -26,8 +26,9 @@ public abstract partial class ComputingContextBase : IDisposable
 
     /// <summary>
     /// Shared computation graph for dependency management and incremental recomputation.
+    /// Marked as protected internal to allow generated code to update while preventing external modification.
     /// </summary>
-    protected ComputationGraph Graph { get; set; }
+    protected internal ComputationGraph Graph { get; set; }
 
     /// <summary>
     /// Thread synchronization lock (multiple readers, single writer model).
@@ -114,17 +115,24 @@ public abstract partial class ComputingContextBase : IDisposable
     /// </summary>
     protected void TriggerOutputs()
     {
+        // Capture registrations under lock, then execute handlers outside lock
+        // to avoid holding lock during potentially long-running handler execution
+        IOutputRegistration[] registrations;
+
         Lock.EnterReadLock();
         try
         {
-            foreach (var registration in _outputRegistrations)
-            {
-                registration.Execute(this);
-            }
+            registrations = _outputRegistrations.ToArray();
         }
         finally
         {
             Lock.ExitReadLock();
+        }
+
+        // Execute handlers outside the lock
+        foreach (var registration in registrations)
+        {
+            registration.Execute(this);
         }
     }
 

@@ -121,6 +121,7 @@ namespace Test
     /// Auto-managed by framework (get-only = automatic mutation methods).
     /// </summary>
     private Guacamole.Core.Providers.IncrementalValueProvider<string> _NameProvider;
+    private readonly object _NameProviderLock = new object();
 
     public partial Guacamole.Core.Providers.IncrementalValueProvider<string> Name
     {
@@ -128,10 +129,16 @@ namespace Test
         {
             if (_NameProvider.Node == null)
             {
-                _NameProvider = new Guacamole.Core.Providers.IncrementalValueProvider<string>(
-                    NameNodeLazy,
-                    Graph,
-                    new Guacamole.Core.Diagnostics.ProviderMetadata(TrackingName: "Name"));
+                lock (_NameProviderLock)
+                {
+                    if (_NameProvider.Node == null)
+                    {
+                        _NameProvider = new Guacamole.Core.Providers.IncrementalValueProvider<string>(
+                            NameNodeLazy,
+                            Graph,
+                            new Guacamole.Core.Diagnostics.ProviderMetadata(TrackingName: "Name"));
+                    }
+                }
             }
             return _NameProvider;
         }

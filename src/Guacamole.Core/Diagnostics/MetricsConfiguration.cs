@@ -157,21 +157,39 @@ public sealed record MetricsConfiguration
     /// </summary>
     public double TracingSampleRate { get; init; } = 1.0;
 
+    private static MetricsConfiguration _current = Production;
+    private static readonly object _configLock = new object();
+
     /// <summary>
     /// Gets the current global metrics configuration.
     /// Defaults to Production configuration.
+    /// Thread-safe for reads.
     /// </summary>
-    public static MetricsConfiguration Current { get; private set; } = Production;
+    public static MetricsConfiguration Current
+    {
+        get
+        {
+            lock (_configLock)
+            {
+                return _current;
+            }
+        }
+    }
 
     /// <summary>
     /// Sets the global metrics configuration.
     /// Should be called early in application startup before any computation operations.
+    /// Thread-safe.
     /// </summary>
     /// <param name="configuration">New configuration to apply globally</param>
     public static void SetGlobal(MetricsConfiguration configuration)
     {
         ArgumentNullException.ThrowIfNull(configuration);
-        Current = configuration;
+
+        lock (_configLock)
+        {
+            _current = configuration;
+        }
     }
 
     /// <summary>

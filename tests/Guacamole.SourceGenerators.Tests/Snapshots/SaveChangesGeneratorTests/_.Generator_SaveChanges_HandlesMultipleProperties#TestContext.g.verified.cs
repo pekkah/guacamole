@@ -214,6 +214,7 @@ namespace Test
     /// Auto-managed by framework (get-only = automatic mutation methods).
     /// </summary>
     private Guacamole.Core.Providers.IncrementalValuesProvider<string> _ItemsProvider;
+    private readonly object _ItemsProviderLock = new object();
 
     public partial Guacamole.Core.Providers.IncrementalValuesProvider<string> Items
     {
@@ -221,10 +222,16 @@ namespace Test
         {
             if (_ItemsProvider.Node == null)
             {
-                _ItemsProvider = new Guacamole.Core.Providers.IncrementalValuesProvider<string>(
-                    ItemsNodeLazy,
-                    Graph,
-                    new Guacamole.Core.Diagnostics.ProviderMetadata(TrackingName: "Items"));
+                lock (_ItemsProviderLock)
+                {
+                    if (_ItemsProvider.Node == null)
+                    {
+                        _ItemsProvider = new Guacamole.Core.Providers.IncrementalValuesProvider<string>(
+                            ItemsNodeLazy,
+                            Graph,
+                            new Guacamole.Core.Diagnostics.ProviderMetadata(TrackingName: "Items"));
+                    }
+                }
             }
             return _ItemsProvider;
         }
@@ -236,6 +243,7 @@ namespace Test
     /// Auto-managed by framework (get-only = automatic mutation methods).
     /// </summary>
     private Guacamole.Core.Providers.IncrementalValueProvider<int> _CountProvider;
+    private readonly object _CountProviderLock = new object();
 
     public partial Guacamole.Core.Providers.IncrementalValueProvider<int> Count
     {
@@ -243,10 +251,16 @@ namespace Test
         {
             if (_CountProvider.Node == null)
             {
-                _CountProvider = new Guacamole.Core.Providers.IncrementalValueProvider<int>(
-                    CountNodeLazy,
-                    Graph,
-                    new Guacamole.Core.Diagnostics.ProviderMetadata(TrackingName: "Count"));
+                lock (_CountProviderLock)
+                {
+                    if (_CountProvider.Node == null)
+                    {
+                        _CountProvider = new Guacamole.Core.Providers.IncrementalValueProvider<int>(
+                            CountNodeLazy,
+                            Graph,
+                            new Guacamole.Core.Diagnostics.ProviderMetadata(TrackingName: "Count"));
+                    }
+                }
             }
             return _CountProvider;
         }
@@ -323,9 +337,21 @@ namespace Test
         Lock.EnterWriteLock();
         try
         {
+            // Early exit if replacing with same item (no-op)
+            if (System.Collections.Generic.EqualityComparer<string>.Default.Equals(oldItem, newItem))
+            {
+                return;
+            }
+
             if (!_currentItems.Contains(oldItem))
             {
                 throw new System.InvalidOperationException($"Cannot replace item that doesn't exist in Items");
+            }
+
+            // Check if new item already exists
+            if (_currentItems.Contains(newItem))
+            {
+                throw new System.InvalidOperationException($"Cannot replace with item that already exists in Items");
             }
 
             // Track change - cache invalidation deferred to SaveChanges()
@@ -340,7 +366,7 @@ namespace Test
     /// <summary>
     /// Adds multiple items to Items in a batch.
     /// </summary>
-    public void AddItemss(System.Collections.Generic.IEnumerable<string> items)
+    public void AddItemsBatch(System.Collections.Generic.IEnumerable<string> items)
     {
         ThrowIfDisposed();
         System.ArgumentNullException.ThrowIfNull(items);
@@ -348,10 +374,14 @@ namespace Test
         Lock.EnterWriteLock();
         try
         {
+            // Track items added in this batch to prevent duplicates within the batch
+            var addedInBatch = new System.Collections.Generic.HashSet<string>();
             int index = 0;
+
             foreach (var item in items)
             {
-                if (_currentItems.Contains(item))
+                // Check against both current state and items added in this batch
+                if (_currentItems.Contains(item) || addedInBatch.Contains(item))
                 {
                     throw Guacamole.Exceptions.ContextOperationException.BatchOperationFailed(
                         "Add", "Items", index, item,
@@ -359,6 +389,7 @@ namespace Test
                 }
 
                 _ItemsChanges.Add(new ItemsChange.Add(item, System.DateTimeOffset.UtcNow));
+                addedInBatch.Add(item);
                 index++;
             }
 
@@ -373,7 +404,7 @@ namespace Test
     /// <summary>
     /// Removes multiple items from Items in a batch.
     /// </summary>
-    public void RemoveItemss(System.Collections.Generic.IEnumerable<string> items)
+    public void RemoveItemsBatch(System.Collections.Generic.IEnumerable<string> items)
     {
         ThrowIfDisposed();
         System.ArgumentNullException.ThrowIfNull(items);
@@ -398,13 +429,14 @@ namespace Test
     }
 
 
+
     /// <summary>
     /// Sets the value of Count.
     /// </summary>
     public void SetCount(int value)
     {
         ThrowIfDisposed();
-        System.ArgumentNullException.ThrowIfNull(value);
+        
 
         Lock.EnterWriteLock();
         try

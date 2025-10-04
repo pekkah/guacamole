@@ -37,6 +37,7 @@ internal static class PropertyGenerator
                     /// Auto-managed by framework (get-only = automatic mutation methods).
                     /// </summary>
                     private Guacamole.Core.Providers.IncrementalValuesProvider<{{itemType}}> _{{propertyName}}Provider;
+                    private readonly object _{{propertyName}}ProviderLock = new object();
 
                     public partial Guacamole.Core.Providers.IncrementalValuesProvider<{{itemType}}> {{propertyName}}
                     {
@@ -44,10 +45,16 @@ internal static class PropertyGenerator
                         {
                             if (_{{propertyName}}Provider.Node == null)
                             {
-                                _{{propertyName}}Provider = new Guacamole.Core.Providers.IncrementalValuesProvider<{{itemType}}>(
-                                    {{propertyName}}NodeLazy,
-                                    Graph,
-                                    new Guacamole.Core.Diagnostics.ProviderMetadata(TrackingName: "{{propertyName}}"));
+                                lock (_{{propertyName}}ProviderLock)
+                                {
+                                    if (_{{propertyName}}Provider.Node == null)
+                                    {
+                                        _{{propertyName}}Provider = new Guacamole.Core.Providers.IncrementalValuesProvider<{{itemType}}>(
+                                            {{propertyName}}NodeLazy,
+                                            Graph,
+                                            new Guacamole.Core.Diagnostics.ProviderMetadata(TrackingName: "{{propertyName}}"));
+                                    }
+                                }
                             }
                             return _{{propertyName}}Provider;
                         }
@@ -104,6 +111,7 @@ internal static class PropertyGenerator
                     /// Auto-managed by framework (get-only = automatic mutation methods).
                     /// </summary>
                     private Guacamole.Core.Providers.IncrementalValueProvider<{{itemType}}> _{{propertyName}}Provider;
+                    private readonly object _{{propertyName}}ProviderLock = new object();
 
                     public partial Guacamole.Core.Providers.IncrementalValueProvider<{{itemType}}> {{propertyName}}
                     {
@@ -111,10 +119,16 @@ internal static class PropertyGenerator
                         {
                             if (_{{propertyName}}Provider.Node == null)
                             {
-                                _{{propertyName}}Provider = new Guacamole.Core.Providers.IncrementalValueProvider<{{itemType}}>(
-                                    {{propertyName}}NodeLazy,
-                                    Graph,
-                                    new Guacamole.Core.Diagnostics.ProviderMetadata(TrackingName: "{{propertyName}}"));
+                                lock (_{{propertyName}}ProviderLock)
+                                {
+                                    if (_{{propertyName}}Provider.Node == null)
+                                    {
+                                        _{{propertyName}}Provider = new Guacamole.Core.Providers.IncrementalValueProvider<{{itemType}}>(
+                                            {{propertyName}}NodeLazy,
+                                            Graph,
+                                            new Guacamole.Core.Diagnostics.ProviderMetadata(TrackingName: "{{propertyName}}"));
+                                    }
+                                }
                             }
                             return _{{propertyName}}Provider;
                         }
