@@ -58,12 +58,6 @@ public partial class CustomComparerTests
     {
         public partial IncrementalValueProvider<Person> Person { get; }
 
-        public SingleValueContext(System.IServiceProvider services) : base()
-        {
-            Initialize();
-        }
-
-        partial void InitializeComputationNodes();
     }
 
     [ComputingContext]
@@ -71,12 +65,6 @@ public partial class CustomComparerTests
     {
         public partial IncrementalValuesProvider<Person> People { get; }
 
-        public CollectionContext(System.IServiceProvider services) : base()
-        {
-            Initialize();
-        }
-
-        partial void InitializeComputationNodes();
     }
 
     [ComputingContext]
@@ -84,12 +72,6 @@ public partial class CustomComparerTests
     {
         public partial IncrementalValueProvider<string> Text { get; }
 
-        public StringContext(System.IServiceProvider services) : base()
-        {
-            Initialize();
-        }
-
-        partial void InitializeComputationNodes();
     }
 
     private static System.IServiceProvider CreateServices()
@@ -103,7 +85,7 @@ public partial class CustomComparerTests
     {
         // Arrange
         var services = CreateServices();
-        var context = new StringContext(services);
+        var context = new StringContext();
         int handlerCallCount = 0;
         string? lastResult = null;
 
@@ -138,7 +120,7 @@ public partial class CustomComparerTests
     {
         // Arrange
         var services = CreateServices();
-        var context = new StringContext(services);
+        var context = new StringContext();
         int handlerCallCount = 0;
 
         // No custom comparer - uses default case-sensitive comparison
@@ -170,7 +152,7 @@ public partial class CustomComparerTests
     {
         // Arrange
         var services = CreateServices();
-        var context = new StringContext(services);
+        var context = new StringContext();
 
         // Create Where with custom comparer
         var filtered = context.Text.Where(
@@ -186,7 +168,7 @@ public partial class CustomComparerTests
     {
         // Arrange
         var services = CreateServices();
-        var context = new CollectionContext(services);
+        var context = new CollectionContext();
         int handlerCallCount = 0;
 
         // Custom comparer compares by name only
@@ -219,7 +201,7 @@ public partial class CustomComparerTests
     {
         // Arrange
         var services = CreateServices();
-        var context = new CollectionContext(services);
+        var context = new CollectionContext();
 
         // Create Where with custom comparer
         var filtered = context.People.Where(
@@ -235,7 +217,7 @@ public partial class CustomComparerTests
     {
         // Arrange
         var services = CreateServices();
-        var context = new CollectionContext(services);
+        var context = new CollectionContext();
 
         // Create SelectMany with custom comparer
         var chars = context.People.SelectMany(
@@ -251,7 +233,7 @@ public partial class CustomComparerTests
     {
         // Arrange
         var services = CreateServices();
-        var context = new StringContext(services);
+        var context = new StringContext();
         var customComparer = new CaseInsensitiveComparer();
 
         // Create Select with custom comparer
@@ -274,7 +256,7 @@ public partial class CustomComparerTests
     {
         // Arrange
         var services = CreateServices();
-        var context = new StringContext(services);
+        var context = new StringContext();
 
         // Create Select without custom comparer (null)
         var transformed = context.Text.Select(s => s.ToUpperInvariant());

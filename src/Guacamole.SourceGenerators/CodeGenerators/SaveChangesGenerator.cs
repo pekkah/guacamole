@@ -37,7 +37,6 @@ internal static class SaveChangesGenerator
                 /// </summary>
                 public void SaveChanges()
                 {
-                    ThrowIfNotInitialized();
                     ThrowIfDisposed();
 
                     Lock.EnterWriteLock();
@@ -73,7 +72,6 @@ internal static class SaveChangesGenerator
                 /// </summary>
                 public void DiscardChanges()
                 {
-                    ThrowIfNotInitialized();
                     ThrowIfDisposed();
 
                     Lock.EnterWriteLock();
@@ -137,7 +135,7 @@ internal static class SaveChangesGenerator
                             // Only invalidate if collection actually changed
                             if (collectionChanged)
                             {
-                                InvalidateNodeCache(_{{propertyName}}Node.Id);
+                                InvalidateNodeCache({{propertyName}}NodeLazy.Id);
                             }
                         }
             """;
@@ -161,7 +159,7 @@ internal static class SaveChangesGenerator
                                 if (!System.Collections.Generic.EqualityComparer<{{itemType}}>.Default.Equals(_current{{propertyName}}, set.Value))
                                 {
                                     _current{{propertyName}} = set.Value;
-                                    InvalidateNodeCache(_{{propertyName}}Node.Id);
+                                    InvalidateNodeCache({{propertyName}}NodeLazy.Id);
                                 }
                             }
                         }

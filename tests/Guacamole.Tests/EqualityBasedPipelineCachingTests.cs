@@ -17,12 +17,6 @@ public partial class EqualityBasedPipelineCachingTests
     {
         public partial IncrementalValueProvider<string> Name { get; }
 
-        public PipelineTestContext(System.IServiceProvider services) : base()
-        {
-            Initialize();
-        }
-
-        partial void InitializeComputationNodes();
     }
 
     private static System.IServiceProvider CreateServices()
@@ -36,7 +30,7 @@ public partial class EqualityBasedPipelineCachingTests
     {
         // Arrange
         var services = CreateServices();
-        var context = new PipelineTestContext(services);
+        var context = new PipelineTestContext();
         int handlerCallCount = 0;
         char? lastChar = null;
 
@@ -72,7 +66,7 @@ public partial class EqualityBasedPipelineCachingTests
     {
         // Arrange
         var services = CreateServices();
-        var context = new PipelineTestContext(services);
+        var context = new PipelineTestContext();
         int handlerCallCount = 0;
         char? lastChar = null;
 
@@ -106,7 +100,7 @@ public partial class EqualityBasedPipelineCachingTests
     {
         // Arrange
         var services = CreateServices();
-        var context = new PipelineTestContext(services);
+        var context = new PipelineTestContext();
         int handlerCallCount = 0;
         char? lastChar = null;
 
@@ -141,7 +135,7 @@ public partial class EqualityBasedPipelineCachingTests
     {
         // Arrange
         var services = CreateServices();
-        var context = new PipelineTestContext(services);
+        var context = new PipelineTestContext();
         int handlerCallCount = 0;
 
         var startsWithA = context.Name
@@ -172,7 +166,7 @@ public partial class EqualityBasedPipelineCachingTests
     {
         // Arrange
         var services = CreateServices();
-        var context = new PipelineTestContext(services);
+        var context = new PipelineTestContext();
         int handlerCallCount = 0;
         bool? lastResult = null;
 

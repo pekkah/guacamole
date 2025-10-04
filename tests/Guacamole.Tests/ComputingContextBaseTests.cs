@@ -14,9 +14,6 @@ public partial class ComputingContextBaseTests
     [ComputingContext]
     private partial class TestContext : ComputingContextBase
     {
-        public TestContext(IServiceProvider services) : base()
-        {
-        }
     }
 
     [Fact]
@@ -26,7 +23,7 @@ public partial class ComputingContextBaseTests
         var services = new ServiceCollection().BuildServiceProvider();
 
         // Act
-        using var context = new TestContext(services);
+        using var context = new TestContext();
 
         // Assert
         Assert.NotNull(context);
@@ -39,7 +36,7 @@ public partial class ComputingContextBaseTests
     {
         // Arrange
         var services = new ServiceCollection().BuildServiceProvider();
-        var context = new TestContext(services);
+        var context = new TestContext();
 
         // Act
         context.Dispose();
@@ -53,7 +50,7 @@ public partial class ComputingContextBaseTests
     {
         // Arrange
         var services = new ServiceCollection().BuildServiceProvider();
-        var context = new TestContext(services);
+        var context = new TestContext();
 
         // Act & Assert - should not throw
         context.Dispose();

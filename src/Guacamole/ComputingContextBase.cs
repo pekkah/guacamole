@@ -22,7 +22,6 @@ namespace Guacamole;
 public abstract partial class ComputingContextBase : IDisposable
 {
     private bool _disposed;
-    private bool _initialized;
     private readonly List<IOutputRegistration> _outputRegistrations = new();
 
     /// <summary>
@@ -50,36 +49,6 @@ public abstract partial class ComputingContextBase : IDisposable
     }
 
     /// <summary>
-    /// Initializes the computing context by setting up computation nodes and graph.
-    /// The source generator provides the implementation of InitializeComputationNodes().
-    /// Override this method to add custom initialization logic after node setup.
-    /// </summary>
-    /// <remarks>
-    /// Call this method from your constructor after base() initialization.
-    /// The default implementation calls InitializeComputationNodes() which is implemented by the source generator.
-    /// This method must be called before using any properties or mutation methods.
-    /// </remarks>
-    /// <exception cref="InvalidOperationException">Thrown if Initialize() is called more than once.</exception>
-    public virtual void Initialize()
-    {
-        if (_initialized)
-        {
-            throw new InvalidOperationException(
-                $"{GetType().Name} has already been initialized. Initialize() should only be called once from the constructor.");
-        }
-
-        InitializeComputationNodes();
-        _initialized = true;
-    }
-
-    /// <summary>
-    /// Initializes computation nodes for auto-managed properties.
-    /// This partial method is implemented by the source generator.
-    /// Do not call this directly - call Initialize() instead.
-    /// </summary>
-    partial void InitializeComputationNodes();
-
-    /// <summary>
     /// Disposes the context and releases resources.
     /// Generated code will override this to clear change tracking.
     /// </summary>
@@ -102,19 +71,6 @@ public abstract partial class ComputingContextBase : IDisposable
         if (_disposed)
         {
             throw new ObjectDisposedException(GetType().Name);
-        }
-    }
-
-    /// <summary>
-    /// Throws if the context has not been initialized.
-    /// </summary>
-    /// <exception cref="InvalidOperationException">Thrown if Initialize() has not been called.</exception>
-    protected void ThrowIfNotInitialized()
-    {
-        if (!_initialized)
-        {
-            throw new InvalidOperationException(
-                $"{GetType().Name} has not been initialized. Call Initialize() in your constructor after base() initialization.");
         }
     }
 

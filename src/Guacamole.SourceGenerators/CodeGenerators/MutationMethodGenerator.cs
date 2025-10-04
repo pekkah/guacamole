@@ -37,7 +37,6 @@ internal static class MutationMethodGenerator
                 /// </summary>
                 public void Add{{propertyName}}({{itemType}} item)
                 {
-                    ThrowIfNotInitialized();
                     ThrowIfDisposed();
                     System.ArgumentNullException.ThrowIfNull(item);
 
@@ -65,7 +64,6 @@ internal static class MutationMethodGenerator
                 /// </summary>
                 public bool Remove{{propertyName}}({{itemType}} item)
                 {
-                    ThrowIfNotInitialized();
                     ThrowIfDisposed();
                     System.ArgumentNullException.ThrowIfNull(item);
 
@@ -93,7 +91,6 @@ internal static class MutationMethodGenerator
                 /// </summary>
                 public void Replace{{propertyName}}({{itemType}} oldItem, {{itemType}} newItem)
                 {
-                    ThrowIfNotInitialized();
                     ThrowIfDisposed();
                     System.ArgumentNullException.ThrowIfNull(oldItem);
                     System.ArgumentNullException.ThrowIfNull(newItem);
@@ -120,7 +117,6 @@ internal static class MutationMethodGenerator
                 /// </summary>
                 public void Add{{propertyName}}s(System.Collections.Generic.IEnumerable<{{itemType}}> items)
                 {
-                    ThrowIfNotInitialized();
                     ThrowIfDisposed();
                     System.ArgumentNullException.ThrowIfNull(items);
 
@@ -154,7 +150,6 @@ internal static class MutationMethodGenerator
                 /// </summary>
                 public void Remove{{propertyName}}s(System.Collections.Generic.IEnumerable<{{itemType}}> items)
                 {
-                    ThrowIfNotInitialized();
                     ThrowIfDisposed();
                     System.ArgumentNullException.ThrowIfNull(items);
 
@@ -193,7 +188,6 @@ internal static class MutationMethodGenerator
                 /// </summary>
                 public void Set{{propertyName}}({{itemType}} value)
                 {
-                    ThrowIfNotInitialized();
                     ThrowIfDisposed();
                     System.ArgumentNullException.ThrowIfNull(value);
 

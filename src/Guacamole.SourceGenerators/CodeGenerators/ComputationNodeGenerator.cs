@@ -125,7 +125,7 @@ internal static class ComputationNodeGenerator
     }
 
     /// <summary>
-    /// Generates node field and initialization code for a property.
+    /// Generates lazy node field with thread-safe initialization pattern.
     /// </summary>
     public static string GenerateNodeField(PropertyInfo property, string contextClassName)
     {
@@ -133,21 +133,39 @@ internal static class ComputationNodeGenerator
         var nodeName = $"{propertyName}Node";
 
         return $$"""
-                private {{nodeName}} _{{propertyName}}Node = null!;
+                private {{nodeName}}? _{{propertyName}}Node;
+                private readonly object _{{propertyName}}NodeLock = new object();
             """;
     }
 
     /// <summary>
-    /// Generates node initialization in constructor.
+    /// Generates lazy node accessor property with double-checked locking.
     /// </summary>
-    public static string GenerateNodeInitialization(PropertyInfo property)
+    public static string GenerateNodeAccessor(PropertyInfo property, string contextClassName)
     {
         var propertyName = property.Name;
         var nodeName = $"{propertyName}Node";
 
         return $$"""
-                    _{{propertyName}}Node = new {{nodeName}}(this);
-                    Graph = Graph.AddNode(_{{propertyName}}Node);
+
+                private {{nodeName}} {{propertyName}}NodeLazy
+                {
+                    get
+                    {
+                        if (_{{propertyName}}Node == null)
+                        {
+                            lock (_{{propertyName}}NodeLock)
+                            {
+                                if (_{{propertyName}}Node == null)
+                                {
+                                    _{{propertyName}}Node = new {{nodeName}}(this);
+                                    Graph = Graph.AddNode(_{{propertyName}}Node);
+                                }
+                            }
+                        }
+                        return _{{propertyName}}Node;
+                    }
+                }
             """;
     }
 }

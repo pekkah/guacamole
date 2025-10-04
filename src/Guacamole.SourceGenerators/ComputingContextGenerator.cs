@@ -116,20 +116,7 @@ public class ComputingContextGenerator : IIncrementalGenerator
 
         var nodeClasses = string.Join("\n", analysisResult.InputProperties.Select(p => CodeGenerators.ComputationNodeGenerator.Generate(p, className)));
         var nodeFields = string.Join("\n", analysisResult.InputProperties.Select(p => CodeGenerators.ComputationNodeGenerator.GenerateNodeField(p, className)));
-        var nodeInitializations = string.Join("\n", analysisResult.InputProperties.Select(CodeGenerators.ComputationNodeGenerator.GenerateNodeInitialization));
-
-        // Generate partial method for node initialization
-        var initializeNodesMethod = analysisResult.InputProperties.Count > 0
-            ? $$"""
-                    // ========================================
-                    // Node Initialization (called from user's constructor)
-                    // ========================================
-                    partial void InitializeComputationNodes()
-                    {
-            {{nodeInitializations}}
-                    }
-            """
-            : "";
+        var nodeAccessors = string.Join("\n", analysisResult.InputProperties.Select(p => CodeGenerators.ComputationNodeGenerator.GenerateNodeAccessor(p, className)));
 
         var mutationMethods = string.Join("\n", analysisResult.InputProperties.Select(p => CodeGenerators.MutationMethodGenerator.Generate(p, className)));
         var saveChangesMethods = CodeGenerators.SaveChangesGenerator.Generate(analysisResult.InputProperties);
@@ -236,11 +223,14 @@ public class ComputingContextGenerator : IIncrementalGenerator
             {{nodeClasses}}
 
                     // ========================================
-                    // Computation Node Fields
+                    // Computation Node Fields (lazy-initialized)
                     // ========================================
             {{nodeFields}}
 
-            {{initializeNodesMethod}}
+                    // ========================================
+                    // Computation Node Lazy Accessors
+                    // ========================================
+            {{nodeAccessors}}
 
                     // ========================================
                     // Property Implementations

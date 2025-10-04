@@ -45,7 +45,7 @@ internal static class PropertyGenerator
                             if (_{{propertyName}}Provider.Node == null)
                             {
                                 _{{propertyName}}Provider = new Guacamole.Core.Providers.IncrementalValuesProvider<{{itemType}}>(
-                                    _{{propertyName}}Node,
+                                    {{propertyName}}NodeLazy,
                                     Graph,
                                     new Guacamole.Core.Diagnostics.ProviderMetadata(TrackingName: "{{propertyName}}"));
                             }
@@ -112,7 +112,7 @@ internal static class PropertyGenerator
                             if (_{{propertyName}}Provider.Node == null)
                             {
                                 _{{propertyName}}Provider = new Guacamole.Core.Providers.IncrementalValueProvider<{{itemType}}>(
-                                    _{{propertyName}}Node,
+                                    {{propertyName}}NodeLazy,
                                     Graph,
                                     new Guacamole.Core.Diagnostics.ProviderMetadata(TrackingName: "{{propertyName}}"));
                             }

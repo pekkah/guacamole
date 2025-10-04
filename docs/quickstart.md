@@ -92,13 +92,6 @@ public partial class CompilerContext : ComputingContextBase
     // The source generator will create mutation methods for these
     public partial IncrementalValueProvider<string> SourceCode { get; }
 
-    public CompilerContext(IServiceProvider services) : base()
-    {
-        Initialize();
-    }
-
-    // Declare the partial method (generator implements it)
-    partial void InitializeComputationNodes();
 }
 ```
 
@@ -106,8 +99,7 @@ public partial class CompilerContext : ComputingContextBase
 - `[ComputingContext]` tells the source generator to process this class
 - `partial` keyword allows the generator to add code
 - `IncrementalValueProvider<string> SourceCode { get; }` - get-only property means "framework, manage this for me"
-- `Initialize();` - calls the virtual method from `ComputingContextBase` which internally calls `InitializeComputationNodes()`
-- `partial void InitializeComputationNodes();` - you declare it, generator implements it (called by `Initialize()`)
+- Computation nodes are automatically initialized lazily on first property access - no manual initialization needed!
 
 ### Step 2: Generated Code (Automatic!)
 
@@ -173,12 +165,6 @@ public partial class MyContext : ComputingContextBase
     public partial IncrementalValueProvider<Project> Project { get; }
     public partial IncrementalValueProvider<string> Output { get; }
 
-    public MyContext(IServiceProvider services) : base()
-    {
-        Initialize();
-    }
-
-    partial void InitializeComputationNodes();
 }
 
 // Usage
@@ -201,12 +187,6 @@ public partial class BuildContext : ComputingContextBase
 {
     public partial IncrementalValuesProvider<SourceFile> SourceFiles { get; }
 
-    public BuildContext(IServiceProvider services) : base()
-    {
-        Initialize();
-    }
-
-    partial void InitializeComputationNodes();
 }
 
 // Usage
@@ -236,17 +216,13 @@ public partial class ParserContext : ComputingContextBase
     // User-managed derived value (has setter = you manage it)
     public partial IncrementalValuesProvider<SyntaxTree> ParsedFiles { get; set; }
 
-    public ParserContext(IServiceProvider services) : base()
+    public ParserContext()
     {
-        Initialize();
-
         // Create transformation pipeline
         ParsedFiles = SourceFiles
             .Select(file => Parse(file))
             .Where(tree => tree.HasErrors == false);
     }
-
-    partial void InitializeComputationNodes();
 
     private SyntaxTree Parse(SourceFile file)
     {
@@ -333,13 +309,11 @@ public partial class IncrementalParser : ComputingContextBase
     public partial IncrementalValuesProvider<SourceFile> Files { get; }
     public partial IncrementalValuesProvider<SyntaxTree> Trees { get; set; }
 
-    public IncrementalParser(IServiceProvider services) : base()
+    public IncrementalParser()
     {
-        Initialize();
         Trees = Files.Select(file => Parse(file)); // Cached per file
     }
 
-    partial void InitializeComputationNodes();
 
     private SyntaxTree Parse(SourceFile file)
     {
@@ -409,10 +383,8 @@ public partial class WatchedContext : ComputingContextBase
 {
     public partial IncrementalValuesProvider<SourceFile> Files { get; }
 
-    public WatchedContext(IServiceProvider services) : base()
+    public WatchedContext()
     {
-        Initialize();
-
         // Register output handler
         RegisterOutput(Files, (files, ctx) =>
         {
@@ -424,7 +396,6 @@ public partial class WatchedContext : ComputingContextBase
         });
     }
 
-    partial void InitializeComputationNodes();
 }
 
 // Output handler is called after SaveChanges()
@@ -449,15 +420,12 @@ public partial class SmartCache : ComputingContextBase
 {
     public partial IncrementalValuesProvider<Document> Documents { get; }
 
-    public SmartCache(IServiceProvider services) : base()
+    public SmartCache()
     {
-        Initialize();
-
         // Use custom comparer (e.g., by ID only)
         Documents.WithComparer(new DocumentIdComparer());
     }
 
-    partial void InitializeComputationNodes();
 }
 
 class DocumentIdComparer : IEqualityComparer<Document>
@@ -486,10 +454,8 @@ public partial IncrementalValueProvider<string> Computed { get; set; }
 ```
 
 ```csharp
-public MyContext(IServiceProvider services) : base()
+public MyContext()
 {
-    Initialize();
-
     // You wire up user-managed properties
     Computed = Input.Select(x => x.ToUpper());
 }
@@ -505,17 +471,14 @@ public partial class FileWatcherContext : ComputingContextBase
 {
     public partial IncrementalValuesProvider<TrackedFile> Files { get; }
 
-    public FileWatcherContext(IServiceProvider services) : base()
+    public FileWatcherContext()
     {
-        Initialize();
-
         RegisterOutput(Files, (files, ctx) =>
         {
             Console.WriteLine($"Tracking {files.Count()} files");
         });
     }
 
-    partial void InitializeComputationNodes();
 }
 
 // Usage
@@ -541,10 +504,8 @@ public partial class BuildContext : ComputingContextBase
     public partial IncrementalValuesProvider<CompiledUnit> Compiled { get; set; }
     public partial IncrementalValueProvider<BuildResult> Result { get; set; }
 
-    public BuildContext(IServiceProvider services) : base()
+    public BuildContext()
     {
-        Initialize();
-
         // Build pipeline
         Compiled = Sources
             .Select(source => Compile(source))
@@ -555,7 +516,6 @@ public partial class BuildContext : ComputingContextBase
             .Select(units => Link(units));
     }
 
-    partial void InitializeComputationNodes();
 
     private CompiledUnit Compile(SourceFile source) { /* ... */ }
     private BuildResult Link(IEnumerable<CompiledUnit> units) { /* ... */ }
@@ -584,10 +544,8 @@ public partial class CompilerContext : ComputingContextBase
     public partial IncrementalValuesProvider<SyntaxTree> SyntaxTrees { get; set; }
     public partial IncrementalValuesProvider<Diagnostic> Diagnostics { get; set; }
 
-    public CompilerContext(IServiceProvider services) : base()
+    public CompilerContext()
     {
-        Initialize();
-
         // Parse files (incremental - cached per file)
         SyntaxTrees = SourceFiles.Select(file => Parse(file));
 
@@ -604,7 +562,6 @@ public partial class CompilerContext : ComputingContextBase
         });
     }
 
-    partial void InitializeComputationNodes();
 
     private SyntaxTree Parse(SourceFile file)
     {

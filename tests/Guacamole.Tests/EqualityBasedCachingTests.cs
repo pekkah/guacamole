@@ -20,12 +20,6 @@ public partial class EqualityBasedCachingTests
 
         public int ComputeCount => _computeCount;
 
-        public EqualityTestContext(System.IServiceProvider services) : base()
-        {
-            Initialize();
-        }
-
-        partial void InitializeComputationNodes();
 
         // Override to track computations
         public void IncrementComputeCount() => _computeCount++;
@@ -36,12 +30,6 @@ public partial class EqualityBasedCachingTests
     {
         public partial IncrementalValuesProvider<string> Items { get; }
 
-        public EqualityTestCollectionContext(System.IServiceProvider services) : base()
-        {
-            Initialize();
-        }
-
-        partial void InitializeComputationNodes();
     }
 
     private static System.IServiceProvider CreateServices()
@@ -55,7 +43,7 @@ public partial class EqualityBasedCachingTests
     {
         // Arrange
         var services = CreateServices();
-        var context = new EqualityTestContext(services);
+        var context = new EqualityTestContext();
         int handlerCallCount = 0;
 
         context.SetName("Alice");
@@ -84,7 +72,7 @@ public partial class EqualityBasedCachingTests
     {
         // Arrange
         var services = CreateServices();
-        var context = new EqualityTestContext(services);
+        var context = new EqualityTestContext();
         int handlerCallCount = 0;
         string? lastValue = null;
 
@@ -112,7 +100,7 @@ public partial class EqualityBasedCachingTests
     {
         // Arrange
         var services = CreateServices();
-        var context = new EqualityTestContext(services);
+        var context = new EqualityTestContext();
         int handlerCallCount = 0;
 
         context.SetName("Alice");
@@ -146,7 +134,7 @@ public partial class EqualityBasedCachingTests
     {
         // Arrange
         var services = CreateServices();
-        var context = new EqualityTestCollectionContext(services);
+        var context = new EqualityTestCollectionContext();
         int handlerCallCount = 0;
 
         context.AddItems("Alice");
@@ -174,7 +162,7 @@ public partial class EqualityBasedCachingTests
     {
         // Arrange
         var services = CreateServices();
-        var context = new EqualityTestCollectionContext(services);
+        var context = new EqualityTestCollectionContext();
         int handlerCallCount = 0;
 
         context.AddItems("Alice");
@@ -198,7 +186,7 @@ public partial class EqualityBasedCachingTests
     {
         // Arrange
         var services = CreateServices();
-        var context = new EqualityTestCollectionContext(services);
+        var context = new EqualityTestCollectionContext();
         int handlerCallCount = 0;
 
         context.AddItems("Alice");
@@ -224,7 +212,7 @@ public partial class EqualityBasedCachingTests
         // Arrange - For Replace, even same value causes invalidation
         // because Replace is structural change (remove + add)
         var services = CreateServices();
-        var context = new EqualityTestCollectionContext(services);
+        var context = new EqualityTestCollectionContext();
         int handlerCallCount = 0;
 
         context.AddItems("Alice");

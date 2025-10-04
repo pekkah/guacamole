@@ -47,12 +47,6 @@ public partial class EqualityBasedComplexObjectCachingTests
     {
         public partial IncrementalValueProvider<PersonRecord> Person { get; }
 
-        public ComplexObjectContext(System.IServiceProvider services) : base()
-        {
-            Initialize();
-        }
-
-        partial void InitializeComputationNodes();
     }
 
     [ComputingContext]
@@ -60,12 +54,6 @@ public partial class EqualityBasedComplexObjectCachingTests
     {
         public partial IncrementalValuesProvider<PersonRecord> People { get; }
 
-        public ComplexCollectionContext(System.IServiceProvider services) : base()
-        {
-            Initialize();
-        }
-
-        partial void InitializeComputationNodes();
     }
 
     private static System.IServiceProvider CreateServices()
@@ -79,7 +67,7 @@ public partial class EqualityBasedComplexObjectCachingTests
     {
         // Arrange
         var services = CreateServices();
-        var context = new ComplexObjectContext(services);
+        var context = new ComplexObjectContext();
         int handlerCallCount = 0;
 
         context.RegisterOutput(context.Person, (person, ctx) =>
@@ -104,7 +92,7 @@ public partial class EqualityBasedComplexObjectCachingTests
     {
         // Arrange
         var services = CreateServices();
-        var context = new ComplexObjectContext(services);
+        var context = new ComplexObjectContext();
         int handlerCallCount = 0;
         string? lastName = null;
 
@@ -138,7 +126,7 @@ public partial class EqualityBasedComplexObjectCachingTests
     {
         // Arrange
         var services = CreateServices();
-        var context = new ComplexCollectionContext(services);
+        var context = new ComplexCollectionContext();
         int handlerCallCount = 0;
         string[]? lastNames = null;
 
@@ -174,7 +162,7 @@ public partial class EqualityBasedComplexObjectCachingTests
     {
         // Arrange
         var services = CreateServices();
-        var context = new ComplexCollectionContext(services);
+        var context = new ComplexCollectionContext();
         int handlerCallCount = 0;
 
         // Filter people over 30
