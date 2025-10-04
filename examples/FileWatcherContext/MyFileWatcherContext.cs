@@ -24,10 +24,4 @@ public partial class MyFileWatcherContext : ComputingContextBase
 
     public partial IncrementalValuesProvider<TrackedFile> Files { get; }
 
-    public MyFileWatcherContext(IServiceProvider services) : base()
-    {
-        InitializeComputationNodes();
-    }
-
-    partial void InitializeComputationNodes();
 }

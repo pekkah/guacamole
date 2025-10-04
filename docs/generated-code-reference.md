@@ -27,15 +27,12 @@ public partial class CompilerContext : ComputingContextBase
     // Derived computation (has setter) - no mutation methods (user-managed)
     public partial IncrementalValuesProvider<SyntaxTree> ParsedTrees { get; set; }
 
-    public CompilerContext(IServiceProvider services) : base()
+    public CompilerContext()
     {
-        InitializeComputationNodes();
-
         // Configure derived computations
+        // No initialization needed - nodes are lazy-initialized on first access!
         ParsedTrees = SourceFiles.Select(file => Parse(file));
     }
-
-    partial void InitializeComputationNodes();
 }
 ```
 
@@ -250,11 +247,35 @@ public void DiscardChanges()
 }
 ```
 
-### 6. Property Implementations
+### 6. Property Implementations with Lazy Initialization
 
-For **get-only properties** (auto-managed):
+For **get-only properties** (auto-managed), fully lazy-initialized implementation:
 
 ```csharp
+// Lazy node field with thread-safe initialization
+private SourceFilesNode? _SourceFilesNode;
+private readonly object _SourceFilesNodeLock = new object();
+
+private SourceFilesNode SourceFilesNodeLazy
+{
+    get
+    {
+        if (_SourceFilesNode == null)
+        {
+            lock (_SourceFilesNodeLock)
+            {
+                if (_SourceFilesNode == null)
+                {
+                    _SourceFilesNode = new SourceFilesNode(this);
+                    Graph = Graph.AddNode(_SourceFilesNode);
+                }
+            }
+        }
+        return _SourceFilesNode;
+    }
+}
+
+// Provider field and property
 private IncrementalValuesProvider<SourceFile> _SourceFilesProvider;
 
 public partial IncrementalValuesProvider<SourceFile> SourceFiles
@@ -264,7 +285,7 @@ public partial IncrementalValuesProvider<SourceFile> SourceFiles
         if (_SourceFilesProvider.Node == null)
         {
             _SourceFilesProvider = new IncrementalValuesProvider<SourceFile>(
-                _SourceFilesNode,
+                SourceFilesNodeLazy,  // Uses lazy accessor - initializes on first access!
                 Graph,
                 new ProviderMetadata(TrackingName: "SourceFiles"));
         }
@@ -273,20 +294,13 @@ public partial IncrementalValuesProvider<SourceFile> SourceFiles
 }
 ```
 
+**Key Benefits:**
+- ✅ **Zero boilerplate** - No `Initialize()` or `InitializeComputationNodes()` needed
+- ✅ **Thread-safe** - Double-checked locking pattern
+- ✅ **Lazy** - Nodes only created when properties are first accessed
+- ✅ **Automatic** - Graph registration happens transparently
+
 For **properties with setters** (user-managed), no implementation is generated - you provide the backing field and logic yourself.
-
-### 7. Node Registration
-
-```csharp
-partial void InitializeNodes()
-{
-    _SourceFilesNode = new SourceFilesNode(this);
-    Graph = Graph.AddNode(_SourceFilesNode);
-
-    _ProjectNode = new ProjectNode(this);
-    Graph = Graph.AddNode(_ProjectNode);
-}
-```
 
 ## Performance Characteristics
 

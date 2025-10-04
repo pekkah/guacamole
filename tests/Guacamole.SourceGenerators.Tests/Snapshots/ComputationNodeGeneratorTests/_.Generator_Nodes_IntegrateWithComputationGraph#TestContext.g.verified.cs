@@ -156,21 +156,54 @@ namespace Test
 
 
         // ========================================
-        // Computation Node Fields
+        // Computation Node Fields (lazy-initialized)
         // ========================================
-    private CountNode _CountNode = null!;
-    private ItemsNode _ItemsNode = null!;
+    private CountNode? _CountNode;
+    private readonly object _CountNodeLock = new object();
+    private ItemsNode? _ItemsNode;
+    private readonly object _ItemsNodeLock = new object();
 
         // ========================================
-        // Node Initialization (called from user's constructor)
+        // Computation Node Lazy Accessors
         // ========================================
-        partial void InitializeComputationNodes()
+
+    private CountNode CountNodeLazy
+    {
+        get
         {
-        _CountNode = new CountNode(this);
-        Graph = Graph.AddNode(_CountNode);
-        _ItemsNode = new ItemsNode(this);
-        Graph = Graph.AddNode(_ItemsNode);
+            if (_CountNode == null)
+            {
+                lock (_CountNodeLock)
+                {
+                    if (_CountNode == null)
+                    {
+                        _CountNode = new CountNode(this);
+                        Graph = Graph.AddNode(_CountNode);
+                    }
+                }
+            }
+            return _CountNode;
         }
+    }
+
+    private ItemsNode ItemsNodeLazy
+    {
+        get
+        {
+            if (_ItemsNode == null)
+            {
+                lock (_ItemsNodeLock)
+                {
+                    if (_ItemsNode == null)
+                    {
+                        _ItemsNode = new ItemsNode(this);
+                        Graph = Graph.AddNode(_ItemsNode);
+                    }
+                }
+            }
+            return _ItemsNode;
+        }
+    }
 
         // ========================================
         // Property Implementations
@@ -189,7 +222,7 @@ namespace Test
             if (_CountProvider.Node == null)
             {
                 _CountProvider = new Guacamole.Core.Providers.IncrementalValueProvider<int>(
-                    _CountNode,
+                    CountNodeLazy,
                     Graph,
                     new Guacamole.Core.Diagnostics.ProviderMetadata(TrackingName: "Count"));
             }
@@ -211,7 +244,7 @@ namespace Test
             if (_ItemsProvider.Node == null)
             {
                 _ItemsProvider = new Guacamole.Core.Providers.IncrementalValuesProvider<string>(
-                    _ItemsNode,
+                    ItemsNodeLazy,
                     Graph,
                     new Guacamole.Core.Diagnostics.ProviderMetadata(TrackingName: "Items"));
             }
@@ -420,7 +453,7 @@ namespace Test
                     if (!System.Collections.Generic.EqualityComparer<int>.Default.Equals(_currentCount, set.Value))
                     {
                         _currentCount = set.Value;
-                        InvalidateNodeCache(_CountNode.Id);
+                        InvalidateNodeCache(CountNodeLazy.Id);
                     }
                 }
             }
@@ -453,7 +486,7 @@ namespace Test
                 // Only invalidate if collection actually changed
                 if (collectionChanged)
                 {
-                    InvalidateNodeCache(_ItemsNode.Id);
+                    InvalidateNodeCache(ItemsNodeLazy.Id);
                 }
             }
 

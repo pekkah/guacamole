@@ -91,18 +91,33 @@ namespace Test
 
 
         // ========================================
-        // Computation Node Fields
+        // Computation Node Fields (lazy-initialized)
         // ========================================
-    private ItemsNode _ItemsNode = null!;
+    private ItemsNode? _ItemsNode;
+    private readonly object _ItemsNodeLock = new object();
 
         // ========================================
-        // Node Initialization (called from user's constructor)
+        // Computation Node Lazy Accessors
         // ========================================
-        partial void InitializeComputationNodes()
+
+    private ItemsNode ItemsNodeLazy
+    {
+        get
         {
-        _ItemsNode = new ItemsNode(this);
-        Graph = Graph.AddNode(_ItemsNode);
+            if (_ItemsNode == null)
+            {
+                lock (_ItemsNodeLock)
+                {
+                    if (_ItemsNode == null)
+                    {
+                        _ItemsNode = new ItemsNode(this);
+                        Graph = Graph.AddNode(_ItemsNode);
+                    }
+                }
+            }
+            return _ItemsNode;
         }
+    }
 
         // ========================================
         // Property Implementations
@@ -121,7 +136,7 @@ namespace Test
             if (_ItemsProvider.Node == null)
             {
                 _ItemsProvider = new Guacamole.Core.Providers.IncrementalValuesProvider<string>(
-                    _ItemsNode,
+                    ItemsNodeLazy,
                     Graph,
                     new Guacamole.Core.Diagnostics.ProviderMetadata(TrackingName: "Items"));
             }
@@ -326,7 +341,7 @@ namespace Test
                 // Only invalidate if collection actually changed
                 if (collectionChanged)
                 {
-                    InvalidateNodeCache(_ItemsNode.Id);
+                    InvalidateNodeCache(ItemsNodeLazy.Id);
                 }
             }
 

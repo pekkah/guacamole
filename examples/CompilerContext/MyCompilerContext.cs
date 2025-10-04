@@ -17,10 +17,4 @@ public partial class MyCompilerContext : ComputingContextBase
 
     public partial IncrementalValuesProvider<SourceFile> SourceFiles { get; }
 
-    public MyCompilerContext(IServiceProvider services) : base()
-    {
-        InitializeComputationNodes();
-    }
-
-    partial void InitializeComputationNodes();
 }

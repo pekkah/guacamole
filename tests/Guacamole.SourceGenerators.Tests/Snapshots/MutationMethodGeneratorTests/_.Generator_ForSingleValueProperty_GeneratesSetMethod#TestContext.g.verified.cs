@@ -84,18 +84,33 @@ namespace Test
 
 
         // ========================================
-        // Computation Node Fields
+        // Computation Node Fields (lazy-initialized)
         // ========================================
-    private CountNode _CountNode = null!;
+    private CountNode? _CountNode;
+    private readonly object _CountNodeLock = new object();
 
         // ========================================
-        // Node Initialization (called from user's constructor)
+        // Computation Node Lazy Accessors
         // ========================================
-        partial void InitializeComputationNodes()
+
+    private CountNode CountNodeLazy
+    {
+        get
         {
-        _CountNode = new CountNode(this);
-        Graph = Graph.AddNode(_CountNode);
+            if (_CountNode == null)
+            {
+                lock (_CountNodeLock)
+                {
+                    if (_CountNode == null)
+                    {
+                        _CountNode = new CountNode(this);
+                        Graph = Graph.AddNode(_CountNode);
+                    }
+                }
+            }
+            return _CountNode;
         }
+    }
 
         // ========================================
         // Property Implementations
@@ -114,7 +129,7 @@ namespace Test
             if (_CountProvider.Node == null)
             {
                 _CountProvider = new Guacamole.Core.Providers.IncrementalValueProvider<int>(
-                    _CountNode,
+                    CountNodeLazy,
                     Graph,
                     new Guacamole.Core.Diagnostics.ProviderMetadata(TrackingName: "Count"));
             }
@@ -182,7 +197,7 @@ namespace Test
                     if (!System.Collections.Generic.EqualityComparer<int>.Default.Equals(_currentCount, set.Value))
                     {
                         _currentCount = set.Value;
-                        InvalidateNodeCache(_CountNode.Id);
+                        InvalidateNodeCache(CountNodeLazy.Id);
                     }
                 }
             }

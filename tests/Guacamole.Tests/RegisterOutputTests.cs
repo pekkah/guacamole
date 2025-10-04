@@ -21,12 +21,6 @@ public partial class RegisterOutputTests
     {
         public partial IncrementalValueProvider<string> Name { get; }
 
-        public TestContextWithValue(IServiceProvider services) : base()
-        {
-            InitializeComputationNodes();
-        }
-
-        partial void InitializeComputationNodes();
     }
 
     /// <summary>
@@ -37,12 +31,6 @@ public partial class RegisterOutputTests
     {
         public partial IncrementalValuesProvider<string> Items { get; }
 
-        public TestContextWithCollection(IServiceProvider services) : base()
-        {
-            InitializeComputationNodes();
-        }
-
-        partial void InitializeComputationNodes();
     }
 
     [Fact]
@@ -50,7 +38,7 @@ public partial class RegisterOutputTests
     {
         // Arrange
         var services = new ServiceCollection().BuildServiceProvider();
-        var context = new TestContextWithValue(services);
+        var context = new TestContextWithValue();
 
         string? capturedValue = null;
         TestContextWithValue? capturedContext = null;
@@ -76,7 +64,7 @@ public partial class RegisterOutputTests
     {
         // Arrange
         var services = new ServiceCollection().BuildServiceProvider();
-        var context = new TestContextWithValue(services);
+        var context = new TestContextWithValue();
 
         var callCount = 0;
         var capturedValues = new List<string>();
@@ -107,7 +95,7 @@ public partial class RegisterOutputTests
     {
         // Arrange
         var services = new ServiceCollection().BuildServiceProvider();
-        var context = new TestContextWithCollection(services);
+        var context = new TestContextWithCollection();
 
         IEnumerable<string>? capturedItems = null;
 
@@ -132,7 +120,7 @@ public partial class RegisterOutputTests
     {
         // Arrange
         var services = new ServiceCollection().BuildServiceProvider();
-        var context = new TestContextWithValue(services);
+        var context = new TestContextWithValue();
 
         var handler1Called = false;
         var handler2Called = false;
@@ -157,7 +145,7 @@ public partial class RegisterOutputTests
     {
         // Arrange
         var services = new ServiceCollection().BuildServiceProvider();
-        var context = new TestContextWithValue(services);
+        var context = new TestContextWithValue();
 
         string? capturedValue = null;
 
@@ -182,7 +170,7 @@ public partial class RegisterOutputTests
     {
         // Arrange
         var services = new ServiceCollection().BuildServiceProvider();
-        var context = new TestContextWithValue(services);
+        var context = new TestContextWithValue();
 
         var handlerCalled = false;
 
@@ -203,7 +191,7 @@ public partial class RegisterOutputTests
     {
         // Arrange
         var services = new ServiceCollection().BuildServiceProvider();
-        var context = new TestContextWithValue(services);
+        var context = new TestContextWithValue();
 
         var callCount = 0;
         var capturedValues = new List<string>();
@@ -234,7 +222,7 @@ public partial class RegisterOutputTests
     {
         // Arrange
         var services = new ServiceCollection().BuildServiceProvider();
-        var context = new TestContextWithCollection(services);
+        var context = new TestContextWithCollection();
 
         var capturedSnapshots = new List<string[]>();
 

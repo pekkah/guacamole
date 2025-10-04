@@ -19,7 +19,7 @@ namespace Guacamole;
 /// - Disposal state management
 /// All context-specific functionality (mutation methods, change tracking, SaveChanges) is generated at compile time.
 /// </remarks>
-public abstract class ComputingContextBase : IDisposable
+public abstract partial class ComputingContextBase : IDisposable
 {
     private bool _disposed;
     private readonly List<IOutputRegistration> _outputRegistrations = new();
