@@ -121,6 +121,8 @@ public class ComputingContextGenerator : IIncrementalGenerator
         var mutationMethods = string.Join("\n", analysisResult.InputProperties.Select(p => CodeGenerators.MutationMethodGenerator.Generate(p, className)));
         var saveChangesMethods = CodeGenerators.SaveChangesGenerator.Generate(analysisResult.InputProperties);
 
+        // Generate implementations only for input properties (get-only, auto-managed)
+        // Derived properties (with setters) are user-managed and don't get generated implementations
         var propertyImplementations = string.Join("\n", analysisResult.InputProperties.Select(CodeGenerators.PropertyGenerator.Generate));
 
         // Generate cache invalidation helper method

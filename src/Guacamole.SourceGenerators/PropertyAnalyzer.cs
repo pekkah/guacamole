@@ -28,18 +28,20 @@ internal static class PropertyAnalyzer
             if (!SymbolEqualityComparer.Default.Equals(property.ContainingType, classSymbol))
                 continue;
 
-            // Only process partial properties (C# 13 feature)
-            // Partial properties have IsPartialDefinition = true for the defining declaration
+            // Only process partial properties (C# 13 feature) for auto-managed (get-only) properties
+            // Properties with setters are user-managed and should NOT be partial
+            var hasSetter = property.SetMethod != null;
+
             if (!property.IsPartialDefinition)
             {
-                // Non-partial properties should produce a diagnostic
-                if (IsIncrementalProvider(property.Type))
+                // Non-partial properties are only an error if they're get-only (should be auto-managed)
+                if (IsIncrementalProvider(property.Type) && !hasSetter)
                 {
                     var diagnostic = Diagnostic.Create(
                         new DiagnosticDescriptor(
                             "GUAC0003",
                             "IncrementalProvider property must be partial",
-                            "Property '{0}' in context '{1}' must be declared as partial. Use 'public partial IncrementalValueProvider<T> {0} {{ get; set; }}'",
+                            "Get-only property '{0}' in context '{1}' must be declared as partial for auto-management. Use 'public partial IncrementalValueProvider<T> {0} {{ get; }}'",
                             "Guacamole.SourceGenerator",
                             DiagnosticSeverity.Error,
                             isEnabledByDefault: true),
@@ -47,6 +49,20 @@ internal static class PropertyAnalyzer
                         property.Name,
                         classSymbol.Name);
                     diagnostics.Add(diagnostic);
+                }
+
+                // Skip non-partial properties - they're user-managed if they have setters
+                if (hasSetter && IsIncrementalProvider(property.Type))
+                {
+                    // User-managed property with setter - add to derived properties for diagnostics only
+                    var userManagedType = property.Type;
+                    var propertyInfo = new PropertyInfo(
+                        property.Name,
+                        userManagedType.Name,
+                        GetGenericTypeArgument(userManagedType),
+                        true,
+                        IsCollectionProvider(userManagedType));
+                    derivedProperties.Add(propertyInfo);
                 }
                 continue;
             }
@@ -56,22 +72,33 @@ internal static class PropertyAnalyzer
             if (!IsIncrementalProvider(propertyType))
                 continue;
 
-            var propertyInfo = new PropertyInfo(
-                property.Name,
-                propertyType.Name,
-                GetGenericTypeArgument(propertyType),
-                property.SetMethod != null,
-                IsCollectionProvider(propertyType));
-
-            // REVERSED LOGIC: Get-only properties are now auto-managed (input sources)
-            // Properties with setters are user-managed (derived/manual)
+            // Only partial get-only properties should be in inputProperties (auto-managed)
+            // Partial properties with setters should not be generated
             if (property.SetMethod == null)
             {
+                var propertyInfo = new PropertyInfo(
+                    property.Name,
+                    propertyType.Name,
+                    GetGenericTypeArgument(propertyType),
+                    false,
+                    IsCollectionProvider(propertyType));
                 inputProperties.Add(propertyInfo);
             }
             else
             {
-                derivedProperties.Add(propertyInfo);
+                // Partial property with setter is an error - setters mean user-managed, which shouldn't be partial
+                var diagnostic = Diagnostic.Create(
+                    new DiagnosticDescriptor(
+                        "GUAC0005",
+                        "User-managed property should not be partial",
+                        "Property '{0}' in context '{1}' has a setter and should not be declared as partial. User-managed properties (with setters) should be declared normally: 'public IncrementalValueProvider<T> {0} {{ get; set; }}'",
+                        "Guacamole.SourceGenerator",
+                        DiagnosticSeverity.Error,
+                        isEnabledByDefault: true),
+                    Location.None,
+                    property.Name,
+                    classSymbol.Name);
+                diagnostics.Add(diagnostic);
             }
         }
 
