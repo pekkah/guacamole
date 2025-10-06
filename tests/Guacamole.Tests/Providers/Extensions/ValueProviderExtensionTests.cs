@@ -4,8 +4,7 @@ using Guacamole.Core.Common;
 using Guacamole.Core.Diagnostics;
 using Guacamole.Core.Nodes;
 using Guacamole.Core.Pipeline;
-using Guacamole.Core.Providers;
-using Guacamole.Core.Providers.Extensions;
+using Guacamole;
 using Xunit;
 
 namespace Guacamole.Core.Tests.Providers.Extensions;

@@ -3,7 +3,7 @@ using Guacamole.Core.Common;
 using Guacamole.Core.Diagnostics;
 using Guacamole.Core.Pipeline;
 
-namespace Guacamole.Core.Providers.Extensions;
+namespace Guacamole;
 
 // NodeIdGenerator is defined in IncrementalValueProviderExtensions.cs and shared across both files
 

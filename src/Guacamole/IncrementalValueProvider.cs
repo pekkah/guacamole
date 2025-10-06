@@ -3,7 +3,7 @@ using Guacamole.Core.Common;
 using Guacamole.Core.Diagnostics;
 using Guacamole.Core.Pipeline;
 
-namespace Guacamole.Core.Providers;
+namespace Guacamole;
 
 /// <summary>
 /// Immutable structure representing a single value in a transformation pipeline

@@ -10,7 +10,6 @@ public class ChangeTypeGeneratorTests
     {
         var source = """
             using Guacamole;
-            using Guacamole.Core.Providers;
             using System;
 
             namespace Test
@@ -35,9 +34,6 @@ public class ChangeTypeGeneratorTests
     public Task Generator_ForSingleValueProperty_GeneratesStronglyTypedChangeRecords()
     {
         var source = """
-            using Guacamole;
-            using Guacamole.Core.Providers;
-            using System;
 
             namespace Test
             {

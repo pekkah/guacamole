@@ -1,6 +1,5 @@
 using System;
 using Guacamole;
-using Guacamole.Core.Providers;
 
 namespace CompilerContext;
 

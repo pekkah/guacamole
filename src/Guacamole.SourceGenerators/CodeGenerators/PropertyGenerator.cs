@@ -36,10 +36,10 @@ internal static class PropertyGenerator
                     /// Implementing declaration for partial property {{propertyName}}.
                     /// Auto-managed by framework (get-only = automatic mutation methods).
                     /// </summary>
-                    private Guacamole.Core.Providers.IncrementalValuesProvider<{{itemType}}> _{{propertyName}}Provider;
+                    private Guacamole.IncrementalValuesProvider<{{itemType}}> _{{propertyName}}Provider;
                     private readonly object _{{propertyName}}ProviderLock = new object();
 
-                    public partial Guacamole.Core.Providers.IncrementalValuesProvider<{{itemType}}> {{propertyName}}
+                    public partial Guacamole.IncrementalValuesProvider<{{itemType}}> {{propertyName}}
                     {
                         get
                         {
@@ -49,7 +49,7 @@ internal static class PropertyGenerator
                                 {
                                     if (_{{propertyName}}Provider.Node == null)
                                     {
-                                        _{{propertyName}}Provider = new Guacamole.Core.Providers.IncrementalValuesProvider<{{itemType}}>(
+                                        _{{propertyName}}Provider = new Guacamole.IncrementalValuesProvider<{{itemType}}>(
                                             {{propertyName}}NodeLazy,
                                             Graph,
                                             new Guacamole.Core.Diagnostics.ProviderMetadata(TrackingName: "{{propertyName}}"));
@@ -72,9 +72,9 @@ internal static class PropertyGenerator
                     /// Implementing declaration for partial user-managed property {{propertyName}}.
                     /// Must be initialized by user code (has setter = manual management).
                     /// </summary>
-                    private Guacamole.Core.Providers.IncrementalValuesProvider<{{itemType}}> _{{propertyName}}Field;
+                    private Guacamole.IncrementalValuesProvider<{{itemType}}> _{{propertyName}}Field;
 
-                    public partial Guacamole.Core.Providers.IncrementalValuesProvider<{{itemType}}> {{propertyName}}
+                    public partial Guacamole.IncrementalValuesProvider<{{itemType}}> {{propertyName}}
                     {
                         get
                         {
@@ -110,10 +110,10 @@ internal static class PropertyGenerator
                     /// Implementing declaration for partial property {{propertyName}}.
                     /// Auto-managed by framework (get-only = automatic mutation methods).
                     /// </summary>
-                    private Guacamole.Core.Providers.IncrementalValueProvider<{{itemType}}> _{{propertyName}}Provider;
+                    private Guacamole.IncrementalValueProvider<{{itemType}}> _{{propertyName}}Provider;
                     private readonly object _{{propertyName}}ProviderLock = new object();
 
-                    public partial Guacamole.Core.Providers.IncrementalValueProvider<{{itemType}}> {{propertyName}}
+                    public partial Guacamole.IncrementalValueProvider<{{itemType}}> {{propertyName}}
                     {
                         get
                         {
@@ -123,7 +123,7 @@ internal static class PropertyGenerator
                                 {
                                     if (_{{propertyName}}Provider.Node == null)
                                     {
-                                        _{{propertyName}}Provider = new Guacamole.Core.Providers.IncrementalValueProvider<{{itemType}}>(
+                                        _{{propertyName}}Provider = new Guacamole.IncrementalValueProvider<{{itemType}}>(
                                             {{propertyName}}NodeLazy,
                                             Graph,
                                             new Guacamole.Core.Diagnostics.ProviderMetadata(TrackingName: "{{propertyName}}"));
@@ -145,9 +145,9 @@ internal static class PropertyGenerator
                     /// Implementing declaration for partial user-managed property {{propertyName}}.
                     /// Must be initialized by user code (has setter = manual management).
                     /// </summary>
-                    private Guacamole.Core.Providers.IncrementalValueProvider<{{itemType}}> _{{propertyName}}Field;
+                    private Guacamole.IncrementalValueProvider<{{itemType}}> _{{propertyName}}Field;
 
-                    public partial Guacamole.Core.Providers.IncrementalValueProvider<{{itemType}}> {{propertyName}}
+                    public partial Guacamole.IncrementalValueProvider<{{itemType}}> {{propertyName}}
                     {
                         get
                         {

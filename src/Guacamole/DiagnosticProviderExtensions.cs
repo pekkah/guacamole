@@ -1,7 +1,7 @@
 using System.Runtime.CompilerServices;
 using Guacamole.Core.Diagnostics;
 
-namespace Guacamole.Core.Providers.Extensions;
+namespace Guacamole;
 
 /// <summary>
 /// Extension methods for adding diagnostic metadata to providers for debugging and monitoring.

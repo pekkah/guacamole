@@ -43,7 +43,7 @@ public static class TestHelper
             MetadataReference.CreateFromFile(System.IO.Path.Combine(systemRuntimePath, "System.Collections.Immutable.dll")),
             MetadataReference.CreateFromFile(typeof(ComputingContextAttribute).Assembly.Location),
             MetadataReference.CreateFromFile(typeof(ComputingContextBase).Assembly.Location),
-            MetadataReference.CreateFromFile(typeof(Guacamole.Core.Providers.IncrementalValueProvider<>).Assembly.Location),
+            MetadataReference.CreateFromFile(typeof(Guacamole.IncrementalValueProvider<>).Assembly.Location),
         };
 
         // Create compilation
@@ -78,7 +78,7 @@ public static class TestHelper
             MetadataReference.CreateFromFile(System.IO.Path.Combine(systemRuntimePath, "System.Collections.Immutable.dll")),
             MetadataReference.CreateFromFile(typeof(ComputingContextAttribute).Assembly.Location),
             MetadataReference.CreateFromFile(typeof(ComputingContextBase).Assembly.Location),
-            MetadataReference.CreateFromFile(typeof(Guacamole.Core.Providers.IncrementalValueProvider<>).Assembly.Location),
+            MetadataReference.CreateFromFile(typeof(Guacamole.IncrementalValueProvider<>).Assembly.Location),
         };
 
         // Create compilation

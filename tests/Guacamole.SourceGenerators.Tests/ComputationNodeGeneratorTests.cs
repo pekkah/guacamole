@@ -10,7 +10,6 @@ public class ComputationNodeGeneratorTests
     {
         var source = """
             using Guacamole;
-            using Guacamole.Core.Providers;
             using System;
 
             namespace Test
@@ -35,9 +34,6 @@ public class ComputationNodeGeneratorTests
     public Task Generator_Nodes_IntegrateWithComputationGraph()
     {
         var source = """
-            using Guacamole;
-            using Guacamole.Core.Providers;
-            using System;
 
             namespace Test
             {

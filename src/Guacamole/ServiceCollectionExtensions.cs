@@ -2,11 +2,11 @@ using System.Collections.Immutable;
 using Guacamole.Core.Caching;
 using Guacamole.Core.Diagnostics;
 using Guacamole.Core.Pipeline;
-using Guacamole.Core.Providers;
+
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 
-namespace Guacamole.Core.Extensions;
+namespace Guacamole;
 
 /// <summary>
 /// Extension methods for registering Guacamole core services with Microsoft.Extensions.DependencyInjection.

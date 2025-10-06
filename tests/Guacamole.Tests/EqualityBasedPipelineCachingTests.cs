@@ -1,6 +1,4 @@
 using Guacamole;
-using Guacamole.Core.Providers;
-using Guacamole.Core.Providers.Extensions;
 using Microsoft.Extensions.DependencyInjection;
 using Xunit;
 
