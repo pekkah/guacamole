@@ -127,10 +127,10 @@ namespace Test
     /// Implementing declaration for partial property Items.
     /// Auto-managed by framework (get-only = automatic mutation methods).
     /// </summary>
-    private Guacamole.Core.Providers.IncrementalValuesProvider<string> _ItemsProvider;
+    private Guacamole.IncrementalValuesProvider<string> _ItemsProvider;
     private readonly object _ItemsProviderLock = new object();
 
-    public partial Guacamole.Core.Providers.IncrementalValuesProvider<string> Items
+    public partial Guacamole.IncrementalValuesProvider<string> Items
     {
         get
         {
@@ -140,7 +140,7 @@ namespace Test
                 {
                     if (_ItemsProvider.Node == null)
                     {
-                        _ItemsProvider = new Guacamole.Core.Providers.IncrementalValuesProvider<string>(
+                        _ItemsProvider = new Guacamole.IncrementalValuesProvider<string>(
                             ItemsNodeLazy,
                             Graph,
                             new Guacamole.Core.Diagnostics.ProviderMetadata(TrackingName: "Items"));
