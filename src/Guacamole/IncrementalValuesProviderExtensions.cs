@@ -229,6 +229,62 @@ public static class IncrementalValuesProviderExtensions
 
         return new IncrementalValuesProvider<(TLeft, TRight)>(combineNode, left.Graph, finalMetadata);
     }
+
+    /// <summary>
+    /// Merges two values providers into a single provider containing all values from both collections.
+    /// This is a convenience method that combines Collect + Combine + SelectMany operations.
+    /// </summary>
+    /// <typeparam name="T">Value type</typeparam>
+    /// <param name="first">First values provider</param>
+    /// <param name="second">Second values provider</param>
+    /// <param name="metadata">Optional metadata for the new provider</param>
+    /// <returns>A new values provider with all values from both inputs</returns>
+    /// <remarks>
+    /// <para>
+    /// This method merges two separate value collections into one. The order is first collection followed by second collection.
+    /// </para>
+    /// <para>
+    /// <strong>Performance Note:</strong> This operation has overhead from collecting both providers into arrays
+    /// before merging. Each time either input changes, both collections are re-collected and concatenated.
+    /// For frequently changing inputs with large collections, consider alternative architectures.
+    /// </para>
+    /// <para>
+    /// <strong>Implementation:</strong>
+    /// Equivalent to: <c>first.Collect().Combine(second.Collect()).SelectMany(tuple => tuple.Item1.Concat(tuple.Item2))</c>
+    /// </para>
+    /// </remarks>
+    /// <example>
+    /// Merging diagnostics from multiple sources:
+    /// <code>
+    /// var syntaxDiagnostics = /* IncrementalValuesProvider&lt;Diagnostic&gt; from syntax analysis */;
+    /// var semanticDiagnostics = /* IncrementalValuesProvider&lt;Diagnostic&gt; from semantic analysis */;
+    ///
+    /// // Merge all diagnostics into a single provider
+    /// var allDiagnostics = syntaxDiagnostics.Merge(semanticDiagnostics);
+    ///
+    /// // Can chain multiple merges
+    /// var allIssues = syntaxDiagnostics
+    ///     .Merge(semanticDiagnostics)
+    ///     .Merge(validationDiagnostics);
+    /// </code>
+    /// </example>
+    public static IncrementalValuesProvider<T> Merge<T>(
+        this IncrementalValuesProvider<T> first,
+        IncrementalValuesProvider<T> second,
+        ProviderMetadata metadata = default)
+    {
+        // Collect both providers to immutable arrays
+        var firstCollected = first.Collect();
+        var secondCollected = second.Collect();
+
+        // Combine into a tuple
+        var combined = firstCollected.Combine(secondCollected);
+
+        // SelectMany to flatten both arrays into a single collection
+        return combined.SelectMany(
+            tuple => tuple.Item1.Concat(tuple.Item2),
+            metadata);
+    }
 }
 
 // Supporting node implementations for extensions

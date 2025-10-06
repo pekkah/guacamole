@@ -271,6 +271,97 @@ public class IncrementalValuesProviderTests
     }
 
     /// <summary>
+    /// FUNCTIONALITY: Test Merge combines two values providers into one
+    /// </summary>
+    [Fact]
+    public void IncrementalValuesProvider_Merge_ShouldCombineTwoCollections()
+    {
+        // Arrange
+        var first = new TestValuesNode<string>("first", ["A", "B"]);
+        var second = new TestValuesNode<string>("second", ["C", "D", "E"]);
+        var graph = new ComputationGraph();
+
+        var firstProvider = new IncrementalValuesProvider<string>(first, graph, default);
+        var secondProvider = new IncrementalValuesProvider<string>(second, graph, default);
+
+        // Act
+        var merged = firstProvider.Merge(secondProvider);
+        var cachedValues = new Dictionary<string, object>();
+        var context = new ComputationContext(cachedValues);
+        var result = merged.Node.Compute(context);
+
+        // Assert
+        Assert.True(result.IsSuccess);
+        var items = result.Value!.ToArray();
+        Assert.Equal(5, items.Length);
+        Assert.Equal("A", items[0]);
+        Assert.Equal("B", items[1]);
+        Assert.Equal("C", items[2]);
+        Assert.Equal("D", items[3]);
+        Assert.Equal("E", items[4]);
+    }
+
+    /// <summary>
+    /// FUNCTIONALITY: Test Merge with empty collections
+    /// </summary>
+    [Fact]
+    public void IncrementalValuesProvider_Merge_ShouldHandleEmptyCollections()
+    {
+        // Arrange
+        var first = new TestValuesNode<int>("first", [1, 2, 3]);
+        var second = new TestValuesNode<int>("second", Array.Empty<int>());
+        var graph = new ComputationGraph();
+
+        var firstProvider = new IncrementalValuesProvider<int>(first, graph, default);
+        var secondProvider = new IncrementalValuesProvider<int>(second, graph, default);
+
+        // Act
+        var merged = firstProvider.Merge(secondProvider);
+        var cachedValues = new Dictionary<string, object>();
+        var context = new ComputationContext(cachedValues);
+        var result = merged.Node.Compute(context);
+
+        // Assert
+        Assert.True(result.IsSuccess);
+        var items = result.Value!.ToArray();
+        Assert.Equal(3, items.Length);
+        Assert.Equal(1, items[0]);
+        Assert.Equal(2, items[1]);
+        Assert.Equal(3, items[2]);
+    }
+
+    /// <summary>
+    /// FUNCTIONALITY: Test Merge can be chained multiple times
+    /// </summary>
+    [Fact]
+    public void IncrementalValuesProvider_Merge_ShouldSupportChaining()
+    {
+        // Arrange
+        var p1 = new TestValuesNode<string>("p1", ["A"]);
+        var p2 = new TestValuesNode<string>("p2", ["B"]);
+        var p3 = new TestValuesNode<string>("p3", ["C"]);
+        var graph = new ComputationGraph();
+
+        var provider1 = new IncrementalValuesProvider<string>(p1, graph, default);
+        var provider2 = new IncrementalValuesProvider<string>(p2, graph, default);
+        var provider3 = new IncrementalValuesProvider<string>(p3, graph, default);
+
+        // Act - Chain multiple merges
+        var merged = provider1.Merge(provider2).Merge(provider3);
+        var cachedValues = new Dictionary<string, object>();
+        var context = new ComputationContext(cachedValues);
+        var result = merged.Node.Compute(context);
+
+        // Assert
+        Assert.True(result.IsSuccess);
+        var items = result.Value!.ToArray();
+        Assert.Equal(3, items.Length);
+        Assert.Equal("A", items[0]);
+        Assert.Equal("B", items[1]);
+        Assert.Equal("C", items[2]);
+    }
+
+    /// <summary>
     /// Helper method to create providers for testing
     /// </summary>
     private static IncrementalValuesProvider<T> CreateProvider<T>(string id, T[] values)
