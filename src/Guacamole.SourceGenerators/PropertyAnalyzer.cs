@@ -167,8 +167,8 @@ internal static class PropertyAnalyzer
             return false;
 
         var fullName = namedType.ConstructedFrom.ToDisplayString();
-        return fullName == "Guacamole.Core.Providers.IncrementalValueProvider<T>" ||
-               fullName == "Guacamole.Core.Providers.IncrementalValuesProvider<T>";
+        return fullName == "Guacamole.IncrementalValueProvider<T>" ||
+               fullName == "Guacamole.IncrementalValuesProvider<T>";
     }
 
     private static bool IsCollectionProvider(ITypeSymbol type)
@@ -177,7 +177,7 @@ internal static class PropertyAnalyzer
             return false;
 
         var fullName = namedType.ConstructedFrom.ToDisplayString();
-        return fullName == "Guacamole.Core.Providers.IncrementalValuesProvider<T>";
+        return fullName == "Guacamole.IncrementalValuesProvider<T>";
     }
 
     /// <summary>

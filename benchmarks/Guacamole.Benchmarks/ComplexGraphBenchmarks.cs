@@ -1,6 +1,6 @@
 using BenchmarkDotNet.Attributes;
 using Guacamole.Benchmarks.Infrastructure.TestScenarios;
-using Guacamole.Core.Providers;
+using Guacamole;
 
 namespace Guacamole.Benchmarks;
 

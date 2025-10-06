@@ -2,7 +2,7 @@ using System.Collections.Immutable;
 using Guacamole.Core.Common;
 using Guacamole.Core.Diagnostics;
 using Guacamole.Core.Pipeline;
-using Guacamole.Core.Providers;
+using Guacamole;
 using Xunit;
 
 namespace Guacamole.Core.Tests.Providers;

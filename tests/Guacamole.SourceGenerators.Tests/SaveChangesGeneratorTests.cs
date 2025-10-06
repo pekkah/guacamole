@@ -10,7 +10,6 @@ public class SaveChangesGeneratorTests
     {
         var source = """
             using Guacamole;
-            using Guacamole.Core.Providers;
             using System;
 
             namespace Test
@@ -35,9 +34,6 @@ public class SaveChangesGeneratorTests
     public Task Generator_SaveChanges_HandlesMultipleProperties()
     {
         var source = """
-            using Guacamole;
-            using Guacamole.Core.Providers;
-            using System;
 
             namespace Test
             {

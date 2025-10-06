@@ -5,7 +5,7 @@ using Guacamole.Core.Common;
 using Guacamole.Core.Diagnostics;
 using Guacamole.Core.Pipeline;
 
-namespace Guacamole.Core.Providers.Extensions;
+namespace Guacamole;
 
 /// <summary>
 /// Generates deterministic node IDs based on operation type and parent IDs.

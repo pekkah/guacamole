@@ -1,6 +1,5 @@
 using Guacamole.Core.Pipeline;
-using Guacamole.Core.Providers;
-using Guacamole.Core.Providers.Extensions;
+using Guacamole;
 using Guacamole.Core.Common;
 using Guacamole.Core.Nodes;
 using Guacamole.Core.Diagnostics;

@@ -3,7 +3,7 @@ using System.Collections.Generic;
 using System.Linq;
 using Microsoft.Extensions.DependencyInjection;
 using Xunit;
-using Guacamole.Core.Providers;
+using Guacamole;
 
 namespace Guacamole.Tests;
 

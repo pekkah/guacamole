@@ -10,7 +10,6 @@ public class ComputingContextGeneratorTests
     {
         var source = """
             using Guacamole;
-            using Guacamole.Core.Providers;
             using System;
 
             namespace Test
@@ -35,9 +34,6 @@ public class ComputingContextGeneratorTests
     public Task Generator_WithPropertyWithSetter_DoesNotGenerateMutationMethods()
     {
         var source = """
-            using Guacamole;
-            using Guacamole.Core.Providers;
-            using System;
 
             namespace Test
             {
@@ -61,8 +57,6 @@ public class ComputingContextGeneratorTests
     public Task Generator_WithNoProperties_GeneratesMinimalCode()
     {
         var source = """
-            using Guacamole;
-            using System;
 
             namespace Test
             {

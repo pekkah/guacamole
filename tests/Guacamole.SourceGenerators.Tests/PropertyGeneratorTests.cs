@@ -10,7 +10,6 @@ public class PropertyGeneratorTests
     {
         var source = """
             using Guacamole;
-            using Guacamole.Core.Providers;
             using System;
 
             namespace Test
@@ -35,9 +34,6 @@ public class PropertyGeneratorTests
     public Task Generator_Property_ConnectsToComputationNode()
     {
         var source = """
-            using Guacamole;
-            using Guacamole.Core.Providers;
-            using System;
 
             namespace Test
             {
