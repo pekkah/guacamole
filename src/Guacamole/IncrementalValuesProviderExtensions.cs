@@ -285,6 +285,100 @@ public static class IncrementalValuesProviderExtensions
             tuple => tuple.Item1.Concat(tuple.Item2),
             metadata);
     }
+
+    /// <summary>
+    /// Flattens a nested collection from a single value provider into a flat values provider.
+    /// Useful after operations that produce nested arrays, such as grouping or batching.
+    /// </summary>
+    /// <typeparam name="T">Element type</typeparam>
+    /// <param name="source">Source provider containing nested arrays</param>
+    /// <param name="metadata">Optional metadata for the new provider</param>
+    /// <returns>A new values provider with all nested values flattened into a single collection</returns>
+    /// <remarks>
+    /// <para>
+    /// This is a low-cost operation that uses SelectMany internally. It is fully incremental
+    /// and does not require collecting values into intermediate arrays.
+    /// </para>
+    /// <para>
+    /// <strong>Performance:</strong> Efficient and incremental-friendly. When the source changes,
+    /// only the affected nested array is re-flattened.
+    /// </para>
+    /// </remarks>
+    /// <example>
+    /// Flattening grouped results:
+    /// <code>
+    /// // After grouping operations that produce nested arrays
+    /// var grouped = /* IncrementalValueProvider&lt;ImmutableArray&lt;ImmutableArray&lt;File&gt;&gt;&gt; */;
+    ///
+    /// // Flatten back to individual files
+    /// var allFiles = grouped.Flatten();
+    /// // Result: IncrementalValuesProvider&lt;File&gt;
+    /// </code>
+    ///
+    /// Common after Collect operations on already-collected data:
+    /// <code>
+    /// var batches = filesPerFolder.Select(folder => folder.Files.Collect());
+    /// // batches is IncrementalValueProvider&lt;ImmutableArray&lt;ImmutableArray&lt;File&gt;&gt;&gt;
+    ///
+    /// var allFiles = batches.Flatten();
+    /// // allFiles is IncrementalValuesProvider&lt;File&gt;
+    /// </code>
+    /// </example>
+    public static IncrementalValuesProvider<T> Flatten<T>(
+        this IncrementalValueProvider<ImmutableArray<ImmutableArray<T>>> source,
+        ProviderMetadata metadata = default)
+    {
+        return source.SelectMany(
+            nestedArrays => nestedArrays.SelectMany(innerArray => innerArray),
+            metadata);
+    }
+
+    /// <summary>
+    /// Flattens a values provider where each value is itself a collection.
+    /// Transforms a collection of collections into a single flat collection.
+    /// </summary>
+    /// <typeparam name="T">Element type</typeparam>
+    /// <param name="source">Source provider where each value is a collection</param>
+    /// <param name="metadata">Optional metadata for the new provider</param>
+    /// <returns>A new values provider with all nested collections flattened</returns>
+    /// <remarks>
+    /// <para>
+    /// This is a low-cost operation that uses SelectMany internally. It is fully incremental
+    /// and processes each collection independently.
+    /// </para>
+    /// <para>
+    /// <strong>Performance:</strong> Efficient and incremental-friendly. Each nested collection
+    /// is flattened independently, so changes to one collection don't affect others.
+    /// </para>
+    /// </remarks>
+    /// <example>
+    /// Flattening files from multiple folders:
+    /// <code>
+    /// var folders = /* IncrementalValuesProvider&lt;Folder&gt; */;
+    ///
+    /// // Each folder contains an array of files
+    /// var filesPerFolder = folders.Select(folder => folder.Files);
+    /// // filesPerFolder is IncrementalValuesProvider&lt;ImmutableArray&lt;File&gt;&gt;
+    ///
+    /// // Flatten to get all files
+    /// var allFiles = filesPerFolder.Flatten();
+    /// // allFiles is IncrementalValuesProvider&lt;File&gt;
+    /// </code>
+    ///
+    /// Processing nested results:
+    /// <code>
+    /// var results = /* IncrementalValuesProvider&lt;ImmutableArray&lt;Diagnostic&gt;&gt; */;
+    /// var allDiagnostics = results.Flatten();
+    /// </code>
+    /// </example>
+    public static IncrementalValuesProvider<T> Flatten<T>(
+        this IncrementalValuesProvider<ImmutableArray<T>> source,
+        ProviderMetadata metadata = default)
+    {
+        return source.SelectMany(
+            array => array,
+            metadata);
+    }
 }
 
 // Supporting node implementations for extensions

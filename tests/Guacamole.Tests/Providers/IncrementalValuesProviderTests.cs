@@ -362,6 +362,94 @@ public class IncrementalValuesProviderTests
     }
 
     /// <summary>
+    /// FUNCTIONALITY: Test Flatten for IncrementalValueProvider with nested arrays
+    /// </summary>
+    [Fact]
+    public void IncrementalValueProvider_Flatten_ShouldFlattenNestedArrays()
+    {
+        // Arrange
+        var nestedArray = ImmutableArray.Create(
+            ImmutableArray.Create(1, 2, 3),
+            ImmutableArray.Create(4, 5),
+            ImmutableArray.Create(6, 7, 8, 9)
+        );
+        var valueNode = new TestValueNode<ImmutableArray<ImmutableArray<int>>>("nested", nestedArray);
+        var graph = new ComputationGraph();
+        var valueProvider = new IncrementalValueProvider<ImmutableArray<ImmutableArray<int>>>(valueNode, graph, default);
+
+        // Act
+        var flattened = valueProvider.Flatten();
+        var cachedValues = new Dictionary<string, object>();
+        var context = new ComputationContext(cachedValues);
+        var result = flattened.Node.Compute(context);
+
+        // Assert
+        Assert.True(result.IsSuccess);
+        var items = result.Value!.ToArray();
+        Assert.Equal(9, items.Length);
+        Assert.Equal(new[] { 1, 2, 3, 4, 5, 6, 7, 8, 9 }, items);
+    }
+
+    /// <summary>
+    /// FUNCTIONALITY: Test Flatten for IncrementalValuesProvider with array elements
+    /// </summary>
+    [Fact]
+    public void IncrementalValuesProvider_Flatten_ShouldFlattenArrayElements()
+    {
+        // Arrange
+        var arrays = new ImmutableArray<string>[]
+        {
+            ImmutableArray.Create("A", "B"),
+            ImmutableArray.Create("C"),
+            ImmutableArray.Create("D", "E", "F")
+        };
+        var valuesNode = new TestValuesNode<ImmutableArray<string>>("arrays", arrays);
+        var graph = new ComputationGraph();
+        var valuesProvider = new IncrementalValuesProvider<ImmutableArray<string>>(valuesNode, graph, default);
+
+        // Act
+        var flattened = valuesProvider.Flatten();
+        var cachedValues = new Dictionary<string, object>();
+        var context = new ComputationContext(cachedValues);
+        var result = flattened.Node.Compute(context);
+
+        // Assert
+        Assert.True(result.IsSuccess);
+        var items = result.Value!.ToArray();
+        Assert.Equal(6, items.Length);
+        Assert.Equal(new[] { "A", "B", "C", "D", "E", "F" }, items);
+    }
+
+    /// <summary>
+    /// FUNCTIONALITY: Test Flatten with empty nested arrays
+    /// </summary>
+    [Fact]
+    public void IncrementalValueProvider_Flatten_ShouldHandleEmptyNestedArrays()
+    {
+        // Arrange
+        var nestedArray = ImmutableArray.Create(
+            ImmutableArray.Create(1, 2),
+            ImmutableArray<int>.Empty,
+            ImmutableArray.Create(3)
+        );
+        var valueNode = new TestValueNode<ImmutableArray<ImmutableArray<int>>>("nested", nestedArray);
+        var graph = new ComputationGraph();
+        var valueProvider = new IncrementalValueProvider<ImmutableArray<ImmutableArray<int>>>(valueNode, graph, default);
+
+        // Act
+        var flattened = valueProvider.Flatten();
+        var cachedValues = new Dictionary<string, object>();
+        var context = new ComputationContext(cachedValues);
+        var result = flattened.Node.Compute(context);
+
+        // Assert
+        Assert.True(result.IsSuccess);
+        var items = result.Value!.ToArray();
+        Assert.Equal(3, items.Length);
+        Assert.Equal(new[] { 1, 2, 3 }, items);
+    }
+
+    /// <summary>
     /// Helper method to create providers for testing
     /// </summary>
     private static IncrementalValuesProvider<T> CreateProvider<T>(string id, T[] values)
