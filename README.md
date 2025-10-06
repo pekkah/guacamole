@@ -69,7 +69,7 @@ var tree = context.ParsedTree.Value;
 
 | Package | Description | NuGet |
 |---------|-------------|-------|
-| **Guacamole** | Complete framework including `ComputingContextBase`, incremental computation engine, and provider APIs. Installing this package automatically includes the source generators. | [![NuGet](https://img.shields.io/nuget/v/Guacamole.svg)](https://www.nuget.org/packages/Guacamole/) |
+| **Guacamole** | Complete framework including `ComputingContextBase`, incremental computation engine, provider APIs, and all core infrastructure | [![NuGet](https://img.shields.io/nuget/v/Guacamole.svg)](https://www.nuget.org/packages/Guacamole/) |
 | **Guacamole.SourceGenerators** | Source generators for code generation (automatically installed with Guacamole) | [![NuGet](https://img.shields.io/nuget/v/Guacamole.SourceGenerators.svg)](https://www.nuget.org/packages/Guacamole.SourceGenerators/) |
 
 ## Requirements

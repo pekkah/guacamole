@@ -1,9 +1,17 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <LangVersion>13</LangVersion>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
     <PackageId>Guacamole</PackageId>
     <Description>Foundation framework for incremental compilers, powering the Fugu language compiler and similar tooling. Note: Source generators are in a separate Guacamole.SourceGenerators package.</Description>
     <PackageTags>incremental;query;engine;compiler;framework</PackageTags>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <WarningsNotAsErrors />
+    <EnableNETAnalyzers>true</EnableNETAnalyzers>
+    <EnforceCodeStyleInBuild>true</EnforceCodeStyleInBuild>
   </PropertyGroup>
 
   <ItemGroup>
@@ -11,8 +19,8 @@
   </ItemGroup>
 
   <ItemGroup>
-    <!-- Include Guacamole.Core as a package dependency -->
-    <ProjectReference Include="..\Guacamole.Core\Guacamole.Core.csproj" />
+    <InternalsVisibleTo Include="Guacamole.Tests" />
+    <InternalsVisibleTo Include="Guacamole.SourceGenerators.Tests" />
   </ItemGroup>
 
 </Project>
