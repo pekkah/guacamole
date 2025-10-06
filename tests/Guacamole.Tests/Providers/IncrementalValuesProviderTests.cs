@@ -216,6 +216,240 @@ public class IncrementalValuesProviderTests
     }
 
     /// <summary>
+    /// FUNCTIONALITY: Test Combine method combines values provider with value provider
+    /// Similar to Roslyn's IncrementalValuesProvider.Combine
+    /// </summary>
+    [Fact]
+    public void IncrementalValuesProvider_Combine_ShouldCombineWithSingleValue()
+    {
+        // Arrange
+        var valuesNode = new TestValuesNode<string>("items", ["A", "B", "C"]);
+        var valueNode = new TestValueNode<int>("count", 42);
+        var graph = new ComputationGraph();
+
+        var valuesProvider = new IncrementalValuesProvider<string>(valuesNode, graph, default);
+        var valueProvider = new IncrementalValueProvider<int>(valueNode, graph, default);
+
+        // Act
+        var combined = valuesProvider.Combine(valueProvider);
+        var cachedValues = new Dictionary<string, object>();
+        var context = new ComputationContext(cachedValues);
+        var result = combined.Node.Compute(context);
+
+        // Assert
+        Assert.True(result.IsSuccess);
+        var items = result.Value!.ToArray();
+        Assert.Equal(3, items.Length);
+        Assert.Equal(("A", 42), items[0]);
+        Assert.Equal(("B", 42), items[1]);
+        Assert.Equal(("C", 42), items[2]);
+    }
+
+    /// <summary>
+    /// FUNCTIONALITY: Test Combine with empty collection
+    /// </summary>
+    [Fact]
+    public void IncrementalValuesProvider_Combine_ShouldHandleEmptyCollection()
+    {
+        // Arrange
+        var valuesNode = new TestValuesNode<string>("empty", Array.Empty<string>());
+        var valueNode = new TestValueNode<int>("value", 10);
+        var graph = new ComputationGraph();
+
+        var valuesProvider = new IncrementalValuesProvider<string>(valuesNode, graph, default);
+        var valueProvider = new IncrementalValueProvider<int>(valueNode, graph, default);
+
+        // Act
+        var combined = valuesProvider.Combine(valueProvider);
+        var cachedValues = new Dictionary<string, object>();
+        var context = new ComputationContext(cachedValues);
+        var result = combined.Node.Compute(context);
+
+        // Assert
+        Assert.True(result.IsSuccess);
+        Assert.Empty(result.Value!);
+    }
+
+    /// <summary>
+    /// FUNCTIONALITY: Test Merge combines two values providers into one
+    /// </summary>
+    [Fact]
+    public void IncrementalValuesProvider_Merge_ShouldCombineTwoCollections()
+    {
+        // Arrange
+        var first = new TestValuesNode<string>("first", ["A", "B"]);
+        var second = new TestValuesNode<string>("second", ["C", "D", "E"]);
+        var graph = new ComputationGraph();
+
+        var firstProvider = new IncrementalValuesProvider<string>(first, graph, default);
+        var secondProvider = new IncrementalValuesProvider<string>(second, graph, default);
+
+        // Act
+        var merged = firstProvider.Merge(secondProvider);
+        var cachedValues = new Dictionary<string, object>();
+        var context = new ComputationContext(cachedValues);
+        var result = merged.Node.Compute(context);
+
+        // Assert
+        Assert.True(result.IsSuccess);
+        var items = result.Value!.ToArray();
+        Assert.Equal(5, items.Length);
+        Assert.Equal("A", items[0]);
+        Assert.Equal("B", items[1]);
+        Assert.Equal("C", items[2]);
+        Assert.Equal("D", items[3]);
+        Assert.Equal("E", items[4]);
+    }
+
+    /// <summary>
+    /// FUNCTIONALITY: Test Merge with empty collections
+    /// </summary>
+    [Fact]
+    public void IncrementalValuesProvider_Merge_ShouldHandleEmptyCollections()
+    {
+        // Arrange
+        var first = new TestValuesNode<int>("first", [1, 2, 3]);
+        var second = new TestValuesNode<int>("second", Array.Empty<int>());
+        var graph = new ComputationGraph();
+
+        var firstProvider = new IncrementalValuesProvider<int>(first, graph, default);
+        var secondProvider = new IncrementalValuesProvider<int>(second, graph, default);
+
+        // Act
+        var merged = firstProvider.Merge(secondProvider);
+        var cachedValues = new Dictionary<string, object>();
+        var context = new ComputationContext(cachedValues);
+        var result = merged.Node.Compute(context);
+
+        // Assert
+        Assert.True(result.IsSuccess);
+        var items = result.Value!.ToArray();
+        Assert.Equal(3, items.Length);
+        Assert.Equal(1, items[0]);
+        Assert.Equal(2, items[1]);
+        Assert.Equal(3, items[2]);
+    }
+
+    /// <summary>
+    /// FUNCTIONALITY: Test Merge can be chained multiple times
+    /// </summary>
+    [Fact]
+    public void IncrementalValuesProvider_Merge_ShouldSupportChaining()
+    {
+        // Arrange
+        var p1 = new TestValuesNode<string>("p1", ["A"]);
+        var p2 = new TestValuesNode<string>("p2", ["B"]);
+        var p3 = new TestValuesNode<string>("p3", ["C"]);
+        var graph = new ComputationGraph();
+
+        var provider1 = new IncrementalValuesProvider<string>(p1, graph, default);
+        var provider2 = new IncrementalValuesProvider<string>(p2, graph, default);
+        var provider3 = new IncrementalValuesProvider<string>(p3, graph, default);
+
+        // Act - Chain multiple merges
+        var merged = provider1.Merge(provider2).Merge(provider3);
+        var cachedValues = new Dictionary<string, object>();
+        var context = new ComputationContext(cachedValues);
+        var result = merged.Node.Compute(context);
+
+        // Assert
+        Assert.True(result.IsSuccess);
+        var items = result.Value!.ToArray();
+        Assert.Equal(3, items.Length);
+        Assert.Equal("A", items[0]);
+        Assert.Equal("B", items[1]);
+        Assert.Equal("C", items[2]);
+    }
+
+    /// <summary>
+    /// FUNCTIONALITY: Test Flatten for IncrementalValueProvider with nested arrays
+    /// </summary>
+    [Fact]
+    public void IncrementalValueProvider_Flatten_ShouldFlattenNestedArrays()
+    {
+        // Arrange
+        var nestedArray = ImmutableArray.Create(
+            ImmutableArray.Create(1, 2, 3),
+            ImmutableArray.Create(4, 5),
+            ImmutableArray.Create(6, 7, 8, 9)
+        );
+        var valueNode = new TestValueNode<ImmutableArray<ImmutableArray<int>>>("nested", nestedArray);
+        var graph = new ComputationGraph();
+        var valueProvider = new IncrementalValueProvider<ImmutableArray<ImmutableArray<int>>>(valueNode, graph, default);
+
+        // Act
+        var flattened = valueProvider.Flatten();
+        var cachedValues = new Dictionary<string, object>();
+        var context = new ComputationContext(cachedValues);
+        var result = flattened.Node.Compute(context);
+
+        // Assert
+        Assert.True(result.IsSuccess);
+        var items = result.Value!.ToArray();
+        Assert.Equal(9, items.Length);
+        Assert.Equal(new[] { 1, 2, 3, 4, 5, 6, 7, 8, 9 }, items);
+    }
+
+    /// <summary>
+    /// FUNCTIONALITY: Test Flatten for IncrementalValuesProvider with array elements
+    /// </summary>
+    [Fact]
+    public void IncrementalValuesProvider_Flatten_ShouldFlattenArrayElements()
+    {
+        // Arrange
+        var arrays = new ImmutableArray<string>[]
+        {
+            ImmutableArray.Create("A", "B"),
+            ImmutableArray.Create("C"),
+            ImmutableArray.Create("D", "E", "F")
+        };
+        var valuesNode = new TestValuesNode<ImmutableArray<string>>("arrays", arrays);
+        var graph = new ComputationGraph();
+        var valuesProvider = new IncrementalValuesProvider<ImmutableArray<string>>(valuesNode, graph, default);
+
+        // Act
+        var flattened = valuesProvider.Flatten();
+        var cachedValues = new Dictionary<string, object>();
+        var context = new ComputationContext(cachedValues);
+        var result = flattened.Node.Compute(context);
+
+        // Assert
+        Assert.True(result.IsSuccess);
+        var items = result.Value!.ToArray();
+        Assert.Equal(6, items.Length);
+        Assert.Equal(new[] { "A", "B", "C", "D", "E", "F" }, items);
+    }
+
+    /// <summary>
+    /// FUNCTIONALITY: Test Flatten with empty nested arrays
+    /// </summary>
+    [Fact]
+    public void IncrementalValueProvider_Flatten_ShouldHandleEmptyNestedArrays()
+    {
+        // Arrange
+        var nestedArray = ImmutableArray.Create(
+            ImmutableArray.Create(1, 2),
+            ImmutableArray<int>.Empty,
+            ImmutableArray.Create(3)
+        );
+        var valueNode = new TestValueNode<ImmutableArray<ImmutableArray<int>>>("nested", nestedArray);
+        var graph = new ComputationGraph();
+        var valueProvider = new IncrementalValueProvider<ImmutableArray<ImmutableArray<int>>>(valueNode, graph, default);
+
+        // Act
+        var flattened = valueProvider.Flatten();
+        var cachedValues = new Dictionary<string, object>();
+        var context = new ComputationContext(cachedValues);
+        var result = flattened.Node.Compute(context);
+
+        // Assert
+        Assert.True(result.IsSuccess);
+        var items = result.Value!.ToArray();
+        Assert.Equal(3, items.Length);
+        Assert.Equal(new[] { 1, 2, 3 }, items);
+    }
+
+    /// <summary>
     /// Helper method to create providers for testing
     /// </summary>
     private static IncrementalValuesProvider<T> CreateProvider<T>(string id, T[] values)

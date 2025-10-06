@@ -171,6 +171,63 @@ public static class IncrementalValueProviderExtensions
 
         return new IncrementalValueProvider<(TFirst, TSecond)>(combineNode, first.Graph, finalMetadata);
     }
+
+    /// <summary>
+    /// Transforms a single value into multiple values and returns them as a values provider.
+    /// Similar to Roslyn's IncrementalValueProvider.SelectMany.
+    /// </summary>
+    /// <typeparam name="TSource">Source value type</typeparam>
+    /// <typeparam name="TResult">Result value type</typeparam>
+    /// <param name="source">Source provider</param>
+    /// <param name="selector">Function that transforms a single value into multiple results</param>
+    /// <param name="metadata">Optional metadata for the new provider</param>
+    /// <returns>A new values provider with the flattened results</returns>
+    public static IncrementalValuesProvider<TResult> SelectMany<TSource, TResult>(
+        this IncrementalValueProvider<TSource> source,
+        Func<TSource, IEnumerable<TResult>> selector,
+        ProviderMetadata metadata = default)
+    {
+        ArgumentNullException.ThrowIfNull(selector);
+
+        var selectManyNode = new SelectManyFromValueNode<TSource, TResult>(source.Node, selector, null);
+
+        // Preserve metadata from source if no metadata is explicitly provided
+        var finalMetadata = metadata.TrackingName == null && metadata.CreationLocation == null
+            ? source.Metadata
+            : metadata;
+
+        return new IncrementalValuesProvider<TResult>(selectManyNode, source.Graph, finalMetadata);
+    }
+
+    /// <summary>
+    /// Transforms a single value into multiple values with custom equality comparison.
+    /// Similar to Roslyn's IncrementalValueProvider.SelectMany.
+    /// </summary>
+    /// <typeparam name="TSource">Source value type</typeparam>
+    /// <typeparam name="TResult">Result value type</typeparam>
+    /// <param name="source">Source provider</param>
+    /// <param name="selector">Function that transforms a single value into multiple results</param>
+    /// <param name="comparer">Custom equality comparer for result values</param>
+    /// <param name="metadata">Optional metadata for the new provider</param>
+    /// <returns>A new values provider with the flattened results</returns>
+    public static IncrementalValuesProvider<TResult> SelectMany<TSource, TResult>(
+        this IncrementalValueProvider<TSource> source,
+        Func<TSource, IEnumerable<TResult>> selector,
+        IEqualityComparer<TResult> comparer,
+        ProviderMetadata metadata = default)
+    {
+        ArgumentNullException.ThrowIfNull(selector);
+        ArgumentNullException.ThrowIfNull(comparer);
+
+        var selectManyNode = new SelectManyFromValueNode<TSource, TResult>(source.Node, selector, comparer);
+
+        // Preserve metadata from source if no metadata is explicitly provided
+        var finalMetadata = metadata.TrackingName == null && metadata.CreationLocation == null
+            ? source.Metadata
+            : metadata;
+
+        return new IncrementalValuesProvider<TResult>(selectManyNode, source.Graph, finalMetadata);
+    }
 }
 
 // Supporting node implementations for extensions
@@ -313,6 +370,50 @@ internal sealed class CombineValueNode<TFirst, TSecond> : IComputationNode<(TFir
         catch (Exception ex)
         {
             return Result<(TFirst, TSecond), ComputationError>.Error(ComputationError.FromException(ex));
+        }
+    }
+}
+
+internal sealed class SelectManyFromValueNode<TSource, TResult> : ICollectionComputationNode<TResult>
+{
+    private readonly IComputationNode<TSource> _source;
+    private readonly Func<TSource, IEnumerable<TResult>> _selector;
+    private readonly IEqualityComparer<TResult>? _comparer;
+
+    public SelectManyFromValueNode(IComputationNode<TSource> source, Func<TSource, IEnumerable<TResult>> selector, IEqualityComparer<TResult>? comparer)
+    {
+        _source = source ?? throw new ArgumentNullException(nameof(source));
+        _selector = selector ?? throw new ArgumentNullException(nameof(selector));
+        _comparer = comparer;
+        Id = NodeIdGenerator.Generate("SelectManyFromValue", _source.Id);
+        Dependencies = ImmutableHashSet.Create(_source.Id);
+    }
+
+    public string Id { get; }
+    public Type OutputType => typeof(IEnumerable<TResult>);
+    public ImmutableHashSet<string> Dependencies { get; }
+    public IEqualityComparer<TResult> Comparer => _comparer ?? EqualityComparer<TResult>.Default;
+
+    public Result<IEnumerable<TResult>, ComputationError> Compute(ComputationContext context)
+    {
+        // Check cache first
+        if (context.CachedValues.TryGetValue(Id, out var cachedValue) && cachedValue is IEnumerable<TResult> cached)
+        {
+            return Result<IEnumerable<TResult>, ComputationError>.Success(cached);
+        }
+
+        try
+        {
+            var sourceResult = _source.Compute(context);
+            if (!sourceResult.IsSuccess)
+                return Result<IEnumerable<TResult>, ComputationError>.Error(sourceResult.ErrorValue!);
+
+            var results = _selector(sourceResult.Value!);
+            return Result<IEnumerable<TResult>, ComputationError>.Success(results);
+        }
+        catch (Exception ex)
+        {
+            return Result<IEnumerable<TResult>, ComputationError>.Error(ComputationError.FromException(ex));
         }
     }
 }
