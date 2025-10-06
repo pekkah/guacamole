@@ -81,7 +81,6 @@ Let's build a simple compiler context that parses source code incrementally.
 ```csharp
 using System;
 using Guacamole;
-using Guacamole.Core.Providers;
 
 namespace MyCompiler;
 
@@ -91,7 +90,6 @@ public partial class CompilerContext : ComputingContextBase
     // Get-only properties are AUTO-MANAGED by the framework
     // The source generator will create mutation methods for these
     public partial IncrementalValueProvider<string> SourceCode { get; }
-
 }
 ```
 
@@ -213,8 +211,8 @@ public partial class ParserContext : ComputingContextBase
     // Auto-managed input
     public partial IncrementalValuesProvider<SourceFile> SourceFiles { get; }
 
-    // User-managed derived value (has setter = you manage it)
-    public partial IncrementalValuesProvider<SyntaxTree> ParsedFiles { get; set; }
+    // User-managed derived value (NOT partial, has setter = you manage it)
+    public IncrementalValuesProvider<SyntaxTree> ParsedFiles { get; set; }
 
     public ParserContext()
     {
@@ -307,7 +305,7 @@ Guacamole's caching is the secret sauce that makes incremental computation effic
 public partial class IncrementalParser : ComputingContextBase
 {
     public partial IncrementalValuesProvider<SourceFile> Files { get; }
-    public partial IncrementalValuesProvider<SyntaxTree> Trees { get; set; }
+    public IncrementalValuesProvider<SyntaxTree> Trees { get; set; }
 
     public IncrementalParser()
     {
@@ -437,7 +435,7 @@ class DocumentIdComparer : IEqualityComparer<Document>
 
 ### User-Managed vs Auto-Managed Properties
 
-**Auto-managed** (get-only) - Framework generates everything:
+**Auto-managed** (get-only, partial) - Framework generates everything:
 ```csharp
 public partial IncrementalValueProvider<string> Input { get; }
 // ✨ SetInput() method generated
@@ -445,10 +443,11 @@ public partial IncrementalValueProvider<string> Input { get; }
 // ✨ Cache invalidation generated
 ```
 
-**User-managed** (has setter) - You're in control:
+**User-managed** (has setter, NOT partial) - You're in control:
 ```csharp
-public partial IncrementalValueProvider<string> Computed { get; set; }
+public IncrementalValueProvider<string> Computed { get; set; }
 // ❌ No mutation methods generated
+// ❌ NOT partial (you provide full implementation)
 // ✅ You set it manually in constructor
 // ✅ You manage its lifetime
 ```
@@ -501,8 +500,8 @@ context.SaveChanges();
 public partial class BuildContext : ComputingContextBase
 {
     public partial IncrementalValuesProvider<SourceFile> Sources { get; }
-    public partial IncrementalValuesProvider<CompiledUnit> Compiled { get; set; }
-    public partial IncrementalValueProvider<BuildResult> Result { get; set; }
+    public IncrementalValuesProvider<CompiledUnit> Compiled { get; set; }
+    public IncrementalValueProvider<BuildResult> Result { get; set; }
 
     public BuildContext()
     {
@@ -541,8 +540,8 @@ public partial class CompilerContext : ComputingContextBase
 {
     public partial IncrementalValueProvider<Project> Project { get; }
     public partial IncrementalValuesProvider<SourceFile> SourceFiles { get; }
-    public partial IncrementalValuesProvider<SyntaxTree> SyntaxTrees { get; set; }
-    public partial IncrementalValuesProvider<Diagnostic> Diagnostics { get; set; }
+    public IncrementalValuesProvider<SyntaxTree> SyntaxTrees { get; set; }
+    public IncrementalValuesProvider<Diagnostic> Diagnostics { get; set; }
 
     public CompilerContext()
     {

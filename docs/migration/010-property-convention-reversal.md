@@ -11,8 +11,8 @@ This is a **breaking change** that reverses the property generation convention i
 - Properties **without setters** (`{ get; }`) → User-managed (no generation)
 
 **NEW Convention (v0.1.0 and later):**
-- Properties **without setters** (`{ get; }`) → Auto-managed (mutation methods generated)
-- Properties **with setters** (`{ get; set; }`) → User-managed (no generation)
+- Properties **without setters** (`partial ... { get; }`) → Auto-managed (mutation methods generated)
+- Properties **with setters** (`{ get; set; }` without `partial`) → User-managed (no generation)
 
 ### Why This Change?
 
@@ -50,7 +50,7 @@ public partial class MyContext : ComputingContextBase
 
 ### Step 2: Handle User-Managed Properties
 
-If you have properties that you manage manually (with custom computation logic), **add a setter**:
+If you have properties that you manage manually (with custom computation logic), **add a setter and remove the partial modifier**:
 
 **Before:**
 ```csharp
@@ -74,14 +74,14 @@ public partial class MyContext : ComputingContextBase
 [ComputingContext]
 public partial class MyContext : ComputingContextBase
 {
-    // User-managed - no generation
-    public partial IncrementalValueProvider<int> ComputedValue { get; set; }
+    // User-managed - no generation (NOT partial!)
+    public IncrementalValueProvider<int> ComputedValue { get; set; }
 
     // Custom computation logic
     public MyContext(IServiceProvider services) : base()
     {
         InitializeComputationNodes();
-        // Custom setup...
+        ComputedValue = /* your initialization */;
     }
 }
 ```
@@ -173,16 +173,16 @@ public partial class MixedContext : ComputingContextBase
 [ComputingContext]
 public partial class MixedContext : ComputingContextBase
 {
-    // Auto-managed
+    // Auto-managed (partial, get-only)
     public partial IncrementalValueProvider<string> Name { get; }
 
-    // User-managed
-    public partial IncrementalValueProvider<int> CustomValue { get; set; }
+    // User-managed (NOT partial, has setter)
+    public IncrementalValueProvider<int> CustomValue { get; set; }
 
     public MixedContext(IServiceProvider services) : base()
     {
         InitializeComputationNodes();
-        // CustomValue setup...
+        CustomValue = /* your initialization */;
     }
 }
 ```
@@ -196,15 +196,30 @@ public partial class MixedContext : ComputingContextBase
 error CS9248: Partial property 'MyContext.Name' must have an implementation part.
 ```
 
-**Cause:** You have a property with a setter, but the generator no longer creates an implementation for it.
+**Cause:** You have a partial property with a setter, but the generator no longer creates implementations for properties with setters.
 
-**Fix:** Remove the setter to make it auto-managed:
+**Fix Option 1:** Remove the setter to make it auto-managed:
 ```csharp
 // Change this:
 public partial IncrementalValueProvider<string> Name { get; set; }
 
-// To this:
+// To this (auto-managed):
 public partial IncrementalValueProvider<string> Name { get; }
+```
+
+**Fix Option 2:** Remove the partial modifier to make it user-managed:
+```csharp
+// Change this:
+public partial IncrementalValueProvider<string> Name { get; set; }
+
+// To this (user-managed):
+public IncrementalValueProvider<string> Name { get; set; }
+
+// Then initialize in constructor:
+public MyContext()
+{
+    Name = /* your initialization */;
+}
 ```
 
 ### Error: CS0649 - Field is never assigned to
@@ -216,18 +231,18 @@ warning CS0649: Field 'MyContext._NameProvider' is never assigned to, and will a
 
 **Cause:** Generator created a backing field for a user-managed property (with setter), but you're not initializing it.
 
-**Fix:** Either remove the setter (auto-managed) or initialize the field yourself:
+**Fix:** Either remove the setter (auto-managed) or remove partial and initialize it yourself:
 ```csharp
-// Option 1: Make it auto-managed (remove setter)
+// Option 1: Make it auto-managed (remove setter, keep partial)
 public partial IncrementalValueProvider<string> Name { get; }
 
-// Option 2: Initialize it yourself (keep setter)
-public partial IncrementalValueProvider<string> Name { get; set; }
+// Option 2: Initialize it yourself (keep setter, remove partial)
+public IncrementalValueProvider<string> Name { get; set; }
 
 public MyContext(IServiceProvider services) : base()
 {
     InitializeComputationNodes();
-    Name = new IncrementalValueProvider<string>(...);
+    Name = /* your initialization */;
 }
 ```
 
@@ -260,7 +275,7 @@ If you encounter issues during migration:
 ## Summary Checklist
 
 - [ ] Remove setters from auto-managed properties (`{ get; set; }` → `{ get; }`)
-- [ ] Add setters to user-managed properties (`{ get; }` → `{ get; set; }`)
+- [ ] For user-managed properties: add setters AND remove partial modifier (`partial ... { get; }` → `... { get; set; }`)
 - [ ] Clean and rebuild solution
 - [ ] Run all tests
 - [ ] Verify mutation methods work correctly

@@ -30,18 +30,18 @@ Define a computing context:
 
 ```csharp
 using Guacamole;
-using Guacamole.Core.Providers;
 
 [ComputingContext]
 public partial class MyCompilerContext : ComputingContextBase
 {
-    public IncrementalValueProvider<string> SourceCode { get; }
-    public IncrementalValueProvider<ParseTree> ParsedTree { get; }
+    // Auto-managed input (partial, get-only)
+    public partial IncrementalValueProvider<string> SourceCode { get; }
 
-    public MyCompilerContext(IServiceProvider serviceProvider)
-        : base()
+    // User-managed derived computation (NOT partial, has setter)
+    public IncrementalValueProvider<ParseTree> ParsedTree { get; set; }
+
+    public MyCompilerContext()
     {
-        SourceCode = CreateInput<string>();
         ParsedTree = SourceCode.Select(Parse);
     }
 
@@ -56,13 +56,17 @@ var services = new ServiceCollection();
 services.AddComputingContext<MyCompilerContext>();
 var provider = services.BuildServiceProvider();
 
-var context = provider.GetComputingContext<MyCompilerContext>();
+using var context = provider.GetComputingContext<MyCompilerContext>();
 
 // Update input and propagate changes
-context.UpdateSourceCode("let x = 42");
+context.SetSourceCode("let x = 42");
 context.SaveChanges(); // Triggers incremental recomputation
 
-var tree = context.ParsedTree.Value;
+var result = context.ParsedTree.GetValue();
+if (result.IsSuccess)
+{
+    var tree = result.Value;
+}
 ```
 
 ## Packages
