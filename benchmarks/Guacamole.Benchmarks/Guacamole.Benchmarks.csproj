@@ -15,7 +15,7 @@
   </ItemGroup>
 
   <ItemGroup>
-    <ProjectReference Include="..\..\src\Guacamole.Core\Guacamole.Core.csproj" />
+    <ProjectReference Include="..\..\src\Guacamole\Guacamole.csproj" />
   </ItemGroup>
 
 </Project>
