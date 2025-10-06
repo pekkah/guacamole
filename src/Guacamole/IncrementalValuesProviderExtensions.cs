@@ -592,7 +592,8 @@ internal sealed class CombineValuesWithValueNode<TLeft, TRight> : ICollectionCom
                 return Result<IEnumerable<(TLeft, TRight)>, ComputationError>.Error(rightResult.ErrorValue!);
 
             // Combine each left value with the single right value
-            var combined = leftResult.Value!.Select(left => (left, rightResult.Value!));
+            // Materialize to avoid multiple enumerations when cached result is reused
+            var combined = leftResult.Value!.Select(left => (left, rightResult.Value!)).ToArray();
             return Result<IEnumerable<(TLeft, TRight)>, ComputationError>.Success(combined);
         }
         catch (Exception ex)

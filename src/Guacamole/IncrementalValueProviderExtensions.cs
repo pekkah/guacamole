@@ -408,8 +408,10 @@ internal sealed class SelectManyFromValueNode<TSource, TResult> : ICollectionCom
             if (!sourceResult.IsSuccess)
                 return Result<IEnumerable<TResult>, ComputationError>.Error(sourceResult.ErrorValue!);
 
+            // Materialize the selector result to avoid multiple enumerations when cached
             var results = _selector(sourceResult.Value!);
-            return Result<IEnumerable<TResult>, ComputationError>.Success(results);
+            var materialized = results as TResult[] ?? results.ToArray();
+            return Result<IEnumerable<TResult>, ComputationError>.Success(materialized);
         }
         catch (Exception ex)
         {
