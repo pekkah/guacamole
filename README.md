@@ -17,11 +17,14 @@ A .NET framework for building incremental compilers and computation pipelines, i
 
 ## Quick Start
 
-Install the package:
+Install the packages:
 
 ```bash
 dotnet add package Guacamole
+dotnet add package Guacamole.SourceGenerators
 ```
+
+> **Note**: `Guacamole` provides the core runtime functionality, while `Guacamole.SourceGenerators` contains the source generators that create mutation methods and change tracking code at compile time. Both packages are required for full functionality.
 
 Define a computing context:
 

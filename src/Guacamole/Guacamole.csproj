@@ -2,7 +2,7 @@
 
   <PropertyGroup>
     <PackageId>Guacamole</PackageId>
-    <Description>Foundation framework for incremental compilers, powering the Fugu language compiler and similar tooling</Description>
+    <Description>Foundation framework for incremental compilers, powering the Fugu language compiler and similar tooling. Note: Source generators are in a separate Guacamole.SourceGenerators package.</Description>
     <PackageTags>incremental;query;engine;compiler;framework</PackageTags>
   </PropertyGroup>
 
@@ -11,8 +11,8 @@
   </ItemGroup>
 
   <ItemGroup>
-    <ProjectReference Include="..\Guacamole.Core\Guacamole.Core.csproj" PrivateAssets="all" />
-    <ProjectReference Include="..\Guacamole.SourceGenerators\Guacamole.SourceGenerators.csproj" />
+    <!-- Include Guacamole.Core as a package dependency -->
+    <ProjectReference Include="..\Guacamole.Core\Guacamole.Core.csproj" />
   </ItemGroup>
 
 </Project>

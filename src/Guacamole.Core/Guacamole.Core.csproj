@@ -5,7 +5,10 @@
     <LangVersion>13</LangVersion>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
-    <IsPackable>false</IsPackable>
+    <IsPackable>true</IsPackable>
+    <PackageId>Guacamole.Core</PackageId>
+    <Description>Core infrastructure for the Guacamole incremental query engine framework</Description>
+    <PackageTags>incremental;query;engine;compiler;framework;core</PackageTags>
     <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
     <WarningsNotAsErrors />
     <EnableNETAnalyzers>true</EnableNETAnalyzers>
