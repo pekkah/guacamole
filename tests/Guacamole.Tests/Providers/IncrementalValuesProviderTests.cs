@@ -216,6 +216,61 @@ public class IncrementalValuesProviderTests
     }
 
     /// <summary>
+    /// FUNCTIONALITY: Test Combine method combines values provider with value provider
+    /// Similar to Roslyn's IncrementalValuesProvider.Combine
+    /// </summary>
+    [Fact]
+    public void IncrementalValuesProvider_Combine_ShouldCombineWithSingleValue()
+    {
+        // Arrange
+        var valuesNode = new TestValuesNode<string>("items", ["A", "B", "C"]);
+        var valueNode = new TestValueNode<int>("count", 42);
+        var graph = new ComputationGraph();
+
+        var valuesProvider = new IncrementalValuesProvider<string>(valuesNode, graph, default);
+        var valueProvider = new IncrementalValueProvider<int>(valueNode, graph, default);
+
+        // Act
+        var combined = valuesProvider.Combine(valueProvider);
+        var cachedValues = new Dictionary<string, object>();
+        var context = new ComputationContext(cachedValues);
+        var result = combined.Node.Compute(context);
+
+        // Assert
+        Assert.True(result.IsSuccess);
+        var items = result.Value!.ToArray();
+        Assert.Equal(3, items.Length);
+        Assert.Equal(("A", 42), items[0]);
+        Assert.Equal(("B", 42), items[1]);
+        Assert.Equal(("C", 42), items[2]);
+    }
+
+    /// <summary>
+    /// FUNCTIONALITY: Test Combine with empty collection
+    /// </summary>
+    [Fact]
+    public void IncrementalValuesProvider_Combine_ShouldHandleEmptyCollection()
+    {
+        // Arrange
+        var valuesNode = new TestValuesNode<string>("empty", Array.Empty<string>());
+        var valueNode = new TestValueNode<int>("value", 10);
+        var graph = new ComputationGraph();
+
+        var valuesProvider = new IncrementalValuesProvider<string>(valuesNode, graph, default);
+        var valueProvider = new IncrementalValueProvider<int>(valueNode, graph, default);
+
+        // Act
+        var combined = valuesProvider.Combine(valueProvider);
+        var cachedValues = new Dictionary<string, object>();
+        var context = new ComputationContext(cachedValues);
+        var result = combined.Node.Compute(context);
+
+        // Assert
+        Assert.True(result.IsSuccess);
+        Assert.Empty(result.Value!);
+    }
+
+    /// <summary>
     /// Helper method to create providers for testing
     /// </summary>
     private static IncrementalValuesProvider<T> CreateProvider<T>(string id, T[] values)

@@ -203,6 +203,32 @@ public static class IncrementalValuesProviderExtensions
 
         return new IncrementalValuesProvider<T>(whereNode, source.Graph, finalMetadata);
     }
+
+    /// <summary>
+    /// Combines each value from the values provider with a single value provider.
+    /// Creates a new values provider where each value is paired with the value from the right provider.
+    /// Similar to Roslyn's IncrementalValuesProvider.Combine method.
+    /// </summary>
+    /// <typeparam name="TLeft">Left value type (from the collection)</typeparam>
+    /// <typeparam name="TRight">Right value type (single value)</typeparam>
+    /// <param name="left">Left values provider (collection)</param>
+    /// <param name="right">Right value provider (single value)</param>
+    /// <param name="metadata">Optional metadata for the new provider</param>
+    /// <returns>A new values provider with combined tuples</returns>
+    public static IncrementalValuesProvider<(TLeft Left, TRight Right)> Combine<TLeft, TRight>(
+        this IncrementalValuesProvider<TLeft> left,
+        IncrementalValueProvider<TRight> right,
+        ProviderMetadata metadata = default)
+    {
+        var combineNode = new CombineValuesWithValueNode<TLeft, TRight>(left.Node, right.Node);
+
+        // Preserve metadata from left provider if no metadata is explicitly provided
+        var finalMetadata = metadata.TrackingName == null && metadata.CreationLocation == null
+            ? left.Metadata
+            : metadata;
+
+        return new IncrementalValuesProvider<(TLeft, TRight)>(combineNode, left.Graph, finalMetadata);
+    }
 }
 
 // Supporting node implementations for extensions
@@ -373,6 +399,55 @@ internal sealed class WhereValuesNode<T> : ICollectionComputationNode<T>
         catch (Exception ex)
         {
             return Result<IEnumerable<T>, ComputationError>.Error(ComputationError.FromException(ex));
+        }
+    }
+}
+
+internal sealed class CombineValuesWithValueNode<TLeft, TRight> : ICollectionComputationNode<(TLeft, TRight)>
+{
+    private readonly ICollectionComputationNode<TLeft> _left;
+    private readonly IComputationNode<TRight> _right;
+
+    public CombineValuesWithValueNode(ICollectionComputationNode<TLeft> left, IComputationNode<TRight> right)
+    {
+        _left = left ?? throw new ArgumentNullException(nameof(left));
+        _right = right ?? throw new ArgumentNullException(nameof(right));
+        Id = NodeIdGenerator.Generate("CombineValuesWithValue", _left.Id, _right.Id);
+        Dependencies = ImmutableHashSet.Create(_left.Id, _right.Id);
+    }
+
+    public string Id { get; }
+    public Type OutputType => typeof(IEnumerable<(TLeft, TRight)>);
+    public ImmutableHashSet<string> Dependencies { get; }
+    public IEqualityComparer<(TLeft, TRight)> Comparer => EqualityComparer<(TLeft, TRight)>.Default;
+
+    public Result<IEnumerable<(TLeft, TRight)>, ComputationError> Compute(ComputationContext context)
+    {
+        // Check cache first
+        if (context.CachedValues.TryGetValue(Id, out var cachedValue) && cachedValue is IEnumerable<(TLeft, TRight)> cached)
+        {
+            return Result<IEnumerable<(TLeft, TRight)>, ComputationError>.Success(cached);
+        }
+
+        try
+        {
+            // Compute left side (collection)
+            var leftResult = _left.Compute(context);
+            if (!leftResult.IsSuccess)
+                return Result<IEnumerable<(TLeft, TRight)>, ComputationError>.Error(leftResult.ErrorValue!);
+
+            // Compute right side (single value)
+            var rightResult = _right.Compute(context);
+            if (!rightResult.IsSuccess)
+                return Result<IEnumerable<(TLeft, TRight)>, ComputationError>.Error(rightResult.ErrorValue!);
+
+            // Combine each left value with the single right value
+            var combined = leftResult.Value!.Select(left => (left, rightResult.Value!));
+            return Result<IEnumerable<(TLeft, TRight)>, ComputationError>.Success(combined);
+        }
+        catch (Exception ex)
+        {
+            return Result<IEnumerable<(TLeft, TRight)>, ComputationError>.Error(ComputationError.FromException(ex));
         }
     }
 }

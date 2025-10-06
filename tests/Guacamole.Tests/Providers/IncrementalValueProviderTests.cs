@@ -177,6 +177,53 @@ public class IncrementalValueProviderTests
             "Provider creation should be sub-millisecond");
         // Provider is a value type, no need for null check
     }
+
+    /// <summary>
+    /// FUNCTIONALITY: Test SelectMany transforms single value to multiple values
+    /// Similar to Roslyn's IncrementalValueProvider.SelectMany
+    /// </summary>
+    [Fact]
+    public void IncrementalValueProvider_SelectMany_ShouldTransformToMultipleValues()
+    {
+        // Arrange
+        var valueNode = new TestValueNode<string>("input", "abc");
+        var graph = new ComputationGraph();
+        var valueProvider = new IncrementalValueProvider<string>(valueNode, graph, default);
+
+        // Act - SelectMany to split string into characters
+        var result = valueProvider.SelectMany(s => s.ToCharArray().Select(c => c.ToString()));
+        var context = new ComputationContext(new Dictionary<string, object>());
+        var computeResult = result.Node.Compute(context);
+
+        // Assert
+        Assert.True(computeResult.IsSuccess);
+        var items = computeResult.Value!.ToArray();
+        Assert.Equal(3, items.Length);
+        Assert.Equal("a", items[0]);
+        Assert.Equal("b", items[1]);
+        Assert.Equal("c", items[2]);
+    }
+
+    /// <summary>
+    /// FUNCTIONALITY: Test SelectMany with empty result
+    /// </summary>
+    [Fact]
+    public void IncrementalValueProvider_SelectMany_ShouldHandleEmptyResult()
+    {
+        // Arrange
+        var valueNode = new TestValueNode<string>("input", "test");
+        var graph = new ComputationGraph();
+        var valueProvider = new IncrementalValueProvider<string>(valueNode, graph, default);
+
+        // Act - SelectMany that returns empty collection
+        var result = valueProvider.SelectMany(s => Array.Empty<int>());
+        var context = new ComputationContext(new Dictionary<string, object>());
+        var computeResult = result.Node.Compute(context);
+
+        // Assert
+        Assert.True(computeResult.IsSuccess);
+        Assert.Empty(computeResult.Value!);
+    }
 }
 
 /// <summary>
