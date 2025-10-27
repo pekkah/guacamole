@@ -3,20 +3,22 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Threading;
 using Guacamole.Core.Pipeline;
+using Guacamole.Sources;
 
 namespace Guacamole;
 
 /// <summary>
 /// Minimal abstract base class for user-defined incremental computation contexts.
 /// Users inherit from this class and define properties as IncrementalValueProvider types.
-/// Source generators automatically extend this with mutation methods, change tracking, and computation nodes.
+/// Source generators automatically extend this with source-backed properties.
 /// </summary>
 /// <remarks>
 /// This base class provides only the essential infrastructure:
 /// - Computation graph for dependency tracking
 /// - Thread synchronization via ReaderWriterLockSlim (multiple readers, single writer)
 /// - Disposal state management
-/// All context-specific functionality (mutation methods, change tracking, SaveChanges) is generated at compile time.
+/// - Source change notification handling
+/// All context-specific functionality (sources, properties) is generated at compile time.
 /// </remarks>
 public abstract partial class ComputingContextBase : IDisposable
 {
@@ -75,8 +77,41 @@ public abstract partial class ComputingContextBase : IDisposable
     }
 
     /// <summary>
-    /// Registers an output handler that will be called when SaveChanges triggers recomputation.
-    /// Similar to Roslyn's RegisterSourceOutput - handlers are called after changes are committed
+    /// Subscribes to a source's change events to automatically trigger output handlers.
+    /// Called by generated code to wire up source notifications.
+    /// </summary>
+    /// <typeparam name="T">The type of items in the source</typeparam>
+    /// <param name="source">The source to subscribe to</param>
+    protected void SubscribeToSource<T>(IIncrementalSource<T> source)
+    {
+        ArgumentNullException.ThrowIfNull(source);
+        source.Changed += OnSourceChanged;
+    }
+
+    /// <summary>
+    /// Subscribes to a value source's change events to automatically trigger output handlers.
+    /// Called by generated code to wire up source notifications.
+    /// </summary>
+    /// <typeparam name="T">The type of value in the source</typeparam>
+    /// <param name="source">The source to subscribe to</param>
+    protected void SubscribeToSource<T>(IIncrementalValueSource<T> source)
+    {
+        ArgumentNullException.ThrowIfNull(source);
+        source.Changed += OnSourceChanged;
+    }
+
+    /// <summary>
+    /// Handles source change events by triggering output handlers.
+    /// </summary>
+    private void OnSourceChanged(object? sender, SourceChangedEventArgs e)
+    {
+        // Trigger all registered output handlers when any source changes
+        TriggerOutputs();
+    }
+
+    /// <summary>
+    /// Registers an output handler that will be called when sources change.
+    /// Similar to Roslyn's RegisterSourceOutput - handlers are called after changes occur
     /// and the provider's value is recomputed.
     /// </summary>
     /// <typeparam name="T">The type of value produced by the provider</typeparam>
@@ -93,7 +128,7 @@ public abstract partial class ComputingContextBase : IDisposable
 
     /// <summary>
     /// Registers an output handler for collection providers.
-    /// Similar to Roslyn's RegisterSourceOutput - handlers are called after changes are committed
+    /// Similar to Roslyn's RegisterSourceOutput - handlers are called after changes occur
     /// and the provider's values are recomputed.
     /// </summary>
     /// <typeparam name="T">The type of items in the collection</typeparam>
@@ -110,7 +145,7 @@ public abstract partial class ComputingContextBase : IDisposable
 
     /// <summary>
     /// Triggers all registered output handlers by recomputing their providers.
-    /// Called automatically by generated SaveChanges() method.
+    /// Called automatically when sources change.
     /// </summary>
     protected void TriggerOutputs()
     {

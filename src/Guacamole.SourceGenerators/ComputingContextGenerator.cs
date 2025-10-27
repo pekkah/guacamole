@@ -7,10 +7,10 @@ namespace Guacamole.SourceGenerators;
 
 /// <summary>
 /// Incremental source generator for ComputingContext marked classes.
-/// Generates mutation methods, change tracking, computation nodes, and SaveChanges logic.
+/// Generates source-backed properties with push-based reactive updates.
 /// </summary>
 [Generator]
-public class ComputingContextGenerator : IIncrementalGenerator
+public class ComputingContextGeneratorNew : IIncrementalGenerator
 {
     public void Initialize(IncrementalGeneratorInitializationContext context)
     {
@@ -110,73 +110,24 @@ public class ComputingContextGenerator : IIncrementalGenerator
             context.ReportDiagnostic(diagnostic);
         }
 
-        // Generate code using all generators
-        var changeTypes = string.Join("\n", analysisResult.InputProperties.Select(CodeGenerators.ChangeTypeGenerator.Generate));
-        var changeTrackingFields = string.Join("\n", analysisResult.InputProperties.Select(CodeGenerators.ChangeTypeGenerator.GenerateChangeTrackingFields));
+        // Generate source-backed properties
+        var sourceFields = string.Join("\n        ", analysisResult.InputProperties.Select(p => CodeGenerators.SourcePropertyGenerator.GenerateSourceField(p, className)));
+        var propertyImplementations = string.Join("\n", analysisResult.InputProperties.Select(CodeGenerators.SourcePropertyGenerator.GeneratePropertyImplementation));
+        var sourceAccessors = string.Join("\n", analysisResult.InputProperties.Select(CodeGenerators.SourcePropertyGenerator.GenerateSourceAccessor));
+        var sourceInitializations = string.Join("\n            ", analysisResult.InputProperties.Select(p => CodeGenerators.SourcePropertyGenerator.GenerateSourceInitialization(p, className)));
 
-        var nodeClasses = string.Join("\n", analysisResult.InputProperties.Select(p => CodeGenerators.ComputationNodeGenerator.Generate(p, className)));
-        var nodeFields = string.Join("\n", analysisResult.InputProperties.Select(p => CodeGenerators.ComputationNodeGenerator.GenerateNodeField(p, className)));
-        var nodeAccessors = string.Join("\n", analysisResult.InputProperties.Select(p => CodeGenerators.ComputationNodeGenerator.GenerateNodeAccessor(p, className)));
+        // Generate constructor
+        var constructor = $$"""
 
-        var mutationMethods = string.Join("\n", analysisResult.InputProperties.Select(p => CodeGenerators.MutationMethodGenerator.Generate(p, className)));
-        var saveChangesMethods = CodeGenerators.SaveChangesGenerator.Generate(analysisResult.InputProperties);
+                /// <summary>
+                /// Initializes the computing context and its sources.
+                /// </summary>
+                public {{className}}() : base()
+                {
+                    {{sourceInitializations}}
+                }
 
-        // Generate implementations only for input properties (get-only, auto-managed)
-        // Derived properties (with setters) are user-managed and don't get generated implementations
-        var propertyImplementations = string.Join("\n", analysisResult.InputProperties.Select(CodeGenerators.PropertyGenerator.Generate));
-
-        // Generate cache invalidation helper method
-        var cacheInvalidationHelper = """
-
-                    // ========================================
-                    // Cache Invalidation Helper
-                    // ========================================
-
-                    /// <summary>
-                    /// Invalidates cache for the specified node and all transitive dependents.
-                    /// Called automatically by mutation methods to maintain cache consistency.
-                    /// </summary>
-                    private void InvalidateNodeCache(string nodeId)
-                    {
-                        // Remove the node itself from cache
-                        Graph.ValueCache.Remove(nodeId);
-
-                        // Find all nodes that depend on this node (transitively)
-                        var dependentsToInvalidate = FindAllDependents(nodeId);
-                        foreach (var dependent in dependentsToInvalidate)
-                        {
-                            Graph.ValueCache.Remove(dependent);
-                        }
-                    }
-
-                    /// <summary>
-                    /// Finds all nodes that transitively depend on the given node.
-                    /// </summary>
-                    private System.Collections.Generic.HashSet<string> FindAllDependents(string nodeId)
-                    {
-                        var dependents = new System.Collections.Generic.HashSet<string>();
-                        var toCheck = new System.Collections.Generic.Queue<string>();
-                        toCheck.Enqueue(nodeId);
-
-                        while (toCheck.Count > 0)
-                        {
-                            var current = toCheck.Dequeue();
-
-                            // Find all nodes that directly depend on current
-                            foreach (var kvp in Graph.Dependencies)
-                            {
-                                if (kvp.Value.Contains(current) && !dependents.Contains(kvp.Key))
-                                {
-                                    dependents.Add(kvp.Key);
-                                    toCheck.Enqueue(kvp.Key);
-                                }
-                            }
-                        }
-
-                        return dependents;
-                    }
-
-            """;
+        """;
 
         // Build the opening for nested classes if needed
         var containingTypesOpen = string.Empty;
@@ -197,12 +148,11 @@ public class ComputingContextGenerator : IIncrementalGenerator
             containingTypesClose += $"{closeIndent}}}\n";
         }
 
-        // Adjust indentation for generated code based on nesting level
-        var memberIndent = new string(' ', 4 * (containingTypes.Count + 2));
-
         // Generate complete partial class
         var source = $$"""
             // <auto-generated/>
+            // Generated by Guacamole Source Generator
+            // This file contains push-based reactive source properties
             #nullable enable
 
             namespace {{namespaceName}}
@@ -210,46 +160,21 @@ public class ComputingContextGenerator : IIncrementalGenerator
             {{containingTypesOpen}}{{indent}}partial class {{className}}
             {{indent}}{
                     // ========================================
-                    // Change Record Types (strongly-typed, zero boxing)
+                    // Source Fields (push-based reactive sources)
                     // ========================================
-            {{changeTypes}}
+                    {{sourceFields}}
+
+            {{constructor}}
 
                     // ========================================
-                    // Change Tracking Fields
-                    // ========================================
-            {{changeTrackingFields}}
-
-                    // ========================================
-                    // Computation Node Classes
-                    // ========================================
-            {{nodeClasses}}
-
-                    // ========================================
-                    // Computation Node Fields (lazy-initialized)
-                    // ========================================
-            {{nodeFields}}
-
-                    // ========================================
-                    // Computation Node Lazy Accessors
-                    // ========================================
-            {{nodeAccessors}}
-
-                    // ========================================
-                    // Property Implementations
+                    // Property Implementations (backed by sources)
                     // ========================================
             {{propertyImplementations}}
 
                     // ========================================
-                    // Mutation Methods (Add/Remove/Replace/Set)
+                    // Source Accessors (for pushing data)
                     // ========================================
-            {{mutationMethods}}
-
-                    // ========================================
-                    // SaveChanges Methods
-                    // ========================================
-            {{saveChangesMethods}}
-
-            {{cacheInvalidationHelper}}
+            {{sourceAccessors}}
             {{indent}}}
             {{containingTypesClose}}}
             """;
