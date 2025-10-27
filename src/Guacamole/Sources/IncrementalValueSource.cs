@@ -60,7 +60,7 @@ public sealed class IncrementalValueSource<T> : IIncrementalValueSource<T>
     /// Gets the computation node for graph registration.
     /// Called by the context during initialization.
     /// </summary>
-    internal IComputationNode<T> GetNode() => _node;
+    public IComputationNode<T> GetNode() => _node;
 
     /// <summary>
     /// Returns a provider that exposes this source's value to the computation pipeline.

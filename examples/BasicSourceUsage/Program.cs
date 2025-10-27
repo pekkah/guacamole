@@ -1,49 +1,28 @@
-#!/usr/bin/env dotnet script
-// Example 1: Basic Source Usage
-// Demonstrates the fundamentals of push-based incremental computation
-
-using System;
-using System.Collections.Generic;
-using System.Linq;
 using Guacamole;
-using Guacamole.Sources;
+using BasicSourceUsage;
 
 Console.WriteLine("=== Guacamole Basic Source Usage Example ===\n");
-
-// Define a simple data model
-public record Person(string Name, int Age);
-
-// Define a computing context with source properties
-[ComputingContext]
-public partial class PeopleContext : ComputingContextBase
-{
-    // Collection property - generates PeopleSource accessor
-    public partial IncrementalValuesProvider<Person> People { get; }
-
-    // Computed property - adults only (age >= 18)
-    public IncrementalValuesProvider<Person> Adults =>
-        People.Where(p => p.Age >= 18);
-
-    // Computed property - count of adults
-    public IncrementalValueProvider<int> AdultCount =>
-        Adults.Select(adults => adults.Count());
-}
 
 // Create context
 var context = new PeopleContext();
 
+// Create computed properties using provider extension methods
+var adults = context.People.Where(p => p.Age >= 18);
+var adultCount = adults.Collect().Select(a => a.Length);
+
 // Register output handlers - these are called automatically when data changes
 Console.WriteLine("Registering output handlers...\n");
 
-context.RegisterOutput(context.AdultCount, (count, ctx) =>
+context.RegisterOutput(adultCount, (count, ctx) =>
 {
     Console.WriteLine($"[OUTPUT] Adult count updated: {count}");
 });
 
-context.RegisterOutput(context.Adults, (adults, ctx) =>
+var adultsCollection = adults.Collect();
+context.RegisterOutput(adultsCollection, (adultsData, ctx) =>
 {
     Console.WriteLine($"[OUTPUT] Adults list updated:");
-    foreach (var adult in adults.OrderBy(a => a.Name))
+    foreach (var adult in adultsData.OrderBy(a => a.Name))
     {
         Console.WriteLine($"  - {adult.Name} (age {adult.Age})");
     }

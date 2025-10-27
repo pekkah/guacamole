@@ -4,29 +4,30 @@ This directory contains simple, practical examples demonstrating the push-based 
 
 ## Examples
 
-### 1. BasicSourceUsage.cs
+### 1. BasicSourceUsage/
 Simple example showing how to use incremental sources to push data and trigger computation.
 
 **Key concepts:**
 - Creating a computing context with source properties
 - Pushing data through sources
+- Using provider extension methods (Where, Collect, Select)
 - Automatic cache invalidation and recomputation
 - Registering output handlers
 
-### 2. FileWatcherExample.cs
-Real-world example of using file system watcher to push file changes through incremental compilation.
+### 2. FileWatcherExample/
+Simulated file system watcher example showing how to push file changes through incremental compilation.
 
 **Key concepts:**
-- Integrating external event sources (file watcher)
+- Integrating external event sources (simulated file watcher)
 - Push-based reactive updates
-- Incremental pipeline transformations (Select, Where)
+- Incremental pipeline transformations (Where, Collect, Select)
 - Automatic output triggering
 
-### 3. DataPipelineExample.cs
-Example showing incremental data transformation pipelines with caching.
+### 3. DataPipelineExample/
+Example showing multi-stage incremental data transformation pipelines with caching.
 
 **Key concepts:**
-- Building computation pipelines with Select, Where
+- Building computation pipelines with Where, Collect, Select
 - Dependency tracking and cache invalidation
 - Multiple transformation stages
 - Performance benefits of incremental recomputation
@@ -72,17 +73,21 @@ The push-based architecture eliminates the need for `SaveChanges()`:
 
 ## Running Examples
 
-Run any example with dotnet-script:
+Each example is a standalone .NET project. Build and run using standard .NET commands:
 
 ```bash
-dotnet script examples/BasicSourceUsage.cs
+# Build an example
+dotnet build examples/BasicSourceUsage
+
+# Run an example
+dotnet run --project examples/BasicSourceUsage
+
+# Or navigate to the example directory
+cd examples/BasicSourceUsage
+dotnet run
 ```
 
-Or reference the Guacamole DLL:
-
-```bash
-dotnet run app.cs examples/BasicSourceUsage.cs
-```
+All examples require .NET 10.0 RC1 or later and use C# 13 partial properties.
 
 ## Further Reading
 

@@ -50,7 +50,7 @@ public sealed class IncrementalSource<T> : IIncrementalSource<T>
     /// Gets the computation node for graph registration.
     /// Called by the context during initialization.
     /// </summary>
-    internal ICollectionComputationNode<T> GetNode() => _node;
+    public ICollectionComputationNode<T> GetNode() => _node;
 
     /// <summary>
     /// Returns a provider that exposes this source's values to the computation pipeline.

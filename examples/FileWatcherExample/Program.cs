@@ -1,55 +1,26 @@
-#!/usr/bin/env dotnet script
-// Example 2: File Watcher Integration
-// Demonstrates integrating external event sources (file system watcher) with incremental computation
-
-using System;
-using System.Collections.Generic;
-using System.IO;
-using System.Linq;
 using Guacamole;
-using Guacamole.Sources;
+using FileWatcherExample;
 
 Console.WriteLine("=== Guacamole File Watcher Example ===\n");
-
-// Define file model
-public record SourceFile(string Path, string Content)
-{
-    public int LineCount => Content.Split('\n').Length;
-}
-
-// Define computing context for source files
-[ComputingContext]
-public partial class SourceFileContext : ComputingContextBase
-{
-    // Source files collection - generates SourceFilesSource accessor
-    public partial IncrementalValuesProvider<SourceFile> SourceFiles { get; }
-
-    // Computed: C# files only
-    public IncrementalValuesProvider<SourceFile> CSharpFiles =>
-        SourceFiles.Where(f => f.Path.EndsWith(".cs"));
-
-    // Computed: Total lines of code
-    public IncrementalValueProvider<int> TotalLines =>
-        CSharpFiles.Select(files => files.Sum(f => f.LineCount));
-
-    // Computed: File statistics
-    public IncrementalValueProvider<string> Statistics =>
-        CSharpFiles.Select(files =>
-            $"{files.Count()} C# files, {files.Sum(f => f.LineCount)} total lines");
-}
 
 // Create context
 var context = new SourceFileContext();
 
+// Create computed properties using provider extension methods
+var csharpFiles = context.SourceFiles.Where(f => f.Path.EndsWith(".cs"));
+var csharpCollection = csharpFiles.Collect();
+var statistics = csharpCollection.Select(files =>
+    $"{files.Length} C# files, {files.Sum(f => f.LineCount)} total lines");
+
 // Register output handlers
 Console.WriteLine("Registering output handlers...\n");
 
-context.RegisterOutput(context.Statistics, (stats, ctx) =>
+context.RegisterOutput(statistics, (stats, ctx) =>
 {
     Console.WriteLine($"[STATS] {stats}");
 });
 
-context.RegisterOutput(context.CSharpFiles, (files, ctx) =>
+context.RegisterOutput(csharpCollection, (files, ctx) =>
 {
     Console.WriteLine($"[FILES] C# files in project:");
     foreach (var file in files.OrderBy(f => f.Path))
