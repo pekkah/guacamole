@@ -6,10 +6,12 @@ using System.Linq;
 namespace Guacamole.SourceGenerators;
 
 /// <summary>
-/// Incremental source generator for ComputingContext marked classes.
+/// OLD: Incremental source generator for ComputingContext marked classes.
 /// Generates mutation methods, change tracking, computation nodes, and SaveChanges logic.
+/// DISABLED: This generator has been replaced by ComputingContextGeneratorNew (push-based sources).
+/// Kept for reference only.
 /// </summary>
-[Generator]
+// [Generator] // DISABLED - Use ComputingContextGeneratorNew instead
 public class ComputingContextGenerator : IIncrementalGenerator
 {
     public void Initialize(IncrementalGeneratorInitializationContext context)
