@@ -11,14 +11,14 @@ namespace Guacamole.Sources;
 
 /// <summary>
 /// Thread-safe implementation of IIncrementalSource using immutable collections.
-/// Automatically invalidates the computation graph cache when data changes.
+/// Raises change events when data changes; cache invalidation is handled by the context.
 /// </summary>
 /// <typeparam name="T">Type of items in the source</typeparam>
 public sealed class IncrementalSource<T> : IIncrementalSource<T>
 {
     private readonly ReaderWriterLockSlim _lock = new(LockRecursionPolicy.NoRecursion);
     private ImmutableHashSet<T> _items = ImmutableHashSet<T>.Empty;
-    private ComputationGraph _graph;
+    private readonly Func<ComputationGraph> _graphProvider;
     private readonly ICollectionComputationNode<T> _node;
 
     /// <summary>
@@ -28,6 +28,7 @@ public sealed class IncrementalSource<T> : IIncrementalSource<T>
 
     /// <summary>
     /// Event raised when the source changes.
+    /// The context subscribes to this and handles cache invalidation.
     /// </summary>
     public event EventHandler<SourceChangedEventArgs>? Changed;
 
@@ -35,18 +36,21 @@ public sealed class IncrementalSource<T> : IIncrementalSource<T>
     /// Creates a new incremental source.
     /// </summary>
     /// <param name="sourceId">Unique identifier for this source</param>
-    /// <param name="graph">The computation graph to integrate with</param>
-    public IncrementalSource(string sourceId, ComputationGraph graph)
+    /// <param name="graphProvider">Function that provides access to the current computation graph</param>
+    public IncrementalSource(string sourceId, Func<ComputationGraph> graphProvider)
     {
         SourceId = sourceId ?? throw new ArgumentNullException(nameof(sourceId));
-        _graph = graph ?? throw new ArgumentNullException(nameof(graph));
+        _graphProvider = graphProvider ?? throw new ArgumentNullException(nameof(graphProvider));
 
         // Create the computation node for this source
         _node = new SourceCollectionNode(sourceId, this);
-
-        // Register node in the graph
-        _graph = _graph.AddNode(_node);
     }
+
+    /// <summary>
+    /// Gets the computation node for graph registration.
+    /// Called by the context during initialization.
+    /// </summary>
+    internal ICollectionComputationNode<T> GetNode() => _node;
 
     /// <summary>
     /// Returns a provider that exposes this source's values to the computation pipeline.
@@ -55,7 +59,7 @@ public sealed class IncrementalSource<T> : IIncrementalSource<T>
     {
         return new IncrementalValuesProvider<T>(
             _node,
-            _graph,
+            _graphProvider(), // Get current graph from provider
             new ProviderMetadata($"Source: {SourceId}", "Push-based external source"));
     }
 
@@ -84,12 +88,12 @@ public sealed class IncrementalSource<T> : IIncrementalSource<T>
 
         if (changed)
         {
-            InvalidateCacheAndNotify();
+            NotifyChanged();
         }
     }
 
     /// <summary>
-    /// Removes an item from the source. Triggers automatic invalidation and recomputation.
+    /// Removes an item from the source. Triggers change notification.
     /// </summary>
     public void Remove(T item)
     {
@@ -114,12 +118,12 @@ public sealed class IncrementalSource<T> : IIncrementalSource<T>
 
         if (changed)
         {
-            InvalidateCacheAndNotify();
+            NotifyChanged();
         }
     }
 
     /// <summary>
-    /// Replaces an item in the source. Triggers automatic invalidation and recomputation.
+    /// Replaces an item in the source. Triggers change notification.
     /// </summary>
     public void Replace(T oldItem, T newItem)
     {
@@ -150,12 +154,12 @@ public sealed class IncrementalSource<T> : IIncrementalSource<T>
 
         if (changed)
         {
-            InvalidateCacheAndNotify();
+            NotifyChanged();
         }
     }
 
     /// <summary>
-    /// Clears all items from the source. Triggers automatic invalidation and recomputation.
+    /// Clears all items from the source. Triggers change notification.
     /// </summary>
     public void Clear()
     {
@@ -177,7 +181,7 @@ public sealed class IncrementalSource<T> : IIncrementalSource<T>
 
         if (changed)
         {
-            InvalidateCacheAndNotify();
+            NotifyChanged();
         }
     }
 
@@ -198,50 +202,12 @@ public sealed class IncrementalSource<T> : IIncrementalSource<T>
     }
 
     /// <summary>
-    /// Invalidates the computation cache and notifies observers.
-    /// This causes dependent computations to be recomputed automatically.
+    /// Notifies subscribers that the source has changed.
+    /// Cache invalidation is handled by the context via the Changed event.
     /// </summary>
-    private void InvalidateCacheAndNotify()
+    private void NotifyChanged()
     {
-        // Remove this node from cache
-        _graph.ValueCache.Remove(SourceId);
-
-        // Find and invalidate all dependent nodes transitively
-        var dependents = FindAllDependents();
-        foreach (var dependent in dependents)
-        {
-            _graph.ValueCache.Remove(dependent);
-        }
-
-        // Notify observers (context will trigger output handlers)
         Changed?.Invoke(this, new SourceChangedEventArgs(SourceId, DateTime.UtcNow));
-    }
-
-    /// <summary>
-    /// Finds all nodes that depend on this source (transitively).
-    /// </summary>
-    private HashSet<string> FindAllDependents()
-    {
-        var dependents = new HashSet<string>();
-        var toCheck = new Queue<string>();
-        toCheck.Enqueue(SourceId);
-
-        while (toCheck.Count > 0)
-        {
-            var current = toCheck.Dequeue();
-
-            // Find all nodes that directly depend on current
-            foreach (var kvp in _graph.Dependencies)
-            {
-                if (kvp.Value.Contains(current) && !dependents.Contains(kvp.Key))
-                {
-                    dependents.Add(kvp.Key);
-                    toCheck.Enqueue(kvp.Key);
-                }
-            }
-        }
-
-        return dependents;
     }
 
     /// <summary>

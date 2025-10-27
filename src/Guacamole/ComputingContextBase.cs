@@ -101,12 +101,58 @@ public abstract partial class ComputingContextBase : IDisposable
     }
 
     /// <summary>
-    /// Handles source change events by triggering output handlers.
+    /// Handles source change events by invalidating cache and triggering output handlers.
     /// </summary>
     private void OnSourceChanged(object? sender, SourceChangedEventArgs e)
     {
+        // Invalidate cache for the source and all its dependents
+        InvalidateNodeCache(e.SourceId);
+
         // Trigger all registered output handlers when any source changes
         TriggerOutputs();
+    }
+
+    /// <summary>
+    /// Invalidates cache for the specified node and all transitive dependents.
+    /// </summary>
+    private void InvalidateNodeCache(string nodeId)
+    {
+        // Remove the node itself from cache
+        Graph.ValueCache.Remove(nodeId);
+
+        // Find all nodes that depend on this node (transitively)
+        var dependentsToInvalidate = FindAllDependents(nodeId);
+        foreach (var dependent in dependentsToInvalidate)
+        {
+            Graph.ValueCache.Remove(dependent);
+        }
+    }
+
+    /// <summary>
+    /// Finds all nodes that transitively depend on the given node.
+    /// </summary>
+    private HashSet<string> FindAllDependents(string nodeId)
+    {
+        var dependents = new HashSet<string>();
+        var toCheck = new Queue<string>();
+        toCheck.Enqueue(nodeId);
+
+        while (toCheck.Count > 0)
+        {
+            var current = toCheck.Dequeue();
+
+            // Find all nodes that directly depend on current
+            foreach (var kvp in Graph.Dependencies)
+            {
+                if (kvp.Value.Contains(current) && !dependents.Contains(kvp.Key))
+                {
+                    dependents.Add(kvp.Key);
+                    toCheck.Enqueue(kvp.Key);
+                }
+            }
+        }
+
+        return dependents;
     }
 
     /// <summary>

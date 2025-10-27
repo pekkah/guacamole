@@ -11,7 +11,7 @@ namespace Guacamole.Sources;
 
 /// <summary>
 /// Thread-safe implementation of IIncrementalValueSource for single values.
-/// Automatically invalidates the computation graph cache when the value changes.
+/// Raises change events when the value changes; cache invalidation is handled by the context.
 /// </summary>
 /// <typeparam name="T">Type of value in the source</typeparam>
 public sealed class IncrementalValueSource<T> : IIncrementalValueSource<T>
@@ -19,7 +19,7 @@ public sealed class IncrementalValueSource<T> : IIncrementalValueSource<T>
     private readonly ReaderWriterLockSlim _lock = new(LockRecursionPolicy.NoRecursion);
     private T? _value;
     private bool _hasValue;
-    private ComputationGraph _graph;
+    private readonly Func<ComputationGraph> _graphProvider;
     private readonly IComputationNode<T> _node;
 
     /// <summary>
@@ -29,6 +29,7 @@ public sealed class IncrementalValueSource<T> : IIncrementalValueSource<T>
 
     /// <summary>
     /// Event raised when the source changes.
+    /// The context subscribes to this and handles cache invalidation.
     /// </summary>
     public event EventHandler<SourceChangedEventArgs>? Changed;
 
@@ -36,18 +37,21 @@ public sealed class IncrementalValueSource<T> : IIncrementalValueSource<T>
     /// Creates a new incremental value source.
     /// </summary>
     /// <param name="sourceId">Unique identifier for this source</param>
-    /// <param name="graph">The computation graph to integrate with</param>
-    public IncrementalValueSource(string sourceId, ComputationGraph graph)
+    /// <param name="graphProvider">Function that provides access to the current computation graph</param>
+    public IncrementalValueSource(string sourceId, Func<ComputationGraph> graphProvider)
     {
         SourceId = sourceId ?? throw new ArgumentNullException(nameof(sourceId));
-        _graph = graph ?? throw new ArgumentNullException(nameof(graph));
+        _graphProvider = graphProvider ?? throw new ArgumentNullException(nameof(graphProvider));
 
         // Create the computation node for this source
         _node = new SourceValueNode(sourceId, this);
-
-        // Register node in the graph
-        _graph = _graph.AddNode(_node);
     }
+
+    /// <summary>
+    /// Gets the computation node for graph registration.
+    /// Called by the context during initialization.
+    /// </summary>
+    internal IComputationNode<T> GetNode() => _node;
 
     /// <summary>
     /// Returns a provider that exposes this source's value to the computation pipeline.
@@ -56,12 +60,12 @@ public sealed class IncrementalValueSource<T> : IIncrementalValueSource<T>
     {
         return new IncrementalValueProvider<T>(
             _node,
-            _graph,
+            _graphProvider(), // Get current graph from provider
             new ProviderMetadata($"Source: {SourceId}", "Push-based single value source"));
     }
 
     /// <summary>
-    /// Sets the value of the source. Triggers automatic invalidation and recomputation.
+    /// Sets the value of the source. Triggers change notification.
     /// </summary>
     public void Set(T value)
     {
@@ -87,7 +91,7 @@ public sealed class IncrementalValueSource<T> : IIncrementalValueSource<T>
 
         if (changed)
         {
-            InvalidateCacheAndNotify();
+            NotifyChanged();
         }
     }
 
@@ -108,50 +112,12 @@ public sealed class IncrementalValueSource<T> : IIncrementalValueSource<T>
     }
 
     /// <summary>
-    /// Invalidates the computation cache and notifies observers.
-    /// This causes dependent computations to be recomputed automatically.
+    /// Notifies subscribers that the source has changed.
+    /// Cache invalidation is handled by the context via the Changed event.
     /// </summary>
-    private void InvalidateCacheAndNotify()
+    private void NotifyChanged()
     {
-        // Remove this node from cache
-        _graph.ValueCache.Remove(SourceId);
-
-        // Find and invalidate all dependent nodes transitively
-        var dependents = FindAllDependents();
-        foreach (var dependent in dependents)
-        {
-            _graph.ValueCache.Remove(dependent);
-        }
-
-        // Notify observers (context will trigger output handlers)
         Changed?.Invoke(this, new SourceChangedEventArgs(SourceId, DateTime.UtcNow));
-    }
-
-    /// <summary>
-    /// Finds all nodes that depend on this source (transitively).
-    /// </summary>
-    private HashSet<string> FindAllDependents()
-    {
-        var dependents = new HashSet<string>();
-        var toCheck = new Queue<string>();
-        toCheck.Enqueue(SourceId);
-
-        while (toCheck.Count > 0)
-        {
-            var current = toCheck.Dequeue();
-
-            // Find all nodes that directly depend on current
-            foreach (var kvp in _graph.Dependencies)
-            {
-                if (kvp.Value.Contains(current) && !dependents.Contains(kvp.Key))
-                {
-                    dependents.Add(kvp.Key);
-                    toCheck.Enqueue(kvp.Key);
-                }
-            }
-        }
-
-        return dependents;
     }
 
     /// <summary>

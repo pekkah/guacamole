@@ -134,7 +134,8 @@ internal static class SourcePropertyGenerator
         return $$"""
                 _{{propertyName}}Source = new Guacamole.Sources.IncrementalSource<{{itemType}}>(
                     "{{className}}.{{propertyName}}",
-                    Graph);
+                    () => Graph); // Pass graph provider, not direct reference
+                Graph = Graph.AddNode(_{{propertyName}}Source.GetNode()); // Register node
                 SubscribeToSource(_{{propertyName}}Source);
         """;
     }
@@ -207,7 +208,8 @@ internal static class SourcePropertyGenerator
         return $$"""
                 _{{propertyName}}Source = new Guacamole.Sources.IncrementalValueSource<{{itemType}}>(
                     "{{className}}.{{propertyName}}",
-                    Graph);
+                    () => Graph); // Pass graph provider, not direct reference
+                Graph = Graph.AddNode(_{{propertyName}}Source.GetNode()); // Register node
                 SubscribeToSource(_{{propertyName}}Source);
         """;
     }
