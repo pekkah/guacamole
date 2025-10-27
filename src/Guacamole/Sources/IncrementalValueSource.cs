@@ -12,12 +12,21 @@ namespace Guacamole.Sources;
 /// <summary>
 /// Thread-safe implementation of IIncrementalValueSource for single values.
 /// Raises change events when the value changes; cache invalidation is handled by the context.
+///
+/// Note: Uses a <c>_hasValue</c> flag to distinguish between an unset value and a value explicitly set to <c>null</c>.
+/// Since <c>T?</c> can be nullable, we need this flag to know if <see cref="Set"/> has ever been called.
+/// The <see cref="Set"/> method prevents null values via <see cref="ArgumentNullException.ThrowIfNull"/>,
+/// so a null <c>_value</c> always indicates the source has never been initialized.
 /// </summary>
 /// <typeparam name="T">Type of value in the source</typeparam>
 public sealed class IncrementalValueSource<T> : IIncrementalValueSource<T>
 {
     private readonly ReaderWriterLockSlim _lock = new(LockRecursionPolicy.NoRecursion);
     private T? _value;
+    // Used to distinguish between "never initialized" vs "set to null".
+    // Since _value is nullable, null could mean either state.
+    // However, Set() prevents null via ArgumentNullException.ThrowIfNull,
+    // so null always means "never initialized".
     private bool _hasValue;
     private readonly Func<ComputationGraph> _graphProvider;
     private readonly IComputationNode<T> _node;
@@ -150,8 +159,9 @@ public sealed class IncrementalValueSource<T> : IIncrementalValueSource<T>
             var value = _source.GetValue();
             if (value == null)
             {
+                // Since Set() prevents null values, null here means never initialized
                 return Result<T, ComputationError>.Error(
-                    new ComputationError($"Source '{Id}' has no value set"));
+                    new ComputationError($"Source '{Id}' has never been initialized with a value"));
             }
 
             return Result<T, ComputationError>.Success(value);

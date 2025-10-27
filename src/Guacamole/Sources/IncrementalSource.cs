@@ -75,11 +75,13 @@ public sealed class IncrementalSource<T> : IIncrementalSource<T>
         _lock.EnterWriteLock();
         try
         {
-            if (_items.Contains(item))
-                return; // Already exists, no-op
-
-            _items = _items.Add(item);
-            changed = true;
+            var newItems = _items.Add(item);
+            // ImmutableHashSet.Add returns same reference if item already exists
+            if (newItems != _items)
+            {
+                _items = newItems;
+                changed = true;
+            }
         }
         finally
         {
