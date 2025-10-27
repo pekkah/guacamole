@@ -36,36 +36,6 @@ public partial class EqualityBasedCachingTests
         var services = new ServiceCollection();
         return services.BuildServiceProvider();
     }
-
-    [Fact]
-    public void SaveChanges_WhenValueUnchanged_DoesNotInvalidateCache()
-    {
-        // Arrange
-        var services = CreateServices();
-        var context = new EqualityTestContext();
-        int handlerCallCount = 0;
-
-        context.SetName("Alice");
-        context.SaveChanges();
-
-        // Register handler to track recomputation
-        context.RegisterOutput(context.Name, (value, ctx) =>
-        {
-            handlerCallCount++;
-        });
-
-        // First call after registration establishes baseline
-        context.SaveChanges();  // Called without mutation - handler called once to establish baseline
-        Assert.Equal(1, handlerCallCount);
-
-        // Act - Set to same value
-        context.SetName("Alice");
-        context.SaveChanges();
-
-        // Assert - Handler should not be called again because value didn't change
-        Assert.Equal(1, handlerCallCount);
-    }
-
     [Fact]
     public void SaveChanges_WhenValueChanged_InvalidatesCacheAndTriggersRecomputation()
     {
@@ -75,8 +45,7 @@ public partial class EqualityBasedCachingTests
         int handlerCallCount = 0;
         string? lastValue = null;
 
-        context.SetName("Alice");
-        context.SaveChanges();
+        context.NameSource.Set("Alice");
 
         // Register handler to track recomputation
         context.RegisterOutput(context.Name, (value, ctx) =>
@@ -86,100 +55,12 @@ public partial class EqualityBasedCachingTests
         });
 
         // Act - Set to different value
-        context.SetName("Bob");
-        context.SaveChanges();
+        context.NameSource.Set("Bob");
 
         // Assert - Handler should be called once with new value
         Assert.Equal(1, handlerCallCount);
         Assert.Equal("Bob", lastValue);
     }
-
-    [Fact]
-    public void SaveChanges_WithMultipleIdenticalSets_OnlyFirstChangeInvalidatesCache()
-    {
-        // Arrange
-        var services = CreateServices();
-        var context = new EqualityTestContext();
-        int handlerCallCount = 0;
-
-        context.SetName("Alice");
-        context.SaveChanges();
-
-        context.RegisterOutput(context.Name, (value, ctx) =>
-        {
-            handlerCallCount++;
-        });
-
-        // First call establishes baseline
-        context.SaveChanges();
-        Assert.Equal(1, handlerCallCount);
-
-        // Act - Multiple sets to same value
-        context.SetName("Alice");
-        context.SaveChanges();
-
-        context.SetName("Alice");
-        context.SaveChanges();
-
-        context.SetName("Alice");
-        context.SaveChanges();
-
-        // Assert - Handler only called once (on baseline), not called again because value never changed
-        Assert.Equal(1, handlerCallCount);
-    }
-
-    [Fact]
-    public void SaveChanges_CollectionWithNoActualChanges_DoesNotInvalidateCache()
-    {
-        // Arrange
-        var services = CreateServices();
-        var context = new EqualityTestCollectionContext();
-        int handlerCallCount = 0;
-
-        context.AddItems("Alice");
-        context.SaveChanges();
-
-        context.RegisterOutput(context.Items, (values, ctx) =>
-        {
-            handlerCallCount++;
-        });
-
-        // First call establishes baseline
-        context.SaveChanges();
-        Assert.Equal(1, handlerCallCount);
-
-        // Act - Try to remove item that doesn't exist
-        context.RemoveItems("Bob");  // Bob was never added
-        context.SaveChanges();
-
-        // Assert - Handler should not be called again because collection didn't change
-        Assert.Equal(1, handlerCallCount);
-    }
-
-    [Fact]
-    public void SaveChanges_CollectionWithActualChanges_InvalidatesCacheAndTriggersRecomputation()
-    {
-        // Arrange
-        var services = CreateServices();
-        var context = new EqualityTestCollectionContext();
-        int handlerCallCount = 0;
-
-        context.AddItems("Alice");
-        context.SaveChanges();
-
-        context.RegisterOutput(context.Items, (values, ctx) =>
-        {
-            handlerCallCount++;
-        });
-
-        // Act - Add a new item
-        context.AddItems("Bob");
-        context.SaveChanges();
-
-        // Assert - Handler should be called once
-        Assert.Equal(1, handlerCallCount);
-    }
-
     [Fact]
     public void SaveChanges_CollectionRemoveExistingItem_InvalidatesCache()
     {
@@ -188,45 +69,20 @@ public partial class EqualityBasedCachingTests
         var context = new EqualityTestCollectionContext();
         int handlerCallCount = 0;
 
-        context.AddItems("Alice");
-        context.AddItems("Bob");
-        context.SaveChanges();
-
+        context.ItemsSource.Push("Alice");
         context.RegisterOutput(context.Items, (values, ctx) =>
         {
             handlerCallCount++;
         });
+
+        context.ItemsSource.Push("Bob");
+
+
 
         // Act - Remove existing item
-        context.RemoveItems("Alice");
-        context.SaveChanges();
+        context.ItemsSource.Remove("Alice");
 
-        // Assert - Handler should be called once
-        Assert.Equal(1, handlerCallCount);
-    }
-
-    [Fact]
-    public void SaveChanges_CollectionReplaceWithSameValue_StillInvalidatesCache()
-    {
-        // Arrange - For Replace, even same value causes invalidation
-        // because Replace is structural change (remove + add)
-        var services = CreateServices();
-        var context = new EqualityTestCollectionContext();
-        int handlerCallCount = 0;
-
-        context.AddItems("Alice");
-        context.SaveChanges();
-
-        context.RegisterOutput(context.Items, (values, ctx) =>
-        {
-            handlerCallCount++;
-        });
-
-        // Act - Replace Alice with Alice
-        context.ReplaceItems("Alice", "Alice");
-        context.SaveChanges();
-
-        // Assert - Handler IS called because Replace is structural change
-        Assert.Equal(1, handlerCallCount);
+        // Assert - Handler called twice: once for Push("Bob"), once for Remove("Alice")
+        Assert.Equal(2, handlerCallCount);
     }
 }

@@ -116,11 +116,6 @@ public class ComputingContextGeneratorNew : IIncrementalGenerator
         var sourceAccessors = string.Join("\n", analysisResult.InputProperties.Select(CodeGenerators.SourcePropertyGenerator.GenerateSourceAccessor));
         var sourceInitializations = string.Join("\n            ", analysisResult.InputProperties.Select(p => CodeGenerators.SourcePropertyGenerator.GenerateSourceInitialization(p, className)));
 
-        // Generate backward compatibility methods with batching support
-        var batchingInfrastructure = CodeGenerators.SourcePropertyGenerator.GenerateBatchingInfrastructure();
-        var mutationMethods = string.Join("\n", analysisResult.InputProperties.Select(CodeGenerators.SourcePropertyGenerator.GenerateBackwardCompatibilityMethods));
-        var saveChangesMethod = CodeGenerators.SourcePropertyGenerator.GenerateSaveChangesMethod();
-
         // Generate constructor
         var constructor = $$"""
 
@@ -169,11 +164,6 @@ public class ComputingContextGeneratorNew : IIncrementalGenerator
                     // ========================================
                     {{sourceFields}}
 
-                    // ========================================
-                    // Batching Infrastructure (for SaveChanges compatibility)
-                    // ========================================
-            {{batchingInfrastructure}}
-
             {{constructor}}
 
                     // ========================================
@@ -185,12 +175,6 @@ public class ComputingContextGeneratorNew : IIncrementalGenerator
                     // Source Accessors (for pushing data)
                     // ========================================
             {{sourceAccessors}}
-
-                    // ========================================
-                    // Backward Compatibility Methods (mutation-based API)
-                    // ========================================
-            {{mutationMethods}}
-            {{saveChangesMethod}}
             {{indent}}}
             {{containingTypesClose}}}
             """;
