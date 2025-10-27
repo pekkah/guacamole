@@ -1,122 +1,91 @@
 # Guacamole Examples
 
-This directory contains example implementations demonstrating the Guacamole incremental computation framework.
-
-## Property Convention (v0.1.0+)
-
-**Important**: Starting with v0.1.0, the property generation convention has changed:
-
-- **Get-only properties** (`{ get; }`) → Auto-managed (mutation methods generated)
-- **Properties with setters** (`{ get; set; }`) → User-managed (no auto-generation)
-
-All examples in this directory use the **new convention**.
+This directory contains simple, practical examples demonstrating the push-based incremental compilation architecture.
 
 ## Examples
 
-### 1. CompilerContext
+### 1. BasicSourceUsage.cs
+Simple example showing how to use incremental sources to push data and trigger computation.
 
-**Location**: `examples/CompilerContext/`
-
-**Purpose**: Demonstrates a simple compiler context with incremental source file processing.
-
-**Key Features**:
-- Single-value property (`IncrementalValueProvider<Project>`)
-- Collection property (`IncrementalValuesProvider<SourceFile>`)
-- Auto-generated mutation methods: `SetProject()`, `AddSourceFiles()`, `ReplaceSourceFiles()`
-- Output handler registration and triggering
-- Change tracking with `HasPendingChanges`
-
-**Run**:
-```bash
-dotnet run --project examples/CompilerContext
-```
-
-**Expected Output**:
-- Demonstrates setting a project
-- Adding source files
-- Tracking pending changes
+**Key concepts:**
+- Creating a computing context with source properties
+- Pushing data through sources
+- Automatic cache invalidation and recomputation
 - Registering output handlers
-- File replacement with incremental updates
 
-### 2. FileWatcherContext
+### 2. FileWatcherExample.cs
+Real-world example of using file system watcher to push file changes through incremental compilation.
 
-**Location**: `examples/FileWatcherContext/`
+**Key concepts:**
+- Integrating external event sources (file watcher)
+- Push-based reactive updates
+- Incremental pipeline transformations (Select, Where)
+- Automatic output triggering
 
-**Purpose**: Demonstrates file system watching with incremental computation.
+### 3. DataPipelineExample.cs
+Example showing incremental data transformation pipelines with caching.
 
-**Key Features**:
-- Collection property for tracking files (`IncrementalValuesProvider<TrackedFile>`)
-- Auto-generated mutation methods: `AddFiles()`, `RemoveFiles()`, `ReplaceFiles()`
-- File modification simulation
-- Output handlers for change notifications
-- Demonstrates record-based equality comparison
+**Key concepts:**
+- Building computation pipelines with Select, Where
+- Dependency tracking and cache invalidation
+- Multiple transformation stages
+- Performance benefits of incremental recomputation
 
-**Run**:
-```bash
-dotnet run --project examples/FileWatcherContext
+## Push-Based Architecture
+
+### Sources Replace Mutation Methods
+Instead of mutation methods, data is pushed through sources:
+
+```csharp
+[ComputingContext]
+public partial class MyContext : ComputingContextBase
+{
+    // Property generates a source accessor
+    public partial IncrementalValuesProvider<SourceFile> SourceFiles { get; }
+}
+
+// Use the source to push data
+context.SourceFilesSource.Push(new SourceFile("Program.cs", "..."));
+context.SourceFilesSource.Remove(oldFile);
+context.SourceFilesSource.Replace(oldFile, newFile);
+
+// Changes trigger automatic recomputation - no SaveChanges() needed
 ```
 
-**Expected Output**:
-- Adding tracked files to the context
-- Output handler triggering on changes
-- File modification via Replace operation
-- File removal
-- Change tracking and notifications
+### Automatic Output Triggering
+Outputs are triggered automatically when sources change:
 
-## What Gets Auto-Generated?
-
-For **get-only properties**, the source generator creates:
-
-### Single-Value Properties (`IncrementalValueProvider<T>`)
-- `Set{PropertyName}(T value)` - Sets the value
-
-### Collection Properties (`IncrementalValuesProvider<T>`)
-- `Add{PropertyName}(T item)` - Adds a single item (throws on duplicate)
-- `Remove{PropertyName}(T item)` - Removes an item (returns false if not found)
-- `Replace{PropertyName}(T oldItem, T newItem)` - Replaces an item
-- `Add{PropertyName}s(IEnumerable<T> items)` - Batch add
-- `Remove{PropertyName}s(IEnumerable<T> items)` - Batch remove
-
-### Change Tracking Infrastructure
-- `SaveChanges()` / `SaveChangesAsync()` - Commits pending changes
-- `DiscardChanges()` - Discards pending changes
-- `HasPendingChanges` - Boolean property indicating pending changes
-- Strongly-typed change record types (zero boxing)
-- Computation nodes for graph integration
-- Output handler support
-
-## Building Examples
-
-Build all examples:
-```bash
-dotnet build examples/CompilerContext
-dotnet build examples/FileWatcherContext
+```csharp
+context.RegisterOutput(context.Diagnostics, (diagnostics, ctx) => {
+    // Called automatically when SourceFiles changes
+    foreach (var diagnostic in diagnostics) {
+        Console.WriteLine(diagnostic);
+    }
+});
 ```
 
-Or build from the solution root:
+### No SaveChanges Required
+The push-based architecture eliminates the need for `SaveChanges()`:
+- Sources trigger events immediately when data changes
+- Context automatically invalidates affected caches
+- Registered outputs are called with updated values
+
+## Running Examples
+
+Run any example with dotnet-script:
+
 ```bash
-dotnet build
+dotnet script examples/BasicSourceUsage.cs
 ```
 
-## Migration from v0.0.x
+Or reference the Guacamole DLL:
 
-If you're migrating from an earlier version:
+```bash
+dotnet run app.cs examples/BasicSourceUsage.cs
+```
 
-1. **Change property declarations**:
-   ```csharp
-   // OLD (v0.0.x)
-   public partial IncrementalValuesProvider<SourceFile> SourceFiles { get; set; }
+## Further Reading
 
-   // NEW (v0.1.0+)
-   public partial IncrementalValuesProvider<SourceFile> SourceFiles { get; }
-   ```
-
-2. **All mutation methods remain the same** - no code changes needed
-
-See [Migration Guide](../docs/migration/010-property-convention-reversal.md) for detailed instructions.
-
-## Additional Resources
-
-- [Generated Code Reference](../docs/generated-code-reference.md) - Detailed documentation of generated code
-- [Performance Guide](../docs/performance-guide.md) - Performance characteristics and optimization tips
-- [Migration Guide](../docs/migration/010-property-convention-reversal.md) - Migration instructions for v0.1.0
+- `PUSH_BASED_ARCHITECTURE_RESEARCH.md` - Detailed architecture documentation
+- `IMPLEMENTATION_SUMMARY.md` - Implementation overview
+- `docs/quickstart.md` - Getting started guide
