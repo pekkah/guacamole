@@ -47,32 +47,42 @@ This is a **BREAKING CHANGE** that fundamentally changes how users interact with
 
 #### Key Features:
 ```csharp
-// Thread-safe push operation
+// Constructor uses graph provider pattern (no mutable reference to immutable graph)
+public IncrementalSource(string sourceId, Func<ComputationGraph> graphProvider)
+{
+    SourceId = sourceId;
+    _graphProvider = graphProvider; // ✅ Store provider, not copy
+    _node = new SourceCollectionNode(sourceId, this);
+    // Node is registered by context after creation
+}
+
+// Thread-safe push operation - raises events, doesn't handle invalidation
 public void Push(T item)
 {
+    bool changed = false;
     _lock.EnterWriteLock();
     try
     {
         if (_items.Contains(item)) return;
         _items = _items.Add(item);
+        changed = true;
     }
     finally { _lock.ExitWriteLock(); }
 
-    InvalidateCacheAndNotify(); // Automatic!
+    if (changed)
+    {
+        // Raise event - context handles cache invalidation
+        Changed?.Invoke(this, new SourceChangedEventArgs(SourceId, DateTime.UtcNow));
+    }
 }
 
-// Automatic cache invalidation
-private void InvalidateCacheAndNotify()
+// AsProvider gets current graph from provider
+public IncrementalValuesProvider<T> AsProvider()
 {
-    _graph.ValueCache.Remove(SourceId);
-
-    // Transitively invalidate dependents
-    var dependents = FindAllDependents();
-    foreach (var dep in dependents)
-        _graph.ValueCache.Remove(dep);
-
-    // Trigger output handlers
-    Changed?.Invoke(this, new SourceChangedEventArgs(SourceId, DateTime.UtcNow));
+    return new IncrementalValuesProvider<T>(
+        _node,
+        _graphProvider(), // ✅ Get current graph
+        new ProviderMetadata($"Source: {SourceId}", "Push-based external source"));
 }
 ```
 
@@ -99,7 +109,23 @@ protected void SubscribeToSource<T>(IIncrementalSource<T> source)
 
 private void OnSourceChanged(object? sender, SourceChangedEventArgs e)
 {
-    TriggerOutputs(); // Automatic trigger!
+    // Invalidate cache for the source and all its dependents
+    InvalidateNodeCache(e.SourceId);
+
+    // Trigger all registered output handlers
+    TriggerOutputs();
+}
+
+private void InvalidateNodeCache(string nodeId)
+{
+    Graph.ValueCache.Remove(nodeId);
+
+    // Find and invalidate all dependent nodes transitively
+    var dependents = FindAllDependents(nodeId);
+    foreach (var dependent in dependents)
+    {
+        Graph.ValueCache.Remove(dependent);
+    }
 }
 ```
 
@@ -132,12 +158,13 @@ Generates source-backed properties with four components:
    }
    ```
 
-4. **Constructor Initialization**: Creates and subscribes to source
+4. **Constructor Initialization**: Creates source with graph provider, registers node, and subscribes
    ```csharp
    _sourceFilesSource = new IncrementalSource<SourceFile>(
        "CompilerContext.SourceFiles",
-       Graph);
-   SubscribeToSource(_sourceFilesSource);
+       () => Graph); // ✅ Graph provider, not direct reference
+   Graph = Graph.AddNode(_sourceFilesSource.GetNode()); // ✅ Register node
+   SubscribeToSource(_sourceFilesSource); // ✅ Subscribe to changes
    ```
 
 #### Updated: `ComputingContextGenerator.cs`
@@ -161,8 +188,11 @@ partial class CompilerContext
     // Constructor
     public CompilerContext() : base()
     {
-        _sourceFilesSource = new IncrementalSource<SourceFile>("...", Graph);
-        SubscribeToSource(_sourceFilesSource);
+        _sourceFilesSource = new IncrementalSource<SourceFile>(
+            "CompilerContext.SourceFiles",
+            () => Graph); // ✅ Graph provider
+        Graph = Graph.AddNode(_sourceFilesSource.GetNode()); // ✅ Register node
+        SubscribeToSource(_sourceFilesSource); // ✅ Subscribe
     }
 
     // Property Implementation
@@ -464,9 +494,8 @@ The test suite needs to be updated to use the new API:
 │ IncrementalSource<T>                                     │
 ├──────────────────────────────────────────────────────────┤
 │  1. Update _items (ImmutableHashSet)                     │
-│  2. Invalidate cache: _graph.ValueCache.Remove(id)       │
-│  3. Invalidate dependents (transitive)                   │
-│  4. Fire Changed event                                   │
+│  2. Fire Changed event                                   │
+│  (Cache invalidation is handled by context)              │
 └────────────────────┬─────────────────────────────────────┘
                      │
                      ↓
@@ -474,7 +503,11 @@ The test suite needs to be updated to use the new API:
 │ ComputingContextBase.OnSourceChanged()                  │
 ├──────────────────────────────────────────────────────────┤
 │  1. Called by event handler                              │
-│  2. Calls TriggerOutputs()                               │
+│  2. InvalidateNodeCache(sourceId):                       │
+│     - Remove source from cache                           │
+│     - Find all dependent nodes (transitive)              │
+│     - Remove dependents from cache                       │
+│  3. Calls TriggerOutputs()                               │
 └────────────────────┬─────────────────────────────────────┘
                      │
                      ↓

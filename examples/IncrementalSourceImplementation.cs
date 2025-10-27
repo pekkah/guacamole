@@ -1,3 +1,8 @@
+// This file contains the complete implementation of the push-based source architecture.
+// It's provided as a reference for understanding how sources work in Guacamole.
+//
+// NOTE: This is example code. The actual implementation is in src/Guacamole/Sources/
+
 using System;
 using System.Collections.Generic;
 using System.Collections.Immutable;
@@ -9,12 +14,14 @@ using Guacamole.Core.Pipeline;
 
 namespace Guacamole.Sources;
 
+// ============================================================================
+// INTERFACES
+// ============================================================================
+
 /// <summary>
 /// Represents a source of data that can be pushed into the incremental computation graph.
 /// Sources are the entry points for external data (file changes, network events, etc.)
-/// and automatically invalidate the computation cache when data changes.
-///
-/// This is the proposed replacement for mutation methods (Add/Remove/SaveChanges).
+/// and automatically notify the context when data changes.
 /// </summary>
 /// <typeparam name="T">Type of items this source produces</typeparam>
 public interface IIncrementalSource<T>
@@ -30,23 +37,22 @@ public interface IIncrementalSource<T>
     IncrementalValuesProvider<T> AsProvider();
 
     /// <summary>
-    /// Adds an item to the source. Thread-safe, triggers invalidation automatically.
-    /// No SaveChanges required - changes flow immediately!
+    /// Adds an item to the source. Thread-safe, triggers notification automatically.
     /// </summary>
     void Push(T item);
 
     /// <summary>
-    /// Removes an item from the source. Thread-safe, triggers invalidation automatically.
+    /// Removes an item from the source. Thread-safe, triggers notification automatically.
     /// </summary>
     void Remove(T item);
 
     /// <summary>
-    /// Replaces an item in the source. Thread-safe, triggers invalidation automatically.
+    /// Replaces an item in the source. Thread-safe, triggers notification automatically.
     /// </summary>
     void Replace(T oldItem, T newItem);
 
     /// <summary>
-    /// Clears all items from the source. Thread-safe, triggers invalidation automatically.
+    /// Clears all items from the source. Thread-safe, triggers notification automatically.
     /// </summary>
     void Clear();
 
@@ -65,12 +71,33 @@ public interface IIncrementalSource<T>
 /// <summary>
 /// Represents a single-value source (non-collection).
 /// </summary>
+/// <typeparam name="T">Type of value this source produces</typeparam>
 public interface IIncrementalValueSource<T>
 {
+    /// <summary>
+    /// Unique identifier for this source (used for graph node registration).
+    /// </summary>
     string SourceId { get; }
+
+    /// <summary>
+    /// The provider that exposes this source's value to the computation pipeline.
+    /// </summary>
     IncrementalValueProvider<T> AsProvider();
+
+    /// <summary>
+    /// Sets the value of the source. Thread-safe, triggers notification automatically.
+    /// </summary>
     void Set(T value);
+
+    /// <summary>
+    /// Gets the current value (thread-safe read).
+    /// </summary>
     T? GetValue();
+
+    /// <summary>
+    /// Event raised when the source changes.
+    /// The context subscribes to this to trigger output handlers automatically.
+    /// </summary>
     event EventHandler<SourceChangedEventArgs>? Changed;
 }
 
@@ -79,25 +106,41 @@ public interface IIncrementalValueSource<T>
 /// </summary>
 public sealed class SourceChangedEventArgs : EventArgs
 {
+    /// <summary>
+    /// The identifier of the source that changed.
+    /// </summary>
     public string SourceId { get; }
+
+    /// <summary>
+    /// The timestamp when the change occurred.
+    /// </summary>
     public DateTime Timestamp { get; }
 
     public SourceChangedEventArgs(string sourceId, DateTime timestamp)
     {
-        SourceId = sourceId;
+        SourceId = sourceId ?? throw new ArgumentNullException(nameof(sourceId));
         Timestamp = timestamp;
     }
 }
 
+// ============================================================================
+// IMPLEMENTATION: IncrementalSource<T> (Collection)
+// ============================================================================
+
 /// <summary>
 /// Thread-safe implementation of IIncrementalSource using immutable collections.
-/// Automatically invalidates the computation graph cache when data changes.
+/// Raises change events when data changes; cache invalidation is handled by the context.
+///
+/// ARCHITECTURE NOTE: Sources use a graph provider pattern to avoid storing mutable
+/// references to immutable graphs. The context owns the graph; sources access it via
+/// a function.
 /// </summary>
+/// <typeparam name="T">Type of items in the source</typeparam>
 public sealed class IncrementalSource<T> : IIncrementalSource<T>
 {
     private readonly ReaderWriterLockSlim _lock = new(LockRecursionPolicy.NoRecursion);
     private ImmutableHashSet<T> _items = ImmutableHashSet<T>.Empty;
-    private ComputationGraph _graph;
+    private readonly Func<ComputationGraph> _graphProvider; // ✅ Provider, not copy
     private readonly ICollectionComputationNode<T> _node;
 
     public string SourceId { get; }
@@ -107,18 +150,22 @@ public sealed class IncrementalSource<T> : IIncrementalSource<T>
     /// Creates a new incremental source.
     /// </summary>
     /// <param name="sourceId">Unique identifier for this source</param>
-    /// <param name="graph">The computation graph to integrate with</param>
-    public IncrementalSource(string sourceId, ComputationGraph graph)
+    /// <param name="graphProvider">Function that provides access to the current computation graph</param>
+    public IncrementalSource(string sourceId, Func<ComputationGraph> graphProvider)
     {
         SourceId = sourceId ?? throw new ArgumentNullException(nameof(sourceId));
-        _graph = graph ?? throw new ArgumentNullException(nameof(graph));
+        _graphProvider = graphProvider ?? throw new ArgumentNullException(nameof(graphProvider));
 
         // Create the computation node for this source
-        _node = new SourceCollectionNode<T>(sourceId, this);
-
-        // Register node in the graph
-        _graph = _graph.AddNode(_node);
+        _node = new SourceCollectionNode(sourceId, this);
+        // Node is registered by context after source creation
     }
+
+    /// <summary>
+    /// Gets the computation node for graph registration.
+    /// Called by the context during initialization.
+    /// </summary>
+    internal ICollectionComputationNode<T> GetNode() => _node;
 
     /// <summary>
     /// Returns a provider that exposes this source's values to the computation pipeline.
@@ -127,19 +174,15 @@ public sealed class IncrementalSource<T> : IIncrementalSource<T>
     {
         return new IncrementalValuesProvider<T>(
             _node,
-            _graph,
+            _graphProvider(), // ✅ Get current graph from provider
             new ProviderMetadata($"Source: {SourceId}", "Push-based external source"));
     }
 
-    /// <summary>
-    /// Pushes an item into the source. Triggers automatic invalidation and recomputation.
-    /// </summary>
     public void Push(T item)
     {
         ArgumentNullException.ThrowIfNull(item);
 
         bool changed = false;
-
         _lock.EnterWriteLock();
         try
         {
@@ -156,30 +199,25 @@ public sealed class IncrementalSource<T> : IIncrementalSource<T>
 
         if (changed)
         {
-            // Invalidate cache and notify observers
-            // This happens IMMEDIATELY - no SaveChanges needed!
-            InvalidateCacheAndNotify();
+            // Raise event - context handles cache invalidation
+            Changed?.Invoke(this, new SourceChangedEventArgs(SourceId, DateTime.UtcNow));
         }
     }
 
-    /// <summary>
-    /// Removes an item from the source. Triggers automatic invalidation and recomputation.
-    /// </summary>
     public void Remove(T item)
     {
         ArgumentNullException.ThrowIfNull(item);
 
         bool changed = false;
-
         _lock.EnterWriteLock();
         try
         {
             var newItems = _items.Remove(item);
-            if (newItems != _items)
-            {
-                _items = newItems;
-                changed = true;
-            }
+            if (newItems == _items)
+                return; // Item didn't exist, no change
+
+            _items = newItems;
+            changed = true;
         }
         finally
         {
@@ -188,13 +226,10 @@ public sealed class IncrementalSource<T> : IIncrementalSource<T>
 
         if (changed)
         {
-            InvalidateCacheAndNotify();
+            Changed?.Invoke(this, new SourceChangedEventArgs(SourceId, DateTime.UtcNow));
         }
     }
 
-    /// <summary>
-    /// Replaces an item in the source. Triggers automatic invalidation and recomputation.
-    /// </summary>
     public void Replace(T oldItem, T newItem)
     {
         ArgumentNullException.ThrowIfNull(oldItem);
@@ -204,7 +239,6 @@ public sealed class IncrementalSource<T> : IIncrementalSource<T>
             return; // No change
 
         bool changed = false;
-
         _lock.EnterWriteLock();
         try
         {
@@ -224,17 +258,13 @@ public sealed class IncrementalSource<T> : IIncrementalSource<T>
 
         if (changed)
         {
-            InvalidateCacheAndNotify();
+            Changed?.Invoke(this, new SourceChangedEventArgs(SourceId, DateTime.UtcNow));
         }
     }
 
-    /// <summary>
-    /// Clears all items from the source. Triggers automatic invalidation and recomputation.
-    /// </summary>
     public void Clear()
     {
         bool changed = false;
-
         _lock.EnterWriteLock();
         try
         {
@@ -251,13 +281,10 @@ public sealed class IncrementalSource<T> : IIncrementalSource<T>
 
         if (changed)
         {
-            InvalidateCacheAndNotify();
+            Changed?.Invoke(this, new SourceChangedEventArgs(SourceId, DateTime.UtcNow));
         }
     }
 
-    /// <summary>
-    /// Gets a thread-safe snapshot of the current items.
-    /// </summary>
     public IReadOnlyCollection<T> GetSnapshot()
     {
         _lock.EnterReadLock();
@@ -272,112 +299,73 @@ public sealed class IncrementalSource<T> : IIncrementalSource<T>
     }
 
     /// <summary>
-    /// Invalidates the computation cache and notifies observers.
-    /// This causes dependent computations to be recomputed automatically.
-    /// </summary>
-    private void InvalidateCacheAndNotify()
-    {
-        // Remove this node from cache
-        _graph.ValueCache.Remove(SourceId);
-
-        // Find and invalidate all dependent nodes transitively
-        var dependents = FindAllDependents();
-        foreach (var dependent in dependents)
-        {
-            _graph.ValueCache.Remove(dependent);
-        }
-
-        // Notify observers (context will trigger output handlers)
-        Changed?.Invoke(this, new SourceChangedEventArgs(SourceId, DateTime.UtcNow));
-    }
-
-    /// <summary>
-    /// Finds all nodes that depend on this source (transitively).
-    /// </summary>
-    private HashSet<string> FindAllDependents()
-    {
-        var dependents = new HashSet<string>();
-        var toCheck = new Queue<string>();
-        toCheck.Enqueue(SourceId);
-
-        while (toCheck.Count > 0)
-        {
-            var current = toCheck.Dequeue();
-
-            // Find all nodes that directly depend on current
-            foreach (var kvp in _graph.Dependencies)
-            {
-                if (kvp.Value.Contains(current) && !dependents.Contains(kvp.Key))
-                {
-                    dependents.Add(kvp.Key);
-                    toCheck.Enqueue(kvp.Key);
-                }
-            }
-        }
-
-        return dependents;
-    }
-
-    /// <summary>
     /// Internal computation node that reads from the source.
     /// This node has no dependencies (sources are the root of the graph).
     /// </summary>
-    private sealed class SourceCollectionNode<TItem> : ICollectionComputationNode<TItem>
+    private sealed class SourceCollectionNode : ICollectionComputationNode<T>
     {
-        private readonly IncrementalSource<TItem> _source;
+        private readonly IncrementalSource<T> _source;
 
         public string Id { get; }
-        public Type OutputType => typeof(IEnumerable<TItem>);
+        public Type OutputType => typeof(IEnumerable<T>);
         public ImmutableHashSet<string> Dependencies => ImmutableHashSet<string>.Empty; // Sources have no dependencies!
 
-        public SourceCollectionNode(string id, IncrementalSource<TItem> source)
+        public SourceCollectionNode(string id, IncrementalSource<T> source)
         {
             Id = id;
             _source = source;
         }
 
-        public Result<IEnumerable<TItem>, ComputationError> Compute(ComputationContext context)
+        public Result<IEnumerable<T>, ComputationError> Compute(ComputationContext context)
         {
             // Check cache first
-            if (context.CachedValues.TryGetValue(Id, out var cached) && cached is IEnumerable<TItem> cachedItems)
+            if (context.CachedValues.TryGetValue(Id, out var cached) && cached is IEnumerable<T> cachedItems)
             {
-                return Result<IEnumerable<TItem>, ComputationError>.Success(cachedItems);
+                return Result<IEnumerable<T>, ComputationError>.Success(cachedItems);
             }
 
             // Read current snapshot from source
             var items = _source.GetSnapshot();
-            return Result<IEnumerable<TItem>, ComputationError>.Success(items);
+            return Result<IEnumerable<T>, ComputationError>.Success(items);
         }
     }
 }
 
+// ============================================================================
+// IMPLEMENTATION: IncrementalValueSource<T> (Single Value)
+// ============================================================================
+
 /// <summary>
 /// Thread-safe implementation of IIncrementalValueSource for single values.
+/// Raises change events when the value changes; cache invalidation is handled by the context.
 /// </summary>
+/// <typeparam name="T">Type of value in the source</typeparam>
 public sealed class IncrementalValueSource<T> : IIncrementalValueSource<T>
 {
     private readonly ReaderWriterLockSlim _lock = new(LockRecursionPolicy.NoRecursion);
     private T? _value;
-    private ComputationGraph _graph;
+    private bool _hasValue;
+    private readonly Func<ComputationGraph> _graphProvider;
     private readonly IComputationNode<T> _node;
 
     public string SourceId { get; }
     public event EventHandler<SourceChangedEventArgs>? Changed;
 
-    public IncrementalValueSource(string sourceId, ComputationGraph graph)
+    public IncrementalValueSource(string sourceId, Func<ComputationGraph> graphProvider)
     {
         SourceId = sourceId ?? throw new ArgumentNullException(nameof(sourceId));
-        _graph = graph ?? throw new ArgumentNullException(nameof(graph));
+        _graphProvider = graphProvider ?? throw new ArgumentNullException(nameof(graphProvider));
 
-        _node = new SourceValueNode<T>(sourceId, this);
-        _graph = _graph.AddNode(_node);
+        _node = new SourceValueNode(sourceId, this);
     }
+
+    internal IComputationNode<T> GetNode() => _node;
 
     public IncrementalValueProvider<T> AsProvider()
     {
         return new IncrementalValueProvider<T>(
             _node,
-            _graph,
+            _graphProvider(),
             new ProviderMetadata($"Source: {SourceId}", "Push-based single value source"));
     }
 
@@ -386,14 +374,13 @@ public sealed class IncrementalValueSource<T> : IIncrementalValueSource<T>
         ArgumentNullException.ThrowIfNull(value);
 
         bool changed = false;
-
         _lock.EnterWriteLock();
         try
         {
-            // Only update if value actually changed
-            if (!EqualityComparer<T>.Default.Equals(_value, value))
+            if (!_hasValue || !EqualityComparer<T>.Default.Equals(_value, value))
             {
                 _value = value;
+                _hasValue = true;
                 changed = true;
             }
         }
@@ -404,7 +391,7 @@ public sealed class IncrementalValueSource<T> : IIncrementalValueSource<T>
 
         if (changed)
         {
-            InvalidateCacheAndNotify();
+            Changed?.Invoke(this, new SourceChangedEventArgs(SourceId, DateTime.UtcNow));
         }
     }
 
@@ -421,105 +408,45 @@ public sealed class IncrementalValueSource<T> : IIncrementalValueSource<T>
         }
     }
 
-    private void InvalidateCacheAndNotify()
+    private sealed class SourceValueNode : IComputationNode<T>
     {
-        _graph.ValueCache.Remove(SourceId);
-
-        var dependents = FindAllDependents();
-        foreach (var dependent in dependents)
-        {
-            _graph.ValueCache.Remove(dependent);
-        }
-
-        Changed?.Invoke(this, new SourceChangedEventArgs(SourceId, DateTime.UtcNow));
-    }
-
-    private HashSet<string> FindAllDependents()
-    {
-        var dependents = new HashSet<string>();
-        var toCheck = new Queue<string>();
-        toCheck.Enqueue(SourceId);
-
-        while (toCheck.Count > 0)
-        {
-            var current = toCheck.Dequeue();
-
-            foreach (var kvp in _graph.Dependencies)
-            {
-                if (kvp.Value.Contains(current) && !dependents.Contains(kvp.Key))
-                {
-                    dependents.Add(kvp.Key);
-                    toCheck.Enqueue(kvp.Key);
-                }
-            }
-        }
-
-        return dependents;
-    }
-
-    private sealed class SourceValueNode<TValue> : IComputationNode<TValue>
-    {
-        private readonly IncrementalValueSource<TValue> _source;
+        private readonly IncrementalValueSource<T> _source;
 
         public string Id { get; }
-        public Type OutputType => typeof(TValue);
+        public Type OutputType => typeof(T);
         public ImmutableHashSet<string> Dependencies => ImmutableHashSet<string>.Empty;
 
-        public SourceValueNode(string id, IncrementalValueSource<TValue> source)
+        public SourceValueNode(string id, IncrementalValueSource<T> source)
         {
             Id = id;
             _source = source;
         }
 
-        public Result<TValue, ComputationError> Compute(ComputationContext context)
+        public Result<T, ComputationError> Compute(ComputationContext context)
         {
-            if (context.CachedValues.TryGetValue(Id, out var cached) && cached is TValue cachedValue)
+            if (context.CachedValues.TryGetValue(Id, out var cached) && cached is T cachedValue)
             {
-                return Result<TValue, ComputationError>.Success(cachedValue);
+                return Result<T, ComputationError>.Success(cachedValue);
             }
 
             var value = _source.GetValue();
             if (value == null)
             {
-                return Result<TValue, ComputationError>.Error(
-                    ComputationError.FromMessage($"Source '{Id}' has no value set"));
+                return Result<T, ComputationError>.Error(
+                    new ComputationError($"Source '{Id}' has no value set"));
             }
 
-            return Result<TValue, ComputationError>.Success(value);
+            return Result<T, ComputationError>.Success(value);
         }
     }
 }
 
-/// <summary>
-/// Extension methods for batch operations on sources.
-/// </summary>
-public static class IncrementalSourceExtensions
-{
-    /// <summary>
-    /// Begins a batch operation where multiple changes are applied
-    /// with a single cache invalidation at the end.
-    /// </summary>
-    public static IBatchOperation<T> BeginBatch<T>(this IIncrementalSource<T> source)
-    {
-        return new BatchOperation<T>(source);
-    }
-
-    /// <summary>
-    /// Pushes multiple items in a batch.
-    /// </summary>
-    public static void PushRange<T>(this IIncrementalSource<T> source, IEnumerable<T> items)
-    {
-        using var batch = source.BeginBatch();
-        foreach (var item in items)
-        {
-            batch.Push(item);
-        }
-        batch.Commit();
-    }
-}
+// ============================================================================
+// BATCH OPERATIONS
+// ============================================================================
 
 /// <summary>
-/// Represents a batch operation that defers cache invalidation.
+/// Represents a batch operation that defers notifications until commit.
 /// </summary>
 public interface IBatchOperation<T> : IDisposable
 {
@@ -531,8 +458,7 @@ public interface IBatchOperation<T> : IDisposable
 }
 
 /// <summary>
-/// Implementation of batch operations.
-/// Changes are buffered and applied with a single invalidation.
+/// Implementation of batch operations for IncrementalSource.
 /// </summary>
 public sealed class BatchOperation<T> : IBatchOperation<T>
 {
@@ -541,9 +467,9 @@ public sealed class BatchOperation<T> : IBatchOperation<T>
     private bool _committed;
     private bool _disposed;
 
-    public BatchOperation(IIncrementalSource<T> source)
+    internal BatchOperation(IIncrementalSource<T> source)
     {
-        _source = source;
+        _source = source ?? throw new ArgumentNullException(nameof(source));
     }
 
     public void Push(T item)
@@ -571,7 +497,6 @@ public sealed class BatchOperation<T> : IBatchOperation<T>
         if (_committed)
             throw new InvalidOperationException("Batch already committed");
 
-        // Execute all buffered operations
         foreach (var operation in _operations)
         {
             operation();
@@ -605,5 +530,30 @@ public sealed class BatchOperation<T> : IBatchOperation<T>
     {
         if (_disposed)
             throw new ObjectDisposedException(nameof(BatchOperation<T>));
+    }
+}
+
+/// <summary>
+/// Extension methods for batch operations on sources.
+/// </summary>
+public static class IncrementalSourceExtensions
+{
+    public static IBatchOperation<T> BeginBatch<T>(this IIncrementalSource<T> source)
+    {
+        ArgumentNullException.ThrowIfNull(source);
+        return new BatchOperation<T>(source);
+    }
+
+    public static void PushRange<T>(this IIncrementalSource<T> source, IEnumerable<T> items)
+    {
+        ArgumentNullException.ThrowIfNull(source);
+        ArgumentNullException.ThrowIfNull(items);
+
+        using var batch = source.BeginBatch();
+        foreach (var item in items)
+        {
+            batch.Push(item);
+        }
+        batch.Commit();
     }
 }

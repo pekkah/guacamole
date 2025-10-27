@@ -170,36 +170,45 @@ public interface IIncrementalValueSource<T>
 
 ### Concrete Implementation: IncrementalSource<T>
 
+**IMPORTANT**: Sources use a **graph provider pattern** to avoid storing mutable references to immutable graphs. The context owns the graph; sources access it via a function.
+
 ```csharp
 namespace Guacamole.Sources;
 
 /// <summary>
-/// Thread-safe implementation of IIncrementalSource using immutable collections
+/// Thread-safe implementation of IIncrementalSource using immutable collections.
+/// Raises change events; cache invalidation is handled by the context.
 /// </summary>
 public sealed class IncrementalSource<T> : IIncrementalSource<T>
 {
     private readonly ReaderWriterLockSlim _lock = new(LockRecursionPolicy.NoRecursion);
     private ImmutableHashSet<T> _items = ImmutableHashSet<T>.Empty;
-    private readonly ComputationGraph _graph;
+    private readonly Func<ComputationGraph> _graphProvider; // ✅ Provider, not copy
     private readonly ICollectionComputationNode<T> _node;
 
     public string SourceId { get; }
+    public event EventHandler<SourceChangedEventArgs>? Changed;
 
-    public IncrementalSource(string sourceId, ComputationGraph graph)
+    public IncrementalSource(string sourceId, Func<ComputationGraph> graphProvider)
     {
         SourceId = sourceId ?? throw new ArgumentNullException(nameof(sourceId));
-        _graph = graph ?? throw new ArgumentNullException(nameof(graph));
+        _graphProvider = graphProvider ?? throw new ArgumentNullException(nameof(graphProvider));
 
         // Create the computation node for this source
         _node = new SourceCollectionNode<T>(sourceId, this);
-        _graph = _graph.AddNode(_node);
+        // Node is registered by context after source creation
     }
+
+    /// <summary>
+    /// Gets the node for registration. Called by context during initialization.
+    /// </summary>
+    internal ICollectionComputationNode<T> GetNode() => _node;
 
     public IncrementalValuesProvider<T> AsProvider()
     {
         return new IncrementalValuesProvider<T>(
             _node,
-            _graph,
+            _graphProvider(), // ✅ Get current graph from provider
             new ProviderMetadata($"Source: {SourceId}", "External source"));
     }
 
@@ -207,6 +216,7 @@ public sealed class IncrementalSource<T> : IIncrementalSource<T>
     {
         ArgumentNullException.ThrowIfNull(item);
 
+        bool changed = false;
         _lock.EnterWriteLock();
         try
         {
@@ -214,13 +224,17 @@ public sealed class IncrementalSource<T> : IIncrementalSource<T>
                 return; // Already exists, no-op
 
             _items = _items.Add(item);
-
-            // Invalidate cache immediately - no SaveChanges needed!
-            InvalidateCacheAndTrigger();
+            changed = true;
         }
         finally
         {
             _lock.ExitWriteLock();
+        }
+
+        if (changed)
+        {
+            // Raise event - context handles cache invalidation
+            Changed?.Invoke(this, new SourceChangedEventArgs(SourceId, DateTime.UtcNow));
         }
     }
 
@@ -228,6 +242,7 @@ public sealed class IncrementalSource<T> : IIncrementalSource<T>
     {
         ArgumentNullException.ThrowIfNull(item);
 
+        bool changed = false;
         _lock.EnterWriteLock();
         try
         {
@@ -236,11 +251,16 @@ public sealed class IncrementalSource<T> : IIncrementalSource<T>
                 return; // Item didn't exist, no change
 
             _items = newItems;
-            InvalidateCacheAndTrigger();
+            changed = true;
         }
         finally
         {
             _lock.ExitWriteLock();
+        }
+
+        if (changed)
+        {
+            Changed?.Invoke(this, new SourceChangedEventArgs(SourceId, DateTime.UtcNow));
         }
     }
 
@@ -252,6 +272,7 @@ public sealed class IncrementalSource<T> : IIncrementalSource<T>
         if (EqualityComparer<T>.Default.Equals(oldItem, newItem))
             return;
 
+        bool changed = false;
         _lock.EnterWriteLock();
         try
         {
@@ -262,16 +283,22 @@ public sealed class IncrementalSource<T> : IIncrementalSource<T>
                 throw new InvalidOperationException($"Replacement item already exists in source '{SourceId}'");
 
             _items = _items.Remove(oldItem).Add(newItem);
-            InvalidateCacheAndTrigger();
+            changed = true;
         }
         finally
         {
             _lock.ExitWriteLock();
         }
+
+        if (changed)
+        {
+            Changed?.Invoke(this, new SourceChangedEventArgs(SourceId, DateTime.UtcNow));
+        }
     }
 
     public void Clear()
     {
+        bool changed = false;
         _lock.EnterWriteLock();
         try
         {
@@ -279,11 +306,16 @@ public sealed class IncrementalSource<T> : IIncrementalSource<T>
                 return;
 
             _items = ImmutableHashSet<T>.Empty;
-            InvalidateCacheAndTrigger();
+            changed = true;
         }
         finally
         {
             _lock.ExitWriteLock();
+        }
+
+        if (changed)
+        {
+            Changed?.Invoke(this, new SourceChangedEventArgs(SourceId, DateTime.UtcNow));
         }
     }
 
@@ -301,73 +333,32 @@ public sealed class IncrementalSource<T> : IIncrementalSource<T>
     }
 
     /// <summary>
-    /// Invalidates cache and triggers dependent recomputation immediately
+    /// Internal computation node that reads from the source.
+    /// This node has no dependencies (sources are the root of the graph).
     /// </summary>
-    private void InvalidateCacheAndTrigger()
+    private sealed class SourceCollectionNode : ICollectionComputationNode<T>
     {
-        // Remove this node from cache
-        _graph.ValueCache.Remove(SourceId);
-
-        // Find and invalidate all dependents
-        var dependents = FindAllDependents();
-        foreach (var dependent in dependents)
-        {
-            _graph.ValueCache.Remove(dependent);
-        }
-
-        // NOTE: We don't have direct access to output handlers here
-        // This will be handled by the context's notification mechanism (see below)
-    }
-
-    private HashSet<string> FindAllDependents()
-    {
-        var dependents = new HashSet<string>();
-        var toCheck = new Queue<string>();
-        toCheck.Enqueue(SourceId);
-
-        while (toCheck.Count > 0)
-        {
-            var current = toCheck.Dequeue();
-
-            foreach (var kvp in _graph.Dependencies)
-            {
-                if (kvp.Value.Contains(current) && !dependents.Contains(kvp.Key))
-                {
-                    dependents.Add(kvp.Key);
-                    toCheck.Enqueue(kvp.Key);
-                }
-            }
-        }
-
-        return dependents;
-    }
-
-    /// <summary>
-    /// Internal computation node that reads from the source
-    /// </summary>
-    private sealed class SourceCollectionNode<TItem> : ICollectionComputationNode<TItem>
-    {
-        private readonly IncrementalSource<TItem> _source;
+        private readonly IncrementalSource<T> _source;
 
         public string Id { get; }
-        public Type OutputType => typeof(IEnumerable<TItem>);
+        public Type OutputType => typeof(IEnumerable<T>);
         public ImmutableHashSet<string> Dependencies => ImmutableHashSet<string>.Empty; // Sources have no dependencies
 
-        public SourceCollectionNode(string id, IncrementalSource<TItem> source)
+        public SourceCollectionNode(string id, IncrementalSource<T> source)
         {
             Id = id;
             _source = source;
         }
 
-        public Result<IEnumerable<TItem>, ComputationError> Compute(ComputationContext context)
+        public Result<IEnumerable<T>, ComputationError> Compute(ComputationContext context)
         {
             // Check cache first
-            if (context.CachedValues.TryGetValue(Id, out var cached) && cached is IEnumerable<TItem> cachedItems)
-                return Result<IEnumerable<TItem>, ComputationError>.Success(cachedItems);
+            if (context.CachedValues.TryGetValue(Id, out var cached) && cached is IEnumerable<T> cachedItems)
+                return Result<IEnumerable<T>, ComputationError>.Success(cachedItems);
 
             // Read current snapshot from source
             var items = _source.GetSnapshot();
-            return Result<IEnumerable<TItem>, ComputationError>.Success(items);
+            return Result<IEnumerable<T>, ComputationError>.Success(items);
         }
     }
 }
@@ -663,12 +654,21 @@ public IIncrementalSource<SourceFile> SourceFilesSource => _sourceFilesSource;
 ### Updated Context Constructor Generation
 
 ```csharp
-// Generated constructor initializes sources
+// Generated constructor initializes sources with graph provider
 public CompilerContext() : base()
 {
-    // Initialize sources (not state + mutation tracking!)
-    _sourceFilesSource = new IncrementalSource<SourceFile>("CompilerContext.SourceFiles", Graph);
-    _optionsSource = new IncrementalValueSource<CompilationOptions>("CompilerContext.Options", Graph);
+    // Initialize sources with graph provider (not direct graph reference!)
+    _sourceFilesSource = new IncrementalSource<SourceFile>(
+        "CompilerContext.SourceFiles",
+        () => Graph); // ✅ Provider function, not copy
+    Graph = Graph.AddNode(_sourceFilesSource.GetNode()); // ✅ Register node
+    SubscribeToSource(_sourceFilesSource); // ✅ Subscribe to changes
+
+    _optionsSource = new IncrementalValueSource<CompilationOptions>(
+        "CompilerContext.Options",
+        () => Graph); // ✅ Provider function
+    Graph = Graph.AddNode(_optionsSource.GetNode()); // ✅ Register node
+    SubscribeToSource(_optionsSource); // ✅ Subscribe to changes
 }
 ```
 
@@ -750,15 +750,20 @@ public abstract partial class ComputingContextBase
     }
 }
 
-// Generated constructor subscribes
+// Generated constructor subscribes (UPDATED: uses graph provider)
 public CompilerContext() : base()
 {
-    _sourceFilesSource = new IncrementalSource<SourceFile>("...", Graph);
+    _sourceFilesSource = new IncrementalSource<SourceFile>(
+        "CompilerContext.SourceFiles",
+        () => Graph); // ✅ Graph provider
+    Graph = Graph.AddNode(_sourceFilesSource.GetNode());
     SubscribeToSource(_sourceFilesSource); // Auto-subscribe
 }
 ```
 
-### Solution 2: Event-Based (Simpler)
+### Solution 2: Event-Based (Simpler) ✅ IMPLEMENTED
+
+This is the pattern we chose. Sources raise `Changed` events, context handles cache invalidation and triggers outputs.
 
 ```csharp
 public sealed class IncrementalSource<T> : IIncrementalSource<T>
@@ -767,16 +772,49 @@ public sealed class IncrementalSource<T> : IIncrementalSource<T>
 
     public void Push(T item)
     {
-        // ... existing logic ...
-        Changed?.Invoke(this, new SourceChangedEventArgs(SourceId));
+        // ... update data ...
+        Changed?.Invoke(this, new SourceChangedEventArgs(SourceId, DateTime.UtcNow));
     }
 }
 
-// Context hooks up event handlers
+// Context hooks up event handlers and handles cache invalidation
+public abstract partial class ComputingContextBase
+{
+    protected void SubscribeToSource<T>(IIncrementalSource<T> source)
+    {
+        source.Changed += OnSourceChanged;
+    }
+
+    private void OnSourceChanged(object? sender, SourceChangedEventArgs e)
+    {
+        // Invalidate cache for the source and all its dependents
+        InvalidateNodeCache(e.SourceId);
+
+        // Trigger all registered output handlers
+        TriggerOutputs();
+    }
+
+    private void InvalidateNodeCache(string nodeId)
+    {
+        Graph.ValueCache.Remove(nodeId);
+
+        // Find and invalidate all dependent nodes transitively
+        var dependents = FindAllDependents(nodeId);
+        foreach (var dependent in dependents)
+        {
+            Graph.ValueCache.Remove(dependent);
+        }
+    }
+}
+
+// Generated constructor (corrected with graph provider)
 public CompilerContext() : base()
 {
-    _sourceFilesSource = new IncrementalSource<SourceFile>("...", Graph);
-    _sourceFilesSource.Changed += (s, e) => TriggerOutputs();
+    _sourceFilesSource = new IncrementalSource<SourceFile>(
+        "CompilerContext.SourceFiles",
+        () => Graph); // ✅ Graph provider, not direct reference
+    Graph = Graph.AddNode(_sourceFilesSource.GetNode()); // ✅ Register node
+    SubscribeToSource(_sourceFilesSource); // ✅ Subscribe (handles invalidation + triggers)
 }
 ```
 
