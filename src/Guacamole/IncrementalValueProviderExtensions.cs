@@ -54,6 +54,9 @@ public static class IncrementalValueProviderExtensions
 
         var transformNode = new SelectValueNode<TSource, TResult>(source.Node, selector, null);
 
+        // Register the node immediately for cache invalidation tracking
+        source.Graph.RegisterNodeIfNeeded(transformNode);
+
         // Preserve metadata from source if no metadata is explicitly provided
         var finalMetadata = metadata.TrackingName == null && metadata.CreationLocation == null
             ? source.Metadata
@@ -84,6 +87,9 @@ public static class IncrementalValueProviderExtensions
 
         var transformNode = new SelectValueNode<TSource, TResult>(source.Node, selector, comparer);
 
+        // Register the node immediately for cache invalidation tracking
+        source.Graph.RegisterNodeIfNeeded(transformNode);
+
         // Preserve metadata from source if no metadata is explicitly provided
         var finalMetadata = metadata.TrackingName == null && metadata.CreationLocation == null
             ? source.Metadata
@@ -109,6 +115,9 @@ public static class IncrementalValueProviderExtensions
         ArgumentNullException.ThrowIfNull(predicate);
 
         var filterNode = new WhereValueNode<T>(source.Node, predicate, null);
+
+        // Register the node immediately for cache invalidation tracking
+        source.Graph.RegisterNodeIfNeeded(filterNode);
 
         // Preserve metadata from source if no metadata is explicitly provided
         var finalMetadata = metadata.TrackingName == null && metadata.CreationLocation == null
@@ -139,6 +148,9 @@ public static class IncrementalValueProviderExtensions
 
         var filterNode = new WhereValueNode<T>(source.Node, predicate, comparer);
 
+        // Register the node immediately for cache invalidation tracking
+        source.Graph.RegisterNodeIfNeeded(filterNode);
+
         // Preserve metadata from source if no metadata is explicitly provided
         var finalMetadata = metadata.TrackingName == null && metadata.CreationLocation == null
             ? source.Metadata
@@ -163,6 +175,9 @@ public static class IncrementalValueProviderExtensions
         ProviderMetadata metadata = default)
     {
         var combineNode = new CombineValueNode<TFirst, TSecond>(first.Node, second.Node);
+
+        // Register the node immediately for cache invalidation tracking
+        first.Graph.RegisterNodeIfNeeded(combineNode);
 
         // Preserve metadata from first provider if no metadata is explicitly provided
         var finalMetadata = metadata.TrackingName == null && metadata.CreationLocation == null
@@ -190,6 +205,9 @@ public static class IncrementalValueProviderExtensions
         ArgumentNullException.ThrowIfNull(selector);
 
         var selectManyNode = new SelectManyFromValueNode<TSource, TResult>(source.Node, selector, null);
+
+        // Register the node immediately for cache invalidation tracking
+        source.Graph.RegisterNodeIfNeeded(selectManyNode);
 
         // Preserve metadata from source if no metadata is explicitly provided
         var finalMetadata = metadata.TrackingName == null && metadata.CreationLocation == null
@@ -220,6 +238,9 @@ public static class IncrementalValueProviderExtensions
         ArgumentNullException.ThrowIfNull(comparer);
 
         var selectManyNode = new SelectManyFromValueNode<TSource, TResult>(source.Node, selector, comparer);
+
+        // Register the node immediately for cache invalidation tracking
+        source.Graph.RegisterNodeIfNeeded(selectManyNode);
 
         // Preserve metadata from source if no metadata is explicitly provided
         var finalMetadata = metadata.TrackingName == null && metadata.CreationLocation == null
