@@ -1,5 +1,6 @@
 using Guacamole;
 using Xunit;
+using System.Linq;
 
 namespace Guacamole.Tests;
 
@@ -41,7 +42,7 @@ public partial class CacheInvalidationTests
             .Combine(context.BaseDirectory)
             .Select(tuple =>
             {
-                var (filePath, baseDir) = tuple;
+                var (filePath, _) = tuple;
                 // Simulate reading file content based on path
                 var content = filePath switch
                 {
@@ -72,7 +73,6 @@ public partial class CacheInvalidationTests
         Assert.True(secondResult.IsSuccess);
         var secondContent = secondResult.Value!.First();
 
-        // These assertions should pass but currently fail due to stale cache
         Assert.Equal("/project/file2.txt", secondContent.Path);
         Assert.Equal("Content of file 2", secondContent.Content);
         Assert.NotEqual(firstHash, secondContent.Hash);
@@ -117,7 +117,7 @@ public partial class CacheInvalidationTests
             .Combine(context.BaseDirectory)
             .Select(tuple =>
             {
-                var (filePath, baseDir) = tuple;
+                var (filePath, _) = tuple;
                 var content = filePath switch
                 {
                     "/project/file1.txt" => "Content of file 1",
