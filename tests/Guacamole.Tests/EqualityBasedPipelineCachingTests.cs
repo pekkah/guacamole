@@ -37,23 +37,22 @@ public partial class EqualityBasedPipelineCachingTests
             .Select(name => name[0])
             .Where(firstLetter => firstLetter == 'A');
 
-        context.SetName("Alice");
-        context.SaveChanges();
-
         context.RegisterOutput(startsWithA, (value, ctx) =>
         {
             handlerCallCount++;
             lastChar = value;
         });
 
+        context.NameSource.Set("Alice");
+
+
+
         // Establish baseline
-        context.SaveChanges();
         Assert.Equal(1, handlerCallCount);
         Assert.Equal('A', lastChar);
 
         // Act - Set to same value
-        context.SetName("Alice");
-        context.SaveChanges();
+        context.NameSource.Set("Alice");
 
         // Assert - No recomputation, no handler call
         Assert.Equal(1, handlerCallCount);
@@ -72,22 +71,21 @@ public partial class EqualityBasedPipelineCachingTests
             .Select(name => name[0])
             .Where(firstLetter => firstLetter == 'A');
 
-        context.SetName("Alice");
-        context.SaveChanges();
-
         context.RegisterOutput(startsWithA, (value, ctx) =>
         {
             handlerCallCount++;
             lastChar = value;
         });
 
-        context.SaveChanges();
+        context.NameSource.Set("Alice");
+
+
+
         Assert.Equal(1, handlerCallCount);
         Assert.Equal('A', lastChar);
 
         // Act - Change source but output remains 'A'
-        context.SetName("Amy");
-        context.SaveChanges();
+        context.NameSource.Set("Amy");
 
         // Assert - Recomputation happened but output didn't change, so handler not called
         Assert.Equal(1, handlerCallCount);
@@ -106,22 +104,21 @@ public partial class EqualityBasedPipelineCachingTests
             .Select(name => name[0])
             .Where(firstLetter => firstLetter == 'A');
 
-        context.SetName("Alice");
-        context.SaveChanges();
-
         context.RegisterOutput(startsWithA, (value, ctx) =>
         {
             handlerCallCount++;
             lastChar = value;
         });
 
-        context.SaveChanges();
+        context.NameSource.Set("Alice");
+
+
+
         Assert.Equal(1, handlerCallCount);
         Assert.Equal('A', lastChar);
 
         // Act - Change to name starting with different letter
-        context.SetName("Anna");
-        context.SaveChanges();
+        context.NameSource.Set("Anna");
 
         // Assert - Output changed from 'A' to 'A' - wait, this won't change!
         // Let me fix this test - Anna also starts with A
@@ -140,20 +137,19 @@ public partial class EqualityBasedPipelineCachingTests
             .Select(name => name[0])
             .Where(firstLetter => firstLetter == 'A');
 
-        context.SetName("Alice");
-        context.SaveChanges();
-
         context.RegisterOutput(startsWithA, (value, ctx) =>
         {
             handlerCallCount++;
         });
 
-        context.SaveChanges();
+        context.NameSource.Set("Alice");
+
+
+
         Assert.Equal(1, handlerCallCount);
 
         // Act - Change to name that doesn't start with A
-        context.SetName("Bob");
-        context.SaveChanges();
+        context.NameSource.Set("Bob");
 
         // Assert - Filter failed, handler not called
         Assert.Equal(1, handlerCallCount);
@@ -174,8 +170,7 @@ public partial class EqualityBasedPipelineCachingTests
             .Select(len => len % 2 == 0)
             .Where(isEven => isEven == true);
 
-        context.SetName("Alice");  // Length 5 (odd)
-        context.SaveChanges();
+        context.NameSource.Set("Alice");  // Length 5 (odd)
 
         context.RegisterOutput(hasEvenLength, (value, ctx) =>
         {
@@ -183,21 +178,18 @@ public partial class EqualityBasedPipelineCachingTests
             lastResult = value;
         });
 
-        context.SaveChanges();
         // Alice has odd length, filter fails, handler not called
         Assert.Equal(0, handlerCallCount);
 
         // Act - Change to even length name
-        context.SetName("Anna");  // Length 4 (even)
-        context.SaveChanges();
+        context.NameSource.Set("Anna");  // Length 4 (even)
 
         // Assert - Filter passes, handler called
         Assert.Equal(1, handlerCallCount);
         Assert.True(lastResult);
 
         // Act - Change to another even length name
-        context.SetName("Emma");  // Length 4 (even)
-        context.SaveChanges();
+        context.NameSource.Set("Emma");  // Length 4 (even)
 
         // Assert - Output is still 'true', handler not called again
         Assert.Equal(1, handlerCallCount);

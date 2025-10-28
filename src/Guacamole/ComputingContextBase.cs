@@ -3,20 +3,22 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Threading;
 using Guacamole.Core.Pipeline;
+using Guacamole.Sources;
 
 namespace Guacamole;
 
 /// <summary>
 /// Minimal abstract base class for user-defined incremental computation contexts.
 /// Users inherit from this class and define properties as IncrementalValueProvider types.
-/// Source generators automatically extend this with mutation methods, change tracking, and computation nodes.
+/// Source generators automatically extend this with source-backed properties.
 /// </summary>
 /// <remarks>
 /// This base class provides only the essential infrastructure:
 /// - Computation graph for dependency tracking
 /// - Thread synchronization via ReaderWriterLockSlim (multiple readers, single writer)
 /// - Disposal state management
-/// All context-specific functionality (mutation methods, change tracking, SaveChanges) is generated at compile time.
+/// - Source change notification handling
+/// All context-specific functionality (sources, properties) is generated at compile time.
 /// </remarks>
 public abstract partial class ComputingContextBase : IDisposable
 {
@@ -75,8 +77,87 @@ public abstract partial class ComputingContextBase : IDisposable
     }
 
     /// <summary>
-    /// Registers an output handler that will be called when SaveChanges triggers recomputation.
-    /// Similar to Roslyn's RegisterSourceOutput - handlers are called after changes are committed
+    /// Subscribes to a source's change events to automatically trigger output handlers.
+    /// Called by generated code to wire up source notifications.
+    /// </summary>
+    /// <typeparam name="T">The type of items in the source</typeparam>
+    /// <param name="source">The source to subscribe to</param>
+    protected void SubscribeToSource<T>(IIncrementalSource<T> source)
+    {
+        ArgumentNullException.ThrowIfNull(source);
+        source.Changed += OnSourceChanged;
+    }
+
+    /// <summary>
+    /// Subscribes to a value source's change events to automatically trigger output handlers.
+    /// Called by generated code to wire up source notifications.
+    /// </summary>
+    /// <typeparam name="T">The type of value in the source</typeparam>
+    /// <param name="source">The source to subscribe to</param>
+    protected void SubscribeToSource<T>(IIncrementalValueSource<T> source)
+    {
+        ArgumentNullException.ThrowIfNull(source);
+        source.Changed += OnSourceChanged;
+    }
+
+    /// <summary>
+    /// Handles source change events by invalidating cache and triggering output handlers.
+    /// </summary>
+    private void OnSourceChanged(object? sender, SourceChangedEventArgs e)
+    {
+        // Invalidate cache for the source and all its dependents
+        InvalidateNodeCache(e.SourceId);
+
+        // Trigger all registered output handlers when any source changes
+        TriggerOutputs();
+    }
+
+    /// <summary>
+    /// Invalidates cache for the specified node and all transitive dependents.
+    /// </summary>
+    private void InvalidateNodeCache(string nodeId)
+    {
+        // Remove the node itself from cache
+        Graph.ValueCache.Remove(nodeId);
+
+        // Find all nodes that depend on this node (transitively)
+        var dependentsToInvalidate = FindAllDependents(nodeId);
+        foreach (var dependent in dependentsToInvalidate)
+        {
+            Graph.ValueCache.Remove(dependent);
+        }
+    }
+
+    /// <summary>
+    /// Finds all nodes that transitively depend on the given node.
+    /// </summary>
+    private HashSet<string> FindAllDependents(string nodeId)
+    {
+        var dependents = new HashSet<string>();
+        var toCheck = new Queue<string>();
+        toCheck.Enqueue(nodeId);
+
+        while (toCheck.Count > 0)
+        {
+            var current = toCheck.Dequeue();
+
+            // Find all nodes that directly depend on current
+            foreach (var kvp in Graph.Dependencies)
+            {
+                if (kvp.Value.Contains(current) && !dependents.Contains(kvp.Key))
+                {
+                    dependents.Add(kvp.Key);
+                    toCheck.Enqueue(kvp.Key);
+                }
+            }
+        }
+
+        return dependents;
+    }
+
+    /// <summary>
+    /// Registers an output handler that will be called when sources change.
+    /// Similar to Roslyn's RegisterSourceOutput - handlers are called after changes occur
     /// and the provider's value is recomputed.
     /// </summary>
     /// <typeparam name="T">The type of value produced by the provider</typeparam>
@@ -93,7 +174,7 @@ public abstract partial class ComputingContextBase : IDisposable
 
     /// <summary>
     /// Registers an output handler for collection providers.
-    /// Similar to Roslyn's RegisterSourceOutput - handlers are called after changes are committed
+    /// Similar to Roslyn's RegisterSourceOutput - handlers are called after changes occur
     /// and the provider's values are recomputed.
     /// </summary>
     /// <typeparam name="T">The type of items in the collection</typeparam>
@@ -110,7 +191,7 @@ public abstract partial class ComputingContextBase : IDisposable
 
     /// <summary>
     /// Triggers all registered output handlers by recomputing their providers.
-    /// Called automatically by generated SaveChanges() method.
+    /// Called automatically when sources change.
     /// </summary>
     protected void TriggerOutputs()
     {

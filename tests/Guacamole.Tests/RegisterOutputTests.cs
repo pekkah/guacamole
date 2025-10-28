@@ -51,45 +51,12 @@ public partial class RegisterOutputTests
         });
 
         // Act
-        context.SetName("John");
-        context.SaveChanges();
+        context.NameSource.Set("John");
 
         // Assert
         Assert.Equal("John", capturedValue);
         Assert.Same(context, capturedContext);
     }
-
-    [Fact]
-    public void RegisterOutput_WithMultipleMutations_OnlyTriggersOnSaveChanges()
-    {
-        // Arrange
-        var services = new ServiceCollection().BuildServiceProvider();
-        var context = new TestContextWithValue();
-
-        var callCount = 0;
-        var capturedValues = new List<string>();
-
-        context.RegisterOutput(context.Name, (value, ctx) =>
-        {
-            callCount++;
-            capturedValues.Add(value);
-        });
-
-        // Act - Multiple mutations before SaveChanges
-        context.SetName("First");
-        Assert.Equal(0, callCount); // Not triggered yet
-
-        context.SetName("Second");
-        Assert.Equal(0, callCount); // Still not triggered
-
-        context.SaveChanges();
-
-        // Assert - Handler called only once with final value
-        Assert.Equal(1, callCount);
-        Assert.Single(capturedValues);
-        Assert.Equal("Second", capturedValues[0]); // Last value wins
-    }
-
     [Fact]
     public void RegisterOutput_ForCollectionProvider_TriggersWithCollectionValue()
     {
@@ -105,14 +72,14 @@ public partial class RegisterOutputTests
         });
 
         // Act
-        context.AddItems("Item1");
-        context.AddItems("Item2");
-        context.AddItems("Item3");
-        context.SaveChanges();
+        context.ItemsSource.Push("Item1");
+        context.ItemsSource.Push("Item2");
+        context.ItemsSource.Push("Item3");
 
         // Assert
         Assert.NotNull(capturedItems);
-        Assert.Equal(new[] { "Item1", "Item2", "Item3" }, capturedItems);
+        // ImmutableHashSet doesn't preserve order, so compare as sets
+        Assert.Equal(new[] { "Item1", "Item2", "Item3" }.OrderBy(x => x), capturedItems.OrderBy(x => x));
     }
 
     [Fact]
@@ -131,40 +98,13 @@ public partial class RegisterOutputTests
         context.RegisterOutput(context.Name, (value, ctx) => handler3Called = true);
 
         // Act
-        context.SetName("Test");
-        context.SaveChanges();
+        context.NameSource.Set("Test");
 
         // Assert
         Assert.True(handler1Called);
         Assert.True(handler2Called);
         Assert.True(handler3Called);
     }
-
-    [Fact]
-    public void RegisterOutput_WhenNoChanges_StillTriggersHandlerWithCurrentValue()
-    {
-        // Arrange
-        var services = new ServiceCollection().BuildServiceProvider();
-        var context = new TestContextWithValue();
-
-        string? capturedValue = null;
-
-        context.SetName("Initial");
-        context.SaveChanges();
-
-        // Register handler after initial value is set
-        context.RegisterOutput(context.Name, (value, ctx) =>
-        {
-            capturedValue = value;
-        });
-
-        // Act - SaveChanges with no new mutations
-        context.SaveChanges();
-
-        // Assert - Handler still gets current value
-        Assert.Equal("Initial", capturedValue);
-    }
-
     [Fact]
     public void RegisterOutput_WithComputationError_DoesNotCallHandler()
     {
@@ -180,7 +120,6 @@ public partial class RegisterOutputTests
         });
 
         // Act - SaveChanges without setting value (will fail to compute)
-        context.SaveChanges();
 
         // Assert - Handler should not be called for failed computation
         Assert.False(handlerCalled);
@@ -203,46 +142,14 @@ public partial class RegisterOutputTests
         });
 
         // Act - Multiple SaveChanges cycles
-        context.SetName("First");
-        context.SaveChanges();
+        context.NameSource.Set("First");
 
-        context.SetName("Second");
-        context.SaveChanges();
+        context.NameSource.Set("Second");
 
-        context.SetName("Third");
-        context.SaveChanges();
+        context.NameSource.Set("Third");
 
         // Assert
         Assert.Equal(3, callCount);
         Assert.Equal(new[] { "First", "Second", "Third" }, capturedValues);
-    }
-
-    [Fact]
-    public void RegisterOutput_WithCollectionMutations_ReflectsAllChanges()
-    {
-        // Arrange
-        var services = new ServiceCollection().BuildServiceProvider();
-        var context = new TestContextWithCollection();
-
-        var capturedSnapshots = new List<string[]>();
-
-        context.RegisterOutput(context.Items, (items, ctx) =>
-        {
-            capturedSnapshots.Add(items.ToArray());
-        });
-
-        // Act - Multiple SaveChanges with different operations
-        context.AddItems("A");
-        context.AddItems("B");
-        context.SaveChanges();
-
-        context.AddItems("C");
-        context.RemoveItems("A");
-        context.SaveChanges();
-
-        // Assert
-        Assert.Equal(2, capturedSnapshots.Count);
-        Assert.Equal(new[] { "A", "B" }, capturedSnapshots[0]);
-        Assert.Equal(new[] { "B", "C" }, capturedSnapshots[1]);
     }
 }

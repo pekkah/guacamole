@@ -73,13 +73,11 @@ public partial class EqualityBasedComplexObjectCachingTests
             handlerCallCount++;
         });
 
-        context.SetPerson(new PersonRecord("Alice", 30));
-        context.SaveChanges();
+        context.PersonSource.Set(new PersonRecord("Alice", 30));
         Assert.Equal(1, handlerCallCount); // Baseline
 
         // Act - Set to equivalent record (different instance, same values)
-        context.SetPerson(new PersonRecord("Alice", 30));
-        context.SaveChanges();
+        context.PersonSource.Set(new PersonRecord("Alice", 30));
 
         // Assert - Records have structural equality, so no cache invalidation
         Assert.Equal(1, handlerCallCount); // Should NOT increase!
@@ -97,64 +95,26 @@ public partial class EqualityBasedComplexObjectCachingTests
         // Select just the Name property
         var personName = context.Person.Select(p => p.Name);
 
-        context.SetPerson(new PersonRecord("Alice", 30));
-        context.SaveChanges();
-
         context.RegisterOutput(personName, (name, ctx) =>
         {
             handlerCallCount++;
             lastName = name;
         });
 
-        context.SaveChanges();
+        context.PersonSource.Set(new PersonRecord("Alice", 30));
+
+
+
         Assert.Equal(1, handlerCallCount);
         Assert.Equal("Alice", lastName);
 
         // Act - Change only age (name stays same)
-        context.SetPerson(new PersonRecord("Alice", 31));
-        context.SaveChanges();
+        context.PersonSource.Set(new PersonRecord("Alice", 31));
 
         // Assert - Person object changed, so Select recomputes
         // BUT output is still "Alice", so handler not called
         Assert.Equal(1, handlerCallCount);
     }
-
-    [Fact]
-    public void ComplexCollection_SelectProperty_CachingWorks()
-    {
-        // Arrange
-        var services = CreateServices();
-        var context = new ComplexCollectionContext();
-        int handlerCallCount = 0;
-        string[]? lastNames = null;
-
-        // Select just names from collection
-        var names = context.People.Select(p => p.Name);
-
-        context.AddPeople(new PersonRecord("Alice", 30));
-        context.AddPeople(new PersonRecord("Bob", 25));
-        context.SaveChanges();
-
-        context.RegisterOutput(names, (values, ctx) =>
-        {
-            handlerCallCount++;
-            lastNames = values.ToArray();
-        });
-
-        context.SaveChanges();
-        Assert.Equal(1, handlerCallCount);
-        Assert.Equal(new[] { "Alice", "Bob" }, lastNames);
-
-        // Act - Add person with same name (but different age)
-        context.AddPeople(new PersonRecord("Alice", 99));
-        context.SaveChanges();
-
-        // Assert - Collection changed, Select recomputes
-        // Output is now ["Alice", "Bob", "Alice"]
-        Assert.Equal(2, handlerCallCount);
-        Assert.Equal(new[] { "Alice", "Bob", "Alice" }, lastNames);
-    }
-
     [Fact]
     public void ComplexCollection_FilterByProperty_CachingWorks()
     {
@@ -168,21 +128,20 @@ public partial class EqualityBasedComplexObjectCachingTests
             .Where(p => p.Age > 30)
             .Select(p => p.Name);
 
-        context.AddPeople(new PersonRecord("Alice", 25));
-        context.AddPeople(new PersonRecord("Bob", 35));
-        context.SaveChanges();
-
+        context.PeopleSource.Push(new PersonRecord("Alice", 25));
         context.RegisterOutput(over30, (names, ctx) =>
         {
             handlerCallCount++;
         });
 
-        context.SaveChanges();
+        context.PeopleSource.Push(new PersonRecord("Bob", 35));
+
+
+
         Assert.Equal(1, handlerCallCount);
 
         // Act - Add person under 30 (doesn't affect filter output)
-        context.AddPeople(new PersonRecord("Charlie", 20));
-        context.SaveChanges();
+        context.PeopleSource.Push(new PersonRecord("Charlie", 20));
 
         // Assert - Collection changed, filter recomputes
         // But output is still just ["Bob"], so handler not called

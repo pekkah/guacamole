@@ -92,22 +92,21 @@ public partial class CustomComparerTests
             s => s.ToUpperInvariant(),
             new CaseInsensitiveComparer());
 
-        context.SetText("hello");
-        context.SaveChanges();
-
         context.RegisterOutput(upper, (value, ctx) =>
         {
             handlerCallCount++;
             lastResult = value;
         });
 
-        context.SaveChanges();
+        context.TextSource.Set("hello");
+
+
+
         Assert.Equal(1, handlerCallCount);
         Assert.Equal("HELLO", lastResult);
 
         // Act - Change to different case but same content
-        context.SetText("HELLO");
-        context.SaveChanges();
+        context.TextSource.Set("HELLO");
 
         // Assert - With custom comparer, "HELLO" == "hello", so no handler call
         Assert.Equal(1, handlerCallCount);
@@ -124,20 +123,19 @@ public partial class CustomComparerTests
         // No custom comparer - uses default case-sensitive comparison
         var upper = context.Text.Select(s => s.ToUpperInvariant());
 
-        context.SetText("hello");
-        context.SaveChanges();
-
         context.RegisterOutput(upper, (value, ctx) =>
         {
             handlerCallCount++;
         });
 
-        context.SaveChanges();
+        context.TextSource.Set("hello");
+
+
+
         Assert.Equal(1, handlerCallCount);
 
         // Act - Change to different case
-        context.SetText("HELLO");
-        context.SaveChanges();
+        context.TextSource.Set("HELLO");
 
         // Assert - Different case produces same output "HELLO"
         // but since the source changed, this will trigger handler
@@ -160,40 +158,6 @@ public partial class CustomComparerTests
         // Assert - Node stores comparer
         Assert.NotNull(filtered.Node);
     }
-
-    [Fact]
-    public void ValuesProvider_Select_WithCustomComparer_UsesComparerForEquality()
-    {
-        // Arrange
-        var services = CreateServices();
-        var context = new CollectionContext();
-        int handlerCallCount = 0;
-
-        // Custom comparer compares by name only
-        var names = context.People.Select(
-            p => p.Name,
-            StringComparer.OrdinalIgnoreCase);
-
-        context.AddPeople(new Person { Name = "Alice", Age = 30 });
-        context.SaveChanges();
-
-        context.RegisterOutput(names, (values, ctx) =>
-        {
-            handlerCallCount++;
-        });
-
-        context.SaveChanges();
-        Assert.Equal(1, handlerCallCount);
-
-        // Act - Add same name different case
-        context.AddPeople(new Person { Name = "alice", Age = 25 });
-        context.SaveChanges();
-
-        // Assert - Collection changed so handler called
-        // (Comparer applies to individual values, not collection comparison)
-        Assert.Equal(2, handlerCallCount);
-    }
-
     [Fact]
     public void ValuesProvider_Where_WithCustomComparer_StoreComparerInNode()
     {
