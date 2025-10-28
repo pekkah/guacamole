@@ -111,6 +111,9 @@ public static class IncrementalValuesProviderExtensions
 
         var selectNode = new SelectValuesNode<TSource, TResult>(source.Node, selector, null);
 
+        // Register the node immediately for cache invalidation tracking
+        source.Graph.RegisterNodeIfNeeded(selectNode);
+
         // Preserve metadata from source if no metadata is explicitly provided
         var finalMetadata = metadata.TrackingName == null && metadata.CreationLocation == null
             ? source.Metadata
@@ -221,6 +224,9 @@ public static class IncrementalValuesProviderExtensions
         ProviderMetadata metadata = default)
     {
         var combineNode = new CombineValuesWithValueNode<TLeft, TRight>(left.Node, right.Node);
+
+        // Register the node immediately for cache invalidation tracking
+        left.Graph.RegisterNodeIfNeeded(combineNode);
 
         // Preserve metadata from left provider if no metadata is explicitly provided
         var finalMetadata = metadata.TrackingName == null && metadata.CreationLocation == null

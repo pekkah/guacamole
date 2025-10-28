@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using System.Collections.Immutable;
 using Guacamole.Core.Caching;
 using Guacamole.Core.Diagnostics;
@@ -25,6 +26,13 @@ public class ComputationGraph
     /// </summary>
     public LRUCache<string, object> ValueCache { get; }
 
+    /// <summary>
+    /// Shared state for runtime-discovered nodes and dependencies.
+    /// This state is shared across all versions of the graph to ensure
+    /// cache invalidation works correctly even as the graph evolves.
+    /// </summary>
+    private readonly SharedGraphState _sharedState;
+
 
     /// <summary>
     /// Creates an empty computation graph.
@@ -33,7 +41,8 @@ public class ComputationGraph
         : this(
             ImmutableDictionary<string, IComputationNode>.Empty,
             ImmutableDictionary<string, ImmutableHashSet<string>>.Empty,
-            new LRUCache<string, object>(10000))
+            new LRUCache<string, object>(10000),
+            new SharedGraphState())
     {
     }
 
@@ -43,11 +52,13 @@ public class ComputationGraph
     private ComputationGraph(
         ImmutableDictionary<string, IComputationNode> nodes,
         ImmutableDictionary<string, ImmutableHashSet<string>> dependencies,
-        LRUCache<string, object> valueCache)
+        LRUCache<string, object> valueCache,
+        SharedGraphState sharedState)
     {
         Nodes = nodes;
         Dependencies = dependencies;
         ValueCache = valueCache;
+        _sharedState = sharedState ?? throw new ArgumentNullException(nameof(sharedState));
     }
 
     /// <summary>
@@ -75,7 +86,7 @@ public class ComputationGraph
         }
 
         var newNodes = Nodes.SetItem(node.Id, node);
-        var newGraph = new ComputationGraph(newNodes, newDependencies, ValueCache);
+        var newGraph = new ComputationGraph(newNodes, newDependencies, ValueCache, _sharedState);
 
         // Record metrics if enabled
         if (MetricsConfiguration.Current.EnableGraphMetrics)
@@ -85,6 +96,17 @@ public class ComputationGraph
         }
 
         return newGraph;
+    }
+
+    /// <summary>
+    /// Registers a node for runtime tracking if not already registered.
+    /// This is used for dynamically discovered nodes (e.g., from extension methods).
+    /// Thread-safe and idempotent.
+    /// </summary>
+    /// <param name="node">The node to register</param>
+    public void RegisterNodeIfNeeded(IComputationNode node)
+    {
+        _sharedState.RegisterNodeIfNeeded(node, Nodes);
     }
 
     /// <summary>
@@ -143,7 +165,7 @@ public class ComputationGraph
         // Invalidate cache for the updated node and dependents
         InvalidateCacheForNode(node.Id);
 
-        return new ComputationGraph(newNodes, Dependencies, ValueCache);
+        return new ComputationGraph(newNodes, Dependencies, ValueCache, _sharedState);
     }
 
     /// <summary>
@@ -206,7 +228,35 @@ public class ComputationGraph
         return false;
     }
 
-    private void InvalidateCacheForNode(string nodeId)
+    /// <summary>
+    /// Gets the count of runtime-discovered nodes.
+    /// </summary>
+    public int GetRuntimeNodeCount() => _sharedState.RuntimeNodes.Count;
+
+    /// <summary>
+    /// Checks if a node is registered (either static or runtime).
+    /// </summary>
+    public bool IsNodeRegistered(string nodeId) => Nodes.ContainsKey(nodeId) || _sharedState.RuntimeNodes.ContainsKey(nodeId);
+
+    /// <summary>
+    /// Gets all runtime node IDs (for debugging).
+    /// </summary>
+    public IEnumerable<string> GetRuntimeNodeIds() => _sharedState.RuntimeNodes.Keys;
+
+    /// <summary>
+    /// Tries to get a runtime node by ID.
+    /// </summary>
+    public bool TryGetRuntimeNode(string nodeId, out IComputationNode? node)
+    {
+        return _sharedState.RuntimeNodes.TryGetValue(nodeId, out node);
+    }
+
+    /// <summary>
+    /// Invalidates cache for a node and all its transitive dependents.
+    /// Handles both static and runtime dependencies correctly.
+    /// Public to allow ComputingContextBase to properly invalidate caches.
+    /// </summary>
+    public void InvalidateCacheForNode(string nodeId)
     {
         // Remove the node itself from cache
         ValueCache.Remove(nodeId);
@@ -221,6 +271,7 @@ public class ComputationGraph
 
     /// <summary>
     /// Finds all nodes that depend on the given node (transitively).
+    /// Searches both static and runtime dependency collections.
     /// </summary>
     private HashSet<string> FindAllDependents(string nodeId)
     {
@@ -232,8 +283,18 @@ public class ComputationGraph
         {
             var current = toCheck.Dequeue();
 
-            // Find all nodes that directly depend on current
+            // Find all nodes that directly depend on current in static dependencies
             foreach (var kvp in Dependencies)
+            {
+                if (kvp.Value.Contains(current) && !dependents.Contains(kvp.Key))
+                {
+                    dependents.Add(kvp.Key);
+                    toCheck.Enqueue(kvp.Key);
+                }
+            }
+
+            // Also search runtime dependencies (shared across graph versions)
+            foreach (var kvp in _sharedState.RuntimeDependencies)
             {
                 if (kvp.Value.Contains(current) && !dependents.Contains(kvp.Key))
                 {

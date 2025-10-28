@@ -55,6 +55,9 @@ public readonly record struct IncrementalValueProvider<T>(
     /// <returns>Result containing the computed value or error</returns>
     public Result<T, ComputationError> GetValue()
     {
+        // Register this node for cache invalidation tracking if not already registered
+        Graph.RegisterNodeIfNeeded(Node);
+
         // Create context with current cache state
         var cachedValues = BuildCacheContext(Node, Graph);
         var context = new ComputationContext(cachedValues);
@@ -122,9 +125,20 @@ public readonly record struct IncrementalValueProvider<T>(
                 dict[depId] = depValue;
             }
 
-            // Add transitive dependencies
-            if (graph.Nodes.TryGetValue(depId, out var depNode))
+            // Add transitive dependencies - check both static and runtime nodes
+            IComputationNode? depNode = null;
+            if (!graph.Nodes.TryGetValue(depId, out depNode))
             {
+                // Not in static nodes, check runtime nodes
+                graph.TryGetRuntimeNode(depId, out depNode);
+            }
+
+            if (depNode != null)
+            {
+                // Register this node for cache invalidation tracking
+                // This ensures all nodes in the dependency chain are tracked
+                graph.RegisterNodeIfNeeded(depNode);
+
                 foreach (var transDep in depNode.Dependencies)
                 {
                     toCheck.Enqueue(transDep);
@@ -184,6 +198,9 @@ public readonly record struct IncrementalValuesProvider<T>(
     /// <returns>Result containing the computed values or error</returns>
     public Result<IEnumerable<T>, ComputationError> GetValues()
     {
+        // Register this node for cache invalidation tracking if not already registered
+        Graph.RegisterNodeIfNeeded(Node);
+
         // Create context with current cache state
         var cachedValues = BuildCacheContext(Node, Graph);
         var context = new ComputationContext(cachedValues);
@@ -251,9 +268,20 @@ public readonly record struct IncrementalValuesProvider<T>(
                 dict[depId] = depValue;
             }
 
-            // Add transitive dependencies
-            if (graph.Nodes.TryGetValue(depId, out var depNode))
+            // Add transitive dependencies - check both static and runtime nodes
+            IComputationNode? depNode = null;
+            if (!graph.Nodes.TryGetValue(depId, out depNode))
             {
+                // Not in static nodes, check runtime nodes
+                graph.TryGetRuntimeNode(depId, out depNode);
+            }
+
+            if (depNode != null)
+            {
+                // Register this node for cache invalidation tracking
+                // This ensures all nodes in the dependency chain are tracked
+                graph.RegisterNodeIfNeeded(depNode);
+
                 foreach (var transDep in depNode.Dependencies)
                 {
                     toCheck.Enqueue(transDep);

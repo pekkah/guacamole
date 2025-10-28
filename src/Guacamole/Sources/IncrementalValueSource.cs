@@ -149,13 +149,8 @@ public sealed class IncrementalValueSource<T> : IIncrementalValueSource<T>
 
         public Result<T, ComputationError> Compute(ComputationContext context)
         {
-            // Check cache first
-            if (context.CachedValues.TryGetValue(Id, out var cached) && cached is T cachedValue)
-            {
-                return Result<T, ComputationError>.Success(cachedValue);
-            }
-
-            // Read current value from source
+            // Sources are the ground truth - always read fresh data, never use cache
+            // The cache is for computed nodes (Select, Combine, etc.) that depend on sources
             var value = _source.GetValue();
             if (value == null)
             {

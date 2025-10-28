@@ -232,13 +232,8 @@ public sealed class IncrementalSource<T> : IIncrementalSource<T>
 
         public Result<IEnumerable<T>, ComputationError> Compute(ComputationContext context)
         {
-            // Check cache first
-            if (context.CachedValues.TryGetValue(Id, out var cached) && cached is IEnumerable<T> cachedItems)
-            {
-                return Result<IEnumerable<T>, ComputationError>.Success(cachedItems);
-            }
-
-            // Read current snapshot from source
+            // Sources are the ground truth - always read fresh data, never use cache
+            // The cache is for computed nodes (Select, Combine, etc.) that depend on sources
             var items = _source.GetSnapshot();
             return Result<IEnumerable<T>, ComputationError>.Success(items);
         }
