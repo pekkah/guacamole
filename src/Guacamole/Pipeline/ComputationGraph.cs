@@ -263,26 +263,20 @@ public class ComputationGraph
     }
 
     /// <summary>
-    /// Marks a source node as changed by incrementing its version and propagating
-    /// the change to all transitive dependents. Does NOT clear any caches -
-    /// lazy validation will handle this by checking version matches.
+    /// Marks a source node as changed by incrementing its version.
+    /// Does NOT clear any caches and does NOT eagerly bump versions of dependents;
+    /// lazy validation will handle this by recursively checking dependency version matches.
     /// This is the preferred method for source change notification when using
     /// version-based equality caching.
     /// </summary>
     /// <param name="nodeId">The source node's unique identifier</param>
     public void MarkSourceChanged(string nodeId)
     {
-        // Increment the source node's version
+        // Increment the source node's version. Downstream nodes will observe this
+        // via their recursive dependency version checks and recompute as needed.
+        // Their own versions should only be incremented if their computed values
+        // actually change, enabling equality-based cache skipping.
         _sharedState.Versions.IncrementOutputVersion(nodeId);
-
-        // Propagate version change to all transitive dependents
-        // This ensures that when downstream nodes check their dependency versions,
-        // they will see that their dependencies have changed
-        var dependents = FindAllDependents(nodeId);
-        foreach (var dependent in dependents)
-        {
-            _sharedState.Versions.IncrementOutputVersion(dependent);
-        }
     }
 
     /// <summary>

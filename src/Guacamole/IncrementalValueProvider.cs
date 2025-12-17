@@ -96,21 +96,27 @@ public readonly record struct IncrementalValueProvider<T>(
 
             // Check if value actually changed using appropriate comparer
             var comparer = GetNodeComparer();
-            bool valueChanged = !hadPrevious ||
-                (previousValue == null && result.Value != null) ||
-                (previousValue != null && result.Value == null) ||
-                (previousValue != null && !comparer.Equals(previousValue, result.Value));
-
-            // Only increment version if value changed
-            long version;
-            if (valueChanged)
+            bool valueChanged;
+            if (!hadPrevious)
             {
-                version = Graph.Versions.IncrementOutputVersion(Node.Id);
+                // No previous value cached; treat as a change
+                valueChanged = true;
+            }
+            else if (previousValue is null)
+            {
+                // Previously null, now non-null (result.Value != null at this point)
+                valueChanged = true;
             }
             else
             {
-                version = Graph.Versions.GetOutputVersion(Node.Id);
+                // Both previous and current values are non-null; use comparer
+                valueChanged = !comparer.Equals(previousValue, result.Value);
             }
+
+            // Only increment version if value changed
+            long version = valueChanged
+                ? Graph.Versions.IncrementOutputVersion(Node.Id)
+                : Graph.Versions.GetOutputVersion(Node.Id);
 
             // Store version info for future validation
             var versionInfo = new NodeVersionInfo(version, depVersions);
@@ -124,8 +130,9 @@ public readonly record struct IncrementalValueProvider<T>(
     }
 
     /// <summary>
-    /// Tries to get a valid cached value by checking if all dependency versions
-    /// are still current.
+    /// Tries to get a valid cached value by checking if the entire dependency chain
+    /// is still valid up to source nodes. Uses recursive validation to enable
+    /// equality-based cache skipping.
     /// </summary>
     /// <param name="value">The cached value if valid</param>
     /// <returns>True if cached value is valid and can be used</returns>
@@ -133,43 +140,18 @@ public readonly record struct IncrementalValueProvider<T>(
     {
         value = default!;
 
-        // Check if we have a cached value
+        // Use recursive validation to check the entire dependency chain
+        if (!IsCachedValueValid(Node.Id, Graph))
+        {
+            return false;
+        }
+
+        // Get the cached value (we know it exists from IsCachedValueValid)
         if (!Graph.ValueCache.TryGet(Node.Id, out var cached) || cached is not T typedValue)
         {
             return false;
         }
 
-        // Check if we have version info for this node
-        if (!Graph.SharedState.VersionInfo.TryGetValue(Node.Id, out var versionInfo))
-        {
-            return false;
-        }
-
-        // For source nodes (no dependencies), check if own version has changed
-        // This handles the case where MarkSourceChanged incremented the version
-        if (versionInfo.DependencyVersionsAtComputation.IsEmpty)
-        {
-            var currentOwnVersion = Graph.Versions.GetOutputVersion(Node.Id);
-            if (currentOwnVersion != versionInfo.OutputVersion)
-            {
-                return false; // Source has been modified since cached
-            }
-        }
-
-        // Validate all dependency versions are still current
-        // Note: With version propagation in MarkSourceChanged, intermediate node
-        // versions are incremented when their transitive dependencies change
-        foreach (var kvp in versionInfo.DependencyVersionsAtComputation)
-        {
-            var currentVersion = Graph.Versions.GetOutputVersion(kvp.Key);
-            if (currentVersion != kvp.Value)
-            {
-                // A dependency's version has changed - cache is stale
-                return false;
-            }
-        }
-
-        // All dependency versions match - cache is valid
         value = typedValue;
         return true;
     }
@@ -267,38 +249,101 @@ public readonly record struct IncrementalValueProvider<T>(
 
     /// <summary>
     /// Checks if a cached value for a node is still version-valid.
-    /// With version propagation in MarkSourceChanged, we only need to check
-    /// direct dependency versions since intermediate node versions are
-    /// automatically incremented when their transitive dependencies change.
+    /// Uses recursive validation to check the entire dependency chain up to sources.
+    /// This enables equality-based cache skipping: if an intermediate node's value
+    /// hasn't changed, downstream nodes don't need to recompute.
     /// </summary>
     private static bool IsCachedValueValid(string nodeId, ComputationGraph graph)
     {
-        // Must have a cached value
-        if (!graph.ValueCache.TryGet(nodeId, out _))
-            return false;
+        return IsCachedValueValidRecursive(nodeId, graph, new HashSet<string>());
+    }
 
-        // Must have version info
-        if (!graph.SharedState.VersionInfo.TryGetValue(nodeId, out var versionInfo))
-            return false;
+    /// <summary>
+    /// Recursive implementation of cache validation with cycle detection.
+    /// Validates that the dependency chain is valid up to source nodes.
+    /// </summary>
+    private static bool IsCachedValueValidRecursive(
+        string nodeId,
+        ComputationGraph graph,
+        HashSet<string> visited)
+    {
+        // Cycle detection (shouldn't happen in DAG but defensive)
+        if (!visited.Add(nodeId))
+            return true; // Already validated in this chain
 
-        // For source nodes (no dependencies), check if own version has changed
-        if (versionInfo.DependencyVersionsAtComputation.IsEmpty)
+        // Check if we have version info (node was computed through provider layer)
+        if (graph.SharedState.VersionInfo.TryGetValue(nodeId, out var versionInfo))
         {
-            var currentOwnVersion = graph.Versions.GetOutputVersion(nodeId);
-            return currentOwnVersion == versionInfo.OutputVersion;
-        }
-
-        // Validate all dependency versions are still current
-        foreach (var kvp in versionInfo.DependencyVersionsAtComputation)
-        {
-            var currentVersion = graph.Versions.GetOutputVersion(kvp.Key);
-            if (currentVersion != kvp.Value)
-            {
+            // Must have a cached value if we have version info
+            if (!graph.ValueCache.TryGet(nodeId, out _))
                 return false;
+
+            // For source nodes (no dependencies), check if own version has changed
+            if (versionInfo.DependencyVersionsAtComputation.IsEmpty)
+            {
+                var currentOwnVersion = graph.Versions.GetOutputVersion(nodeId);
+                return currentOwnVersion == versionInfo.OutputVersion;
             }
+
+            // For derived nodes: check each dependency
+            foreach (var kvp in versionInfo.DependencyVersionsAtComputation)
+            {
+                var depId = kvp.Key;
+                var storedVersion = kvp.Value;
+
+                // First, check if dependency version matches what we stored
+                var currentVersion = graph.Versions.GetOutputVersion(depId);
+                if (currentVersion != storedVersion)
+                {
+                    // Dependency's output version changed - our cache is stale
+                    return false;
+                }
+
+                // Second, recursively check if the dependency chain is valid
+                if (!IsCachedValueValidRecursive(depId, graph, visited))
+                {
+                    return false;
+                }
+            }
+
+            return true;
         }
 
+        // No version info - this node was computed outside the provider layer
+        // (e.g., inline by a parent node's Compute method).
+        // These nodes may or may not have cached values.
+        // Recursively check dependencies to validate the chain.
+        var node = GetNodeFromGraph(nodeId, graph);
+        if (node == null)
+            return false;
+
+        if (node.Dependencies.IsEmpty)
+        {
+            // Source node without version info: valid if version is 0 (pristine)
+            var currentVersion = graph.Versions.GetOutputVersion(nodeId);
+            return currentVersion == 0;
+        }
+
+        // Intermediate node without version info: recursively check dependencies.
+        // If all dependencies are valid, this node would compute the same value.
+        foreach (var depId in node.Dependencies)
+        {
+            if (!IsCachedValueValidRecursive(depId, graph, visited))
+                return false;
+        }
         return true;
+    }
+
+    /// <summary>
+    /// Gets a node from the graph (either static or runtime nodes).
+    /// </summary>
+    private static IComputationNode? GetNodeFromGraph(string nodeId, ComputationGraph graph)
+    {
+        if (graph.Nodes.TryGetValue(nodeId, out var node))
+            return node;
+        if (graph.TryGetRuntimeNode(nodeId, out var runtimeNode))
+            return runtimeNode;
+        return null;
     }
 }
 
@@ -390,15 +435,9 @@ public readonly record struct IncrementalValuesProvider<T>(
                 !SequenceEqual(previousArray, currentArray, comparer);
 
             // Only increment version if value changed
-            long version;
-            if (valueChanged)
-            {
-                version = Graph.Versions.IncrementOutputVersion(Node.Id);
-            }
-            else
-            {
-                version = Graph.Versions.GetOutputVersion(Node.Id);
-            }
+            long version = valueChanged
+                ? Graph.Versions.IncrementOutputVersion(Node.Id)
+                : Graph.Versions.GetOutputVersion(Node.Id);
 
             // Store version info for future validation
             var versionInfo = new NodeVersionInfo(version, depVersions);
@@ -415,50 +454,26 @@ public readonly record struct IncrementalValuesProvider<T>(
     }
 
     /// <summary>
-    /// Tries to get valid cached values by checking if all dependency versions
-    /// are still current.
+    /// Tries to get valid cached values by checking if the entire dependency chain
+    /// is still valid up to source nodes. Uses recursive validation to enable
+    /// equality-based cache skipping.
     /// </summary>
     private bool TryGetValidCachedValues(out IEnumerable<T> values)
     {
         values = Enumerable.Empty<T>();
 
-        // Check if we have a cached value
+        // Use recursive validation to check the entire dependency chain
+        if (!IsCachedValueValid(Node.Id, Graph))
+        {
+            return false;
+        }
+
+        // Get the cached value (we know it exists from IsCachedValueValid)
         if (!Graph.ValueCache.TryGet(Node.Id, out var cached) || cached is not IEnumerable<T> typedValue)
         {
             return false;
         }
 
-        // Check if we have version info for this node
-        if (!Graph.SharedState.VersionInfo.TryGetValue(Node.Id, out var versionInfo))
-        {
-            return false;
-        }
-
-        // For source nodes (no dependencies), check if own version has changed
-        // This handles the case where MarkSourceChanged incremented the version
-        if (versionInfo.DependencyVersionsAtComputation.IsEmpty)
-        {
-            var currentOwnVersion = Graph.Versions.GetOutputVersion(Node.Id);
-            if (currentOwnVersion != versionInfo.OutputVersion)
-            {
-                return false; // Source has been modified since cached
-            }
-        }
-
-        // Validate all dependency versions are still current
-        // Note: With version propagation in MarkSourceChanged, intermediate node
-        // versions are incremented when their transitive dependencies change
-        foreach (var kvp in versionInfo.DependencyVersionsAtComputation)
-        {
-            var currentVersion = Graph.Versions.GetOutputVersion(kvp.Key);
-            if (currentVersion != kvp.Value)
-            {
-                // A dependency's version has changed - cache is stale
-                return false;
-            }
-        }
-
-        // All dependency versions match - cache is valid
         values = typedValue;
         return true;
     }
@@ -572,37 +587,99 @@ public readonly record struct IncrementalValuesProvider<T>(
 
     /// <summary>
     /// Checks if a cached value for a node is still version-valid.
-    /// With version propagation in MarkSourceChanged, we only need to check
-    /// direct dependency versions since intermediate node versions are
-    /// automatically incremented when their transitive dependencies change.
+    /// Uses recursive validation to check the entire dependency chain up to sources.
+    /// This enables equality-based cache skipping: if an intermediate node's value
+    /// hasn't changed, downstream nodes don't need to recompute.
     /// </summary>
     private static bool IsCachedValueValid(string nodeId, ComputationGraph graph)
     {
-        // Must have a cached value
-        if (!graph.ValueCache.TryGet(nodeId, out _))
-            return false;
+        return IsCachedValueValidRecursive(nodeId, graph, new HashSet<string>());
+    }
 
-        // Must have version info
-        if (!graph.SharedState.VersionInfo.TryGetValue(nodeId, out var versionInfo))
-            return false;
+    /// <summary>
+    /// Recursive implementation of cache validation with cycle detection.
+    /// </summary>
+    private static bool IsCachedValueValidRecursive(
+        string nodeId,
+        ComputationGraph graph,
+        HashSet<string> visited)
+    {
+        // Cycle detection (shouldn't happen in DAG but defensive)
+        if (!visited.Add(nodeId))
+            return true; // Already validated in this chain
 
-        // For source nodes (no dependencies), check if own version has changed
-        if (versionInfo.DependencyVersionsAtComputation.IsEmpty)
+        // Check if we have version info (node was computed through provider layer)
+        if (graph.SharedState.VersionInfo.TryGetValue(nodeId, out var versionInfo))
         {
-            var currentOwnVersion = graph.Versions.GetOutputVersion(nodeId);
-            return currentOwnVersion == versionInfo.OutputVersion;
-        }
-
-        // Validate all dependency versions are still current
-        foreach (var kvp in versionInfo.DependencyVersionsAtComputation)
-        {
-            var currentVersion = graph.Versions.GetOutputVersion(kvp.Key);
-            if (currentVersion != kvp.Value)
-            {
+            // Must have a cached value if we have version info
+            if (!graph.ValueCache.TryGet(nodeId, out _))
                 return false;
+
+            // For source nodes (no dependencies), check if own version has changed
+            if (versionInfo.DependencyVersionsAtComputation.IsEmpty)
+            {
+                var currentOwnVersion = graph.Versions.GetOutputVersion(nodeId);
+                return currentOwnVersion == versionInfo.OutputVersion;
             }
+
+            // For derived nodes: check each dependency
+            foreach (var kvp in versionInfo.DependencyVersionsAtComputation)
+            {
+                var depId = kvp.Key;
+                var storedVersion = kvp.Value;
+
+                // First, check if dependency version matches what we stored
+                var currentVersion = graph.Versions.GetOutputVersion(depId);
+                if (currentVersion != storedVersion)
+                {
+                    // Dependency's output version changed - our cache is stale
+                    return false;
+                }
+
+                // Second, recursively check if the dependency chain is valid
+                if (!IsCachedValueValidRecursive(depId, graph, visited))
+                {
+                    return false;
+                }
+            }
+
+            return true;
         }
 
+        // No version info - this node was computed outside the provider layer
+        // (e.g., inline by a parent node's Compute method).
+        // These nodes may or may not have cached values.
+        // Recursively check dependencies to validate the chain.
+        var node = GetNodeFromGraph(nodeId, graph);
+        if (node == null)
+            return false;
+
+        if (node.Dependencies.IsEmpty)
+        {
+            // Source node without version info: valid if version is 0 (pristine)
+            var currentVersion = graph.Versions.GetOutputVersion(nodeId);
+            return currentVersion == 0;
+        }
+
+        // Intermediate node without version info: recursively check dependencies.
+        // If all dependencies are valid, this node would compute the same value.
+        foreach (var depId in node.Dependencies)
+        {
+            if (!IsCachedValueValidRecursive(depId, graph, visited))
+                return false;
+        }
         return true;
+    }
+
+    /// <summary>
+    /// Gets a node from the graph (either static or runtime nodes).
+    /// </summary>
+    private static IComputationNode? GetNodeFromGraph(string nodeId, ComputationGraph graph)
+    {
+        if (graph.Nodes.TryGetValue(nodeId, out var node))
+            return node;
+        if (graph.TryGetRuntimeNode(nodeId, out var runtimeNode))
+            return runtimeNode;
+        return null;
     }
 }
