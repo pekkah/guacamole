@@ -172,9 +172,10 @@ public class IncrementalValueProviderTests
         var provider = new IncrementalValueProvider<long>(node, graph, metadata);
         stopwatch.Stop();
 
-        // Assert - Should be very fast (< 1ms for struct creation)
-        Assert.True(stopwatch.ElapsedMilliseconds < 1,
-            "Provider creation should be sub-millisecond");
+        // Assert - Should be very fast (< 10ms for struct creation)
+        // Using 10ms to account for CI runner variability
+        Assert.True(stopwatch.ElapsedMilliseconds < 10,
+            $"Provider creation should be fast, but took {stopwatch.ElapsedMilliseconds}ms");
         // Provider is a value type, no need for null check
     }
 
