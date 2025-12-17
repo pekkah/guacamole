@@ -25,6 +25,20 @@ internal sealed class SharedGraphState
     public ConcurrentDictionary<string, ImmutableHashSet<string>> RuntimeDependencies { get; } = new();
 
     /// <summary>
+    /// Version tracker for equality-based cache skipping.
+    /// Tracks output versions for each node - versions only increment when
+    /// the computed value actually changes (based on equality comparison).
+    /// </summary>
+    public VersionTracker Versions { get; } = new();
+
+    /// <summary>
+    /// Version info for each cached node value.
+    /// Stores the dependency versions at computation time, enabling lazy
+    /// validation of cache freshness without eagerly clearing caches.
+    /// </summary>
+    public ConcurrentDictionary<string, NodeVersionInfo> VersionInfo { get; } = new();
+
+    /// <summary>
     /// Registers a node for runtime tracking if not already registered.
     /// This is used for dynamically discovered nodes (e.g., from extension methods).
     /// Thread-safe and idempotent.

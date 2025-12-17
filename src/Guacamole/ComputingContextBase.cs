@@ -101,12 +101,20 @@ public abstract partial class ComputingContextBase : IDisposable
     }
 
     /// <summary>
-    /// Handles source change events by invalidating cache and triggering output handlers.
+    /// Handles source change events by marking the source version as changed
+    /// and triggering output handlers for lazy validation.
     /// </summary>
+    /// <remarks>
+    /// Uses version-based lazy invalidation instead of eagerly clearing caches.
+    /// When GetValue() is called, it will check if dependency versions have changed
+    /// and recompute only when necessary. This enables equality-based cache skipping
+    /// where unchanged intermediate values prevent downstream recomputation.
+    /// </remarks>
     private void OnSourceChanged(object? sender, SourceChangedEventArgs e)
     {
-        // Invalidate cache for the source and all its dependents
-        InvalidateNodeCache(e.SourceId);
+        // Mark the source's version as changed - don't clear caches
+        // Lazy validation during GetValue() will handle cache freshness
+        Graph.MarkSourceChanged(e.SourceId);
 
         // Trigger all registered output handlers when any source changes
         TriggerOutputs();
@@ -116,6 +124,11 @@ public abstract partial class ComputingContextBase : IDisposable
     /// Invalidates cache for the specified node and all transitive dependents.
     /// Delegates to ComputationGraph which handles both static and runtime dependencies.
     /// </summary>
+    /// <remarks>
+    /// NOTE: This method is kept for backward compatibility and special cases.
+    /// The default source change handling now uses version-based lazy invalidation
+    /// via <see cref="ComputationGraph.MarkSourceChanged"/>.
+    /// </remarks>
     private void InvalidateNodeCache(string nodeId)
     {
         // Delegate to graph's InvalidateCacheForNode which properly handles
