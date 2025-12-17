@@ -54,6 +54,22 @@ public interface ICollectionComputationNode<T> : IComputationNode
 }
 
 /// <summary>
+/// Interface for computation nodes that support custom equality comparison.
+/// When a node implements this interface, version-based caching uses the
+/// provided comparer to determine if the computed value has changed.
+/// </summary>
+/// <typeparam name="T">Type of value the node produces</typeparam>
+public interface IHasComparer<T>
+{
+    /// <summary>
+    /// Gets the equality comparer used to compare computed values.
+    /// If the comparer indicates two values are equal, the node's version
+    /// will not be incremented, enabling downstream nodes to skip recomputation.
+    /// </summary>
+    IEqualityComparer<T> Comparer { get; }
+}
+
+/// <summary>
 /// Computation context providing access to cache and dependencies.
 /// </summary>
 public readonly record struct ComputationContext(

@@ -33,6 +33,17 @@ public class ComputationGraph
     /// </summary>
     private readonly SharedGraphState _sharedState;
 
+    /// <summary>
+    /// Gets the version tracker for equality-based cache skipping.
+    /// Tracks output versions for each node - versions only increment when
+    /// the computed value actually changes.
+    /// </summary>
+    public VersionTracker Versions => _sharedState.Versions;
+
+    /// <summary>
+    /// Gets the shared state (internal access for IncrementalValueProvider).
+    /// </summary>
+    internal SharedGraphState SharedState => _sharedState;
 
     /// <summary>
     /// Creates an empty computation graph.
@@ -252,10 +263,38 @@ public class ComputationGraph
     }
 
     /// <summary>
+    /// Marks a source node as changed by incrementing its version and propagating
+    /// the change to all transitive dependents. Does NOT clear any caches -
+    /// lazy validation will handle this by checking version matches.
+    /// This is the preferred method for source change notification when using
+    /// version-based equality caching.
+    /// </summary>
+    /// <param name="nodeId">The source node's unique identifier</param>
+    public void MarkSourceChanged(string nodeId)
+    {
+        // Increment the source node's version
+        _sharedState.Versions.IncrementOutputVersion(nodeId);
+
+        // Propagate version change to all transitive dependents
+        // This ensures that when downstream nodes check their dependency versions,
+        // they will see that their dependencies have changed
+        var dependents = FindAllDependents(nodeId);
+        foreach (var dependent in dependents)
+        {
+            _sharedState.Versions.IncrementOutputVersion(dependent);
+        }
+    }
+
+    /// <summary>
     /// Invalidates cache for a node and all its transitive dependents.
     /// Handles both static and runtime dependencies correctly.
     /// Public to allow ComputingContextBase to properly invalidate caches.
     /// </summary>
+    /// <remarks>
+    /// NOTE: With version-based caching, prefer using <see cref="MarkSourceChanged"/>
+    /// instead of this method. This method is kept for backward compatibility
+    /// and for scenarios where forced cache clearing is needed.
+    /// </remarks>
     public void InvalidateCacheForNode(string nodeId)
     {
         // Remove the node itself from cache

@@ -155,10 +155,10 @@ public class ProviderExtensionCachingTests
         Assert.Equal(1, sourceComputeCount);
 
         // Select function is applied to each item during enumeration
-        // Current implementation caches lazy IEnumerables, so re-enumeration re-applies selectors
-        // With 2 GetValues() calls and 5 items, select is called 10 times (5 items × 2 calls)
-        // Future optimization: materialize results to avoid re-evaluation
-        Assert.Equal(10, selectComputeCount);
+        // With materialized caching (arrays stored instead of lazy IEnumerables),
+        // the selector only runs once per item on first GetValues() call.
+        // The second GetValues() returns the cached array without re-computation.
+        Assert.Equal(5, selectComputeCount);
     }
 
     /// <summary>
