@@ -60,7 +60,19 @@ internal static class ContextEmitter
         if (model.Properties.Count > 0)
             writer.Line();
 
-        // Constructor
+        // Constructor (omitted when the user declared a parameterless constructor, see GUAC0008)
+        if (model.GenerateConstructor)
+            WriteConstructor(writer, model);
+
+        foreach (var property in model.Properties)
+        {
+            WriteProviderProperty(writer, property);
+            WriteSourceAccessor(writer, property);
+        }
+    }
+
+    private static void WriteConstructor(CodeWriter writer, ContextModel model)
+    {
         writer.Line("/// <summary>");
         writer.Line("/// Initializes the computing context and its sources.");
         writer.Line("/// </summary>");
@@ -77,12 +89,6 @@ internal static class ContextEmitter
         }
 
         writer.Close();
-
-        foreach (var property in model.Properties)
-        {
-            WriteProviderProperty(writer, property);
-            WriteSourceAccessor(writer, property);
-        }
     }
 
     private static void WriteProviderProperty(CodeWriter writer, SourcePropertyModel property)

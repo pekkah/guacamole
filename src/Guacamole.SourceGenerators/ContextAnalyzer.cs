@@ -21,6 +21,10 @@ namespace Guacamole.SourceGenerators;
 /// <item>Non-partial get-only provider properties are reported (GUAC0003).</item>
 /// <item>Partial provider properties with setters are reported (GUAC0005).</item>
 /// </list>
+/// Constructors: the generator emits the public parameterless constructor that initializes the
+/// sources. A user-declared parameterless constructor is reported (GUAC0008, error) and the generated
+/// constructor is omitted, so the only error is GUAC0008 instead of CS0111 plus follow-ups. Every other
+/// instance constructor must reach <c>: this()</c>, directly or through other constructors (GUAC0009).
 /// </remarks>
 internal static class ContextAnalyzer
 {
@@ -133,6 +137,8 @@ internal static class ContextAnalyzer
         ContextModel? model = null;
         if (canGenerate)
         {
+            var generateConstructor = AnalyzeConstructors(context, classSymbol, diagnostics, cancellationToken);
+
             var containingTypes = new List<ContainingTypeModel>();
             for (var type = classSymbol.ContainingType; type is not null; type = type.ContainingType)
             {
@@ -145,10 +151,110 @@ internal static class ContextAnalyzer
                 containingTypes.ToEquatableArray(),
                 classSymbol.Name,
                 GetTypeParameterList(classSymbol),
-                sourceProperties.ToEquatableArray());
+                sourceProperties.ToEquatableArray(),
+                generateConstructor);
         }
 
         return new ContextAnalysisResult(model, diagnostics.ToEquatableArray());
+    }
+
+    /// <summary>
+    /// Reports GUAC0008/GUAC0009 for user-declared instance constructors.
+    /// </summary>
+    /// <returns>True when the generated parameterless constructor should be emitted.</returns>
+    private static bool AnalyzeConstructors(
+        GeneratorAttributeSyntaxContext context,
+        INamedTypeSymbol classSymbol,
+        List<DiagnosticModel> diagnostics,
+        CancellationToken cancellationToken)
+    {
+        var constructors = classSymbol.InstanceConstructors.Where(c => !c.IsImplicitlyDeclared).ToList();
+
+        var parameterless = constructors.FirstOrDefault(c => c.Parameters.Length == 0);
+        if (parameterless is not null)
+        {
+            diagnostics.Add(CreateDiagnostic(
+                DiagnosticDescriptors.UserDeclaredParameterlessConstructor,
+                GetConstructorIdentifierLocation(parameterless, cancellationToken),
+                classSymbol.Name));
+
+            // Chains to ': this()' reach the user's constructor, not generated code, so GUAC0009
+            // would be misleading here; fixing GUAC0008 comes first.
+            return false;
+        }
+
+        var reaches = new Dictionary<IMethodSymbol, bool>(SymbolEqualityComparer.Default);
+        foreach (var constructor in constructors)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            if (!ReachesGeneratedConstructor(context, constructor, reaches, cancellationToken))
+            {
+                diagnostics.Add(CreateDiagnostic(
+                    DiagnosticDescriptors.ConstructorMustChainToGeneratedConstructor,
+                    GetConstructorIdentifierLocation(constructor, cancellationToken),
+                    classSymbol.Name));
+            }
+        }
+
+        return true;
+    }
+
+    /// <summary>
+    /// Follows <c>: this(...)</c> initializers. Only <c>: this()</c> with zero arguments reaches the
+    /// generated constructor (in the final compilation it is the best overload for an empty argument
+    /// list). <c>: base(...)</c> or no initializer never reaches it. Cycles (CS0516) count as not reaching.
+    /// Unresolvable targets are given the benefit of the doubt to avoid false positives.
+    /// </summary>
+    private static bool ReachesGeneratedConstructor(
+        GeneratorAttributeSyntaxContext context,
+        IMethodSymbol constructor,
+        Dictionary<IMethodSymbol, bool> cache,
+        CancellationToken cancellationToken)
+    {
+        if (cache.TryGetValue(constructor, out var known))
+            return known;
+
+        // Provisional value guards against cycles.
+        cache[constructor] = false;
+
+        var result = Evaluate();
+        cache[constructor] = result;
+        return result;
+
+        bool Evaluate()
+        {
+            var reference = constructor.DeclaringSyntaxReferences.FirstOrDefault();
+            if (reference?.GetSyntax(cancellationToken) is not ConstructorDeclarationSyntax declaration)
+                return true; // e.g. a primary constructor: not analysed here
+
+            var initializer = declaration.Initializer;
+            if (initializer is null || !initializer.IsKind(SyntaxKind.ThisConstructorInitializer))
+                return false;
+
+            if (initializer.ArgumentList.Arguments.Count == 0)
+                return true;
+
+            var semanticModel = initializer.SyntaxTree == context.SemanticModel.SyntaxTree
+                ? context.SemanticModel
+                : context.SemanticModel.Compilation.GetSemanticModel(initializer.SyntaxTree);
+
+            if (semanticModel.GetSymbolInfo(initializer, cancellationToken).Symbol is not IMethodSymbol target)
+                return true;
+
+            if (target.IsImplicitlyDeclared)
+                return true;
+
+            return ReachesGeneratedConstructor(context, target, cache, cancellationToken);
+        }
+    }
+
+    private static Location? GetConstructorIdentifierLocation(IMethodSymbol constructor, CancellationToken cancellationToken)
+    {
+        var reference = constructor.DeclaringSyntaxReferences.FirstOrDefault();
+        if (reference?.GetSyntax(cancellationToken) is ConstructorDeclarationSyntax declaration)
+            return declaration.Identifier.GetLocation();
+
+        return constructor.Locations.FirstOrDefault();
     }
 
     private static DiagnosticModel CreateDiagnostic(DiagnosticDescriptor descriptor, Location? location, params string[] arguments)

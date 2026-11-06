@@ -204,6 +204,202 @@ public class DiagnosticTests
         TestHelper.AssertCompilesCleanly(result);
     }
 
+    [Fact]
+    public void UserParameterlessConstructor_ReportsGUAC0008AndOmitsGeneratedConstructor()
+    {
+        var source = """
+            using Guacamole;
+
+            namespace Test
+            {
+                [ComputingContext]
+                public partial class TestContext : ComputingContextBase
+                {
+                    public TestContext()
+                    {
+                    }
+
+                    public partial IncrementalValuesProvider<string> Items { get; }
+                }
+            }
+            """;
+
+        var result = TestHelper.Run(source);
+
+        var diagnostic = Assert.Single(result.GeneratorDiagnostics);
+        AssertDiagnostic(diagnostic, "GUAC0008", DiagnosticSeverity.Error, source, "TestContext", occurrence: 1);
+        Assert.Contains("'TestContext'", diagnostic.GetMessage());
+
+        // The rest of the class is still generated, without a colliding constructor (no CS0111).
+        var generated = Assert.Single(result.GeneratedSources).SourceText.ToString();
+        Assert.DoesNotContain("public TestContext()", generated);
+        Assert.Contains("ItemsSource", generated);
+        Assert.Empty(result.CompilationErrors);
+    }
+
+    [Fact]
+    public void ConstructorChainingToThis_ReportsNoDiagnostics()
+    {
+        var source = """
+            using Guacamole;
+
+            namespace Test
+            {
+                [ComputingContext]
+                public partial class TestContext : ComputingContextBase
+                {
+                    public TestContext(int value) : this()
+                    {
+                        Value = value;
+                    }
+
+                    public int Value { get; }
+
+                    public partial IncrementalValuesProvider<string> Items { get; }
+                }
+            }
+            """;
+
+        var result = TestHelper.Run(source);
+
+        Assert.Empty(result.GeneratorDiagnostics);
+        TestHelper.AssertCompilesCleanly(result);
+    }
+
+    [Fact]
+    public void ConstructorChainingToBase_ReportsGUAC0009AtConstructor()
+    {
+        var source = """
+            using Guacamole;
+
+            namespace Test
+            {
+                [ComputingContext]
+                public partial class TestContext : ComputingContextBase
+                {
+                    public TestContext(int value) : base()
+                    {
+                    }
+
+                    public partial IncrementalValuesProvider<string> Items { get; }
+                }
+            }
+            """;
+
+        var result = TestHelper.Run(source);
+
+        var diagnostic = Assert.Single(result.GeneratorDiagnostics);
+        AssertDiagnostic(diagnostic, "GUAC0009", DiagnosticSeverity.Warning, source, "TestContext", occurrence: 1);
+        Assert.Equal("Constructor of computing context 'TestContext' must chain to ': this()' so generated sources are initialized", diagnostic.GetMessage());
+        Assert.Empty(result.CompilationErrors);
+    }
+
+    [Fact]
+    public void ConstructorWithoutInitializer_ReportsGUAC0009AtConstructor()
+    {
+        var source = """
+            using Guacamole;
+
+            namespace Test
+            {
+                [ComputingContext]
+                public partial class TestContext : ComputingContextBase
+                {
+                    private TestContext(string name)
+                    {
+                    }
+
+                    public partial IncrementalValuesProvider<string> Items { get; }
+                }
+            }
+            """;
+
+        var result = TestHelper.Run(source);
+
+        var diagnostic = Assert.Single(result.GeneratorDiagnostics);
+        AssertDiagnostic(diagnostic, "GUAC0009", DiagnosticSeverity.Warning, source, "TestContext", occurrence: 1);
+        Assert.Empty(result.CompilationErrors);
+    }
+
+    [Fact]
+    public void ConstructorChainReachingThis_ReportsNoDiagnostics()
+    {
+        var source = """
+            using Guacamole;
+
+            namespace Test
+            {
+                [ComputingContext]
+                public partial class TestContext : ComputingContextBase
+                {
+                    public TestContext(string name) : this(1)
+                    {
+                    }
+
+                    public TestContext(int value) : this()
+                    {
+                    }
+
+                    public partial IncrementalValuesProvider<string> Items { get; }
+                }
+            }
+            """;
+
+        var result = TestHelper.Run(source);
+
+        Assert.Empty(result.GeneratorDiagnostics);
+        TestHelper.AssertCompilesCleanly(result);
+    }
+
+    [Fact]
+    public void ConstructorChainNotReachingThis_ReportsGUAC0009OnEveryConstructorInChain()
+    {
+        var source = """
+            using Guacamole;
+
+            namespace Test
+            {
+                [ComputingContext]
+                public partial class TestContext : ComputingContextBase
+                {
+                    public TestContext(string name) : this(1)
+                    {
+                    }
+
+                    public TestContext(int value) : base()
+                    {
+                    }
+
+                    public TestContext(double value) : this()
+                    {
+                    }
+
+                    public partial IncrementalValuesProvider<string> Items { get; }
+                }
+            }
+            """;
+
+        var result = TestHelper.Run(source);
+
+        Assert.Collection(
+            result.GeneratorDiagnostics.OrderBy(d => d.Location.SourceSpan.Start),
+            d => AssertDiagnostic(d, "GUAC0009", DiagnosticSeverity.Warning, source, "TestContext", occurrence: 1),
+            d => AssertDiagnostic(d, "GUAC0009", DiagnosticSeverity.Warning, source, "TestContext", occurrence: 2));
+        Assert.Empty(result.CompilationErrors);
+    }
+
+    private static void AssertDiagnostic(Diagnostic diagnostic, string id, DiagnosticSeverity severity, string source, string expectedText, int occurrence)
+    {
+        AssertDiagnostic(diagnostic, id, severity, source, expectedText);
+
+        // Verify it is the expected occurrence of the text (e.g. the n-th constructor, after the class name).
+        var index = -1;
+        for (var i = 0; i <= occurrence; i++)
+            index = source.IndexOf(expectedText, index + 1, System.StringComparison.Ordinal);
+
+        Assert.Equal(index, diagnostic.Location.SourceSpan.Start);
+    }
+
     private static void AssertDiagnostic(Diagnostic diagnostic, string id, DiagnosticSeverity severity, string source, string expectedText)
     {
         Assert.Equal(id, diagnostic.Id);
