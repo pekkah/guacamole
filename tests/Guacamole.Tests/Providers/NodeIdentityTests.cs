@@ -14,14 +14,14 @@ namespace Guacamole.Tests.Providers;
 public partial class NodeIdentityTests
 {
     [ComputingContext]
-    private partial class ValueContext : ComputingContextBase
+    private partial class NodeIdValueContext : ComputingContextBase
     {
         public partial IncrementalValueProvider<int> First { get; }
         public partial IncrementalValueProvider<int> Second { get; }
     }
 
     [ComputingContext]
-    private partial class ValuesContext : ComputingContextBase
+    private partial class NodeIdValuesContext : ComputingContextBase
     {
         public partial IncrementalValuesProvider<int> Left { get; }
         public partial IncrementalValuesProvider<int> Right { get; }
@@ -124,7 +124,7 @@ public partial class NodeIdentityTests
     [Fact]
     public void Select_WithDifferentSelectorsOnSameSource_ReturnsIndependentValues()
     {
-        using var context = new ValueContext();
+        using var context = new NodeIdValueContext();
         context.FirstSource.Set(1);
 
         var plusOne = context.First.Select(x => x + 1);
@@ -138,7 +138,7 @@ public partial class NodeIdentityTests
     [Fact]
     public void Where_WithDifferentPredicatesOnSameSource_ReturnsIndependentResults()
     {
-        using var context = new ValueContext();
+        using var context = new NodeIdValueContext();
         context.FirstSource.Set(5);
 
         var passes = context.First.Where(x => x > 0);
@@ -151,7 +151,7 @@ public partial class NodeIdentityTests
     [Fact]
     public void SelectValues_WithDifferentSelectorsOnSameSource_ReturnsIndependentValues()
     {
-        using var context = new ValuesContext();
+        using var context = new NodeIdValuesContext();
         context.LeftSource.Push(1);
         context.LeftSource.Push(2);
 
@@ -165,7 +165,7 @@ public partial class NodeIdentityTests
     [Fact]
     public void WhereValues_WithDifferentPredicatesOnSameSource_ReturnsIndependentValues()
     {
-        using var context = new ValuesContext();
+        using var context = new NodeIdValuesContext();
         context.LeftSource.Push(1);
         context.LeftSource.Push(2);
 
@@ -179,7 +179,7 @@ public partial class NodeIdentityTests
     [Fact]
     public void Combine_WithSwappedArguments_PreservesArgumentOrder()
     {
-        using var context = new ValueContext();
+        using var context = new NodeIdValueContext();
         context.FirstSource.Set(1);
         context.SecondSource.Set(2);
 
@@ -193,7 +193,7 @@ public partial class NodeIdentityTests
     [Fact]
     public void Merge_WithSwappedArguments_PreservesArgumentOrder()
     {
-        using var context = new ValuesContext();
+        using var context = new NodeIdValuesContext();
         context.LeftSource.Push(1);
         context.RightSource.Push(2);
 

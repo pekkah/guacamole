@@ -39,6 +39,12 @@ internal sealed class SharedGraphState
     public ConcurrentDictionary<string, NodeVersionInfo> VersionInfo { get; } = new();
 
     /// <summary>
+    /// Lock that makes storing a computed value, its output version and its
+    /// <see cref="VersionInfo"/> a single atomic step.
+    /// </summary>
+    public object CommitLock { get; } = new();
+
+    /// <summary>
     /// Registers a node for runtime tracking if not already registered.
     /// This is used for dynamically discovered nodes (e.g., from extension methods).
     /// Thread-safe and idempotent.
