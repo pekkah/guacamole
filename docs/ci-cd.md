@@ -142,8 +142,8 @@ One-time setup:
    - Repository: `guacamole`
    - Workflow file: `publish.yml`
    - Environment: leave empty (the workflow does not use a GitHub environment)
-2. The workflow logs in as nuget.org user `pekkah` (the `user:` input of the
-   `NuGet/login` step in `publish.yml`); change it there if the owning account changes.
+2. In GitHub: **Settings → Secrets and variables → Actions → New repository secret**
+   `NUGET_USER` = the nuget.org username that owns the policy. The `NuGet/login` step reads it.
 3. Delete the old `NUGET_API_KEY` repository secret and revoke the key on nuget.org; it is no
    longer used.
 
@@ -164,7 +164,7 @@ Manual runs are only allowed on `main` or a `v*` tag.
 ### Package publish fails
 - `NuGet login` fails: no matching trusted publishing policy (check owner, repository and
   workflow file name `publish.yml`), the policy owner doesn't own the package, or the
-  `user:` in `publish.yml` isn't the policy owner's nuget.org username
+  `NUGET_USER` secret is missing or isn't the policy owner's nuget.org username
 - `403 Forbidden` on push: the policy's owner account doesn't own (or can't create) the
   package ID
 - A version already on nuget.org is skipped (`--skip-duplicate`), not overwritten. Bump the tag.

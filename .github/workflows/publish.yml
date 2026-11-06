@@ -87,7 +87,7 @@ jobs:
         id: nuget-login
         uses: NuGet/login@v1
         with:
-          user: pekkah  # nuget.org account that owns the trusted publishing policy
+          user: ${{ secrets.NUGET_USER }}  # nuget.org username that owns the trusted publishing policy
 
       - name: Publish to NuGet.org
         env:
