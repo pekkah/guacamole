@@ -189,7 +189,7 @@ git tag -a v0.2.0 -m "Release 0.2.0"      # or v0.2.0-beta.1 for a prerelease
 git push origin v0.2.0
 ```
 
-The tag name (without `v`) is the package version. Pushes to `main` only build, test and pack. See [docs/ci-cd.md](docs/ci-cd.md) for details.
+The tag name (without `v`) is the package version. Pushes to `main` only build, test and pack. Publishing uses nuget.org trusted publishing (no stored API key); see [docs/ci-cd.md](docs/ci-cd.md#nuget-trusted-publishing) for the one-time setup and details.
 
 ## Examples
 

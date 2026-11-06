@@ -10,7 +10,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 
 - **Platform upgrade**: all projects target .NET 11 (`net11.0`) with the .NET 11 RC3 SDK pinned in `global.json`, and use `LangVersion=latest` (C# 15). Test projects moved to xUnit v3 on Microsoft.Testing.Platform. Dependencies bumped (Microsoft.Extensions.DependencyInjection 11.0 RC3, Microsoft.SourceLink.GitHub 10.0.403, Microsoft.CodeAnalysis 5.9.0).
-- **Release flow**: packages are published to nuget.org only from `v*` version tags (or a manual run of the Publish workflow); the tag name is the package version. Pushes to `main` only build, test and pack. The Publish workflow reuses the CI workflow. Example projects are now part of `guacamole.sln` and built in CI. See [docs/ci-cd.md](docs/ci-cd.md).
+- **Release flow**: packages are published to nuget.org only from `v*` version tags (or a manual run of the Publish workflow); the tag name is the package version. Pushes to `main` only build, test and pack. The Publish workflow reuses the CI workflow. Publishing authenticates with nuget.org **trusted publishing** (GitHub OIDC → short-lived API key) instead of a stored `NUGET_API_KEY` secret. Example projects are now part of `guacamole.sln` and built in CI. See [docs/ci-cd.md](docs/ci-cd.md).
 - **Source generator rewrite** (`ComputingContextGenerator`):
   - Cacheable incremental pipeline based on `ForAttributeWithMetadataName`, with all semantic analysis producing equatable models; source and diagnostic outputs are separate branches.
   - Generated code fully qualifies all types with `global::`, so item types from other namespaces work without `using` directives.

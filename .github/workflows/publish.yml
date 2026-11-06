@@ -56,6 +56,7 @@ jobs:
     needs: build
     permissions:
       contents: write  # gh release create
+      id-token: write  # OIDC token for NuGet trusted publishing
 
     steps:
       - name: Download packages
@@ -79,9 +80,18 @@ jobs:
       # .snupkg files next to the .nupkg are pushed to the symbol server automatically.
       # --skip-duplicate only makes re-runs of the same tag idempotent; versions never
       # contain build metadata, so distinct commits never collapse to the same version.
+      # Trusted publishing: exchange the workflow's OIDC token for a short-lived
+      # (1 hour) nuget.org API key. No long-lived NUGET_API_KEY secret is stored.
+      # Requires a trusted publishing policy on nuget.org for this repo + publish.yml.
+      - name: NuGet login (trusted publishing)
+        id: nuget-login
+        uses: NuGet/login@v1
+        with:
+          user: ${{ vars.NUGET_USER || github.repository_owner }}
+
       - name: Publish to NuGet.org
         env:
-          NUGET_API_KEY: ${{ secrets.NUGET_API_KEY }}
+          NUGET_API_KEY: ${{ steps.nuget-login.outputs.NUGET_API_KEY }}
         run: dotnet nuget push "artifacts/*.nupkg" --api-key "$NUGET_API_KEY" --source https://api.nuget.org/v3/index.json --skip-duplicate
 
       - name: Create GitHub release
