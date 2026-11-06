@@ -49,10 +49,12 @@ CI has `contents: read` permission only and never publishes.
 
 1. **guard** - fails unless the ref is `main` or a `v*` tag
 2. **build** - calls `ci.yml` (full test matrix + pack)
-3. **publish** (needs `build`, `contents: write`)
+3. **publish** (needs `build`, `contents: write`, `id-token: write`)
    - Download the `nuget-packages` artifact
-   - `dotnet nuget push artifacts/*.nupkg --skip-duplicate` to nuget.org using the
-     `NUGET_API_KEY` secret (`.snupkg` symbol packages are pushed alongside automatically)
+   - `NuGet/login@v1` exchanges the job's GitHub OIDC token for a short-lived nuget.org API
+     key ([trusted publishing](#nuget-trusted-publishing))
+   - `dotnet nuget push artifacts/*.nupkg --skip-duplicate` to nuget.org with that key
+     (`.snupkg` symbol packages are pushed alongside automatically)
    - For tag refs: `gh release create <tag> --generate-notes --verify-tag` with the `.nupkg`
      and `.snupkg` files attached, and `--prerelease` when the version contains a `-label`.
      If the release already exists (re-run), the assets are re-uploaded with `--clobber`.
@@ -125,13 +127,29 @@ again without new commits produces the same version and is skipped by `--skip-du
 Re-running a failed Publish run for a tag is safe: already-pushed packages are skipped and
 existing release assets are replaced.
 
-## NuGet API Key Management
+## NuGet Trusted Publishing
 
-1. On nuget.org: Account Settings → API Keys → Create, scope *Push new packages and package
-   versions*, glob `Guacamole*`, expiry 365 days (set a reminder).
-2. In GitHub: Settings → Secrets and variables → Actions → New repository secret
-   `NUGET_API_KEY`.
-3. Rotate yearly: create a new key, update the secret, delete the old key.
+Publishing uses [nuget.org trusted publishing](https://learn.microsoft.com/nuget/nuget-org/trusted-publishing):
+the publish job requests a GitHub OIDC token (`id-token: write`) and `NuGet/login@v1`
+exchanges it for an API key that is valid for one hour. No long-lived API key is stored in
+the repository.
+
+One-time setup:
+
+1. On nuget.org, signed in as the package owner: your profile → **Trusted Publishing** →
+   **Add policy** → GitHub Actions, with
+   - Repository owner: `pekkah`
+   - Repository: `guacamole`
+   - Workflow file: `publish.yml`
+   - Environment: leave empty (the workflow does not use a GitHub environment)
+2. The workflow logs in as `vars.NUGET_USER` if that repository variable is set, otherwise as
+   the repository owner (`pekkah`). Set **Settings → Secrets and variables → Actions →
+   Variables → `NUGET_USER`** if your nuget.org username differs.
+3. Delete the old `NUGET_API_KEY` repository secret and revoke the key on nuget.org; it is no
+   longer used.
+
+A new policy may start as temporarily active until the first successful publish binds it to
+the repository; see the nuget.org documentation.
 
 The GitHub release uses the built-in `GITHUB_TOKEN` (job permission `contents: write`); no
 extra secret is required.
@@ -145,8 +163,11 @@ The tag is not `v<MAJOR>.<MINOR>.<PATCH>[-label]`. Delete it and push a valid on
 Manual runs are only allowed on `main` or a `v*` tag.
 
 ### Package publish fails
-- `401 Unauthorized`: API key invalid or expired
-- `403 Forbidden`: API key lacks push scope or the package-id glob does not match
+- `NuGet login` fails: no matching trusted publishing policy (check owner, repository and
+  workflow file name `publish.yml`), the policy owner doesn't own the package, or
+  `NUGET_USER` is wrong
+- `403 Forbidden` on push: the policy's owner account doesn't own (or can't create) the
+  package ID
 - A version already on nuget.org is skipped (`--skip-duplicate`), not overwritten. Bump the tag.
 
 ### GitVersion shows an unexpected version
@@ -166,6 +187,9 @@ defaults and time zones. The Linux + Windows matrix exists to catch these.
 
 ## Rollback / Unlisting Packages
 
+Use a personal API key created for this one-off (trusted publishing keys only exist inside
+the workflow), or unlist from the package page on nuget.org.
+
 ```bash
 dotnet nuget delete Guacamole 1.2.3 \
   --api-key $NUGET_API_KEY \
@@ -178,11 +202,12 @@ mark the GitHub release accordingly.
 
 ## Security
 
-- `NUGET_API_KEY` is only referenced by the `publish` job, which only runs for `v*` tags or
-  manual runs on `main`
+- No long-lived NuGet credentials are stored: the `publish` job (only for `v*` tags or manual
+  runs on `main`) gets a one-hour key via OIDC trusted publishing; only that job has
+  `id-token: write`
 - CI runs with `contents: read`; only the publish job gets `contents: write`
 - Action versions are pinned to major versions (`actions/checkout@v7`, `setup-dotnet@v6`,
-  `cache@v6`, `upload-artifact@v7`, `download-artifact@v8`)
+  `cache@v6`, `upload-artifact@v7`, `download-artifact@v8`, `NuGet/login@v1`)
 
 ## Links
 
