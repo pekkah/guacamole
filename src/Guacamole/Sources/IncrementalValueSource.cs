@@ -3,11 +3,9 @@ using System.Collections.Generic;
 using System.Collections.Immutable;
 using System.Linq;
 using System.Threading;
-using Guacamole.Core.Common;
-using Guacamole.Core.Diagnostics;
-using Guacamole.Core.Pipeline;
+using Guacamole.Pipeline;
 
-namespace Guacamole.Sources;
+namespace Guacamole;
 
 /// <summary>
 /// Thread-safe implementation of IIncrementalValueSource for single values.
@@ -19,7 +17,7 @@ namespace Guacamole.Sources;
 /// so a null <c>_value</c> always indicates the source has never been initialized.
 /// </summary>
 /// <typeparam name="T">Type of value in the source</typeparam>
-public sealed class IncrementalValueSource<T> : IIncrementalValueSource<T>
+internal sealed class IncrementalValueSource<T> : IIncrementalValueSource<T>
 {
     private readonly ReaderWriterLockSlim _lock = new(LockRecursionPolicy.NoRecursion);
     private T? _value;

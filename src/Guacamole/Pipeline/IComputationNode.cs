@@ -1,13 +1,12 @@
 using System.Collections.Immutable;
-using Guacamole.Core.Common;
 
-namespace Guacamole.Core.Pipeline;
+namespace Guacamole.Pipeline;
 
 /// <summary>
 /// Base interface for all computation nodes in the graph.
 /// Supports DAG structure with dependency tracking.
 /// </summary>
-public interface IComputationNode
+internal interface IComputationNode
 {
     /// <summary>
     /// Unique identifier within computation graph.
@@ -29,7 +28,7 @@ public interface IComputationNode
 /// Single-value computation node.
 /// </summary>
 /// <typeparam name="T">Type of value produced</typeparam>
-public interface IComputationNode<T> : IComputationNode
+internal interface IComputationNode<T> : IComputationNode
 {
     /// <summary>
     /// Computes the value for this node.
@@ -43,7 +42,7 @@ public interface IComputationNode<T> : IComputationNode
 /// Multiple-values computation node.
 /// </summary>
 /// <typeparam name="T">Type of values produced</typeparam>
-public interface ICollectionComputationNode<T> : IComputationNode
+internal interface ICollectionComputationNode<T> : IComputationNode
 {
     /// <summary>
     /// Computes the values for this node.
@@ -59,7 +58,7 @@ public interface ICollectionComputationNode<T> : IComputationNode
 /// provided comparer to determine if the computed value has changed.
 /// </summary>
 /// <typeparam name="T">Type of value the node produces</typeparam>
-public interface IHasComparer<T>
+internal interface IHasComparer<T>
 {
     /// <summary>
     /// Gets the equality comparer used to compare computed values.
@@ -72,33 +71,6 @@ public interface IHasComparer<T>
 /// <summary>
 /// Computation context providing access to cache and dependencies.
 /// </summary>
-public readonly record struct ComputationContext(
+internal readonly record struct ComputationContext(
     IReadOnlyDictionary<string, object> CachedValues,
     CancellationToken CancellationToken = default);
-
-/// <summary>
-/// Error information for failed computations.
-/// </summary>
-/// <param name="Message">Error message</param>
-/// <param name="InnerError">Nested error if any</param>
-/// <param name="SourceLocation">Location where error occurred</param>
-/// <param name="DiagnosticId">Unique diagnostic identifier</param>
-public record class ComputationError(
-    string Message,
-    ComputationError? InnerError = null,
-    Diagnostics.SourceLocation? SourceLocation = null,
-    string? DiagnosticId = null)
-{
-    /// <summary>
-    /// Creates a ComputationError from an exception.
-    /// </summary>
-    public static ComputationError FromException(Exception exception, string? diagnosticId = null)
-    {
-        return new ComputationError(
-            Message: exception.Message,
-            InnerError: exception.InnerException != null
-                ? FromException(exception.InnerException)
-                : null,
-            DiagnosticId: diagnosticId);
-    }
-}

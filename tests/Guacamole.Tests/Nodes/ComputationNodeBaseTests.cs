@@ -1,11 +1,9 @@
 using System;
 using System.Collections.Immutable;
-using Guacamole.Core.Common;
-using Guacamole.Core.Nodes;
-using Guacamole.Core.Pipeline;
+using Guacamole.Pipeline;
 using Xunit;
 
-namespace Guacamole.Core.Tests.Nodes;
+namespace Guacamole.Tests.Nodes;
 
 /// <summary>
 /// Tests for ComputationNodeBase abstract base for generated nodes.

@@ -1,9 +1,13 @@
-namespace Guacamole.Core.Diagnostics;
+namespace Guacamole.Diagnostics;
 
 /// <summary>
-/// Configuration for controlling metrics collection granularity and performance impact.
+/// Configuration for controlling which metrics are collected.
 /// Allows fine-tuning observability vs. performance tradeoffs for different deployment scenarios.
 /// </summary>
+/// <remarks>
+/// Distributed tracing needs no switch: activities from <see cref="GuacamoleMetrics.ActivitySource"/>
+/// are only created while an <c>ActivityListener</c> (for example OpenTelemetry) listens to it.
+/// </remarks>
 public sealed record MetricsConfiguration
 {
     /// <summary>
@@ -15,12 +19,8 @@ public sealed record MetricsConfiguration
         EnableComputationMetrics = true,
         EnableCacheMetrics = true,
         EnableGraphMetrics = true,
-        EnableProviderMetrics = true,
-        EnableDetailedTracing = true,
-        EnableMemoryMetrics = true,
         CollectTrackingNameDimensions = true,
         CollectPipelineStageDimensions = true,
-        MaxTrackingNamesPerProcess = 1000
     };
 
     /// <summary>
@@ -32,12 +32,8 @@ public sealed record MetricsConfiguration
         EnableComputationMetrics = true,
         EnableCacheMetrics = true,
         EnableGraphMetrics = false, // Skip frequent graph updates
-        EnableProviderMetrics = false, // Skip provider lifecycle tracking
-        EnableDetailedTracing = false, // Skip detailed tracing
-        EnableMemoryMetrics = true,
         CollectTrackingNameDimensions = true,
         CollectPipelineStageDimensions = false, // Reduce cardinality
-        MaxTrackingNamesPerProcess = 100
     };
 
     /// <summary>
@@ -49,12 +45,8 @@ public sealed record MetricsConfiguration
         EnableComputationMetrics = false,
         EnableCacheMetrics = true, // Cache metrics are usually most valuable
         EnableGraphMetrics = false,
-        EnableProviderMetrics = false,
-        EnableDetailedTracing = false,
-        EnableMemoryMetrics = false,
         CollectTrackingNameDimensions = false,
         CollectPipelineStageDimensions = false,
-        MaxTrackingNamesPerProcess = 0
     };
 
     /// <summary>
@@ -66,96 +58,42 @@ public sealed record MetricsConfiguration
         EnableComputationMetrics = false,
         EnableCacheMetrics = false,
         EnableGraphMetrics = false,
-        EnableProviderMetrics = false,
-        EnableDetailedTracing = false,
-        EnableMemoryMetrics = false,
         CollectTrackingNameDimensions = false,
         CollectPipelineStageDimensions = false,
-        MaxTrackingNamesPerProcess = 0
     };
 
     /// <summary>
-    /// Enable collection of computation timing and count metrics.
-    /// Includes computation duration histograms and operation counters.
+    /// Enable collection of computation metrics: <see cref="GuacamoleMetrics.ComputationsTotal"/>,
+    /// <see cref="GuacamoleMetrics.ComputationDuration"/> and <see cref="GuacamoleMetrics.ComputationErrors"/>,
+    /// recorded each time a provider computes a value (cache hits are not computations).
     /// </summary>
     public bool EnableComputationMetrics { get; init; } = true;
 
     /// <summary>
-    /// Enable collection of cache performance metrics.
-    /// Includes hit ratios, cache size, and invalidation events.
+    /// Enable collection of cache performance metrics:
+    /// <see cref="GuacamoleMetrics.CacheOperationsTotal"/>, <see cref="GuacamoleMetrics.CacheHitRatio"/>
+    /// and <see cref="GuacamoleMetrics.CacheSize"/>.
     /// </summary>
     public bool EnableCacheMetrics { get; init; } = true;
 
     /// <summary>
-    /// Enable collection of computation graph structure metrics.
-    /// Includes node counts and dependency tracking.
-    /// May have performance impact due to frequent updates.
+    /// Enable collection of computation graph structure metrics:
+    /// <see cref="GuacamoleMetrics.GraphNodesActive"/>, <see cref="GuacamoleMetrics.GraphDependenciesTotal"/>
+    /// and <see cref="GuacamoleMetrics.GraphOperationsTotal"/>.
     /// </summary>
     public bool EnableGraphMetrics { get; init; } = true;
 
     /// <summary>
-    /// Enable collection of provider lifecycle metrics.
-    /// Includes provider creation and transformation events.
-    /// </summary>
-    public bool EnableProviderMetrics { get; init; } = true;
-
-    /// <summary>
-    /// Enable detailed distributed tracing with ActivitySource.
-    /// Provides fine-grained operation tracing but may impact performance.
-    /// </summary>
-    public bool EnableDetailedTracing { get; init; } = true;
-
-    /// <summary>
-    /// Enable memory usage estimation metrics.
-    /// May require additional computation to estimate memory usage.
-    /// </summary>
-    public bool EnableMemoryMetrics { get; init; } = true;
-
-    /// <summary>
-    /// Include tracking names as metric dimensions.
+    /// Include the provider's tracking name (<c>tracking.name</c>) as a dimension of computation metrics.
     /// Provides rich filtering but increases cardinality.
-    /// Disable in high-scale scenarios to reduce memory usage.
     /// </summary>
     public bool CollectTrackingNameDimensions { get; init; } = true;
 
     /// <summary>
-    /// Include pipeline stage names as metric dimensions.
+    /// Include the provider's pipeline stage (<c>pipeline.stage</c>) as a dimension of computation metrics.
     /// Useful for debugging but can create high cardinality.
     /// </summary>
     public bool CollectPipelineStageDimensions { get; init; } = true;
-
-    /// <summary>
-    /// Maximum number of unique tracking names to track per process.
-    /// Prevents unbounded cardinality growth from dynamic tracking names.
-    /// Set to 0 to disable tracking name collection entirely.
-    /// </summary>
-    public int MaxTrackingNamesPerProcess { get; init; } = 1000;
-
-    /// <summary>
-    /// Minimum duration in milliseconds for recording computation timings.
-    /// Operations faster than this threshold are not recorded in histograms.
-    /// Helps reduce noise from very fast operations.
-    /// </summary>
-    public double MinimumDurationThresholdMs { get; init; } = 0.1;
-
-    /// <summary>
-    /// Whether to record individual computation node performance.
-    /// Disable for high-throughput scenarios to reduce overhead.
-    /// </summary>
-    public bool RecordIndividualNodePerformance { get; init; } = true;
-
-    /// <summary>
-    /// Whether to track cache invalidation cascade depth.
-    /// Useful for debugging but adds computational overhead.
-    /// </summary>
-    public bool TrackInvalidationCascades { get; init; } = true;
-
-    /// <summary>
-    /// Sample rate for detailed tracing (0.0 to 1.0).
-    /// 1.0 = trace all operations, 0.1 = trace 10% of operations.
-    /// Helps control overhead in high-throughput scenarios.
-    /// </summary>
-    public double TracingSampleRate { get; init; } = 1.0;
 
     private static MetricsConfiguration _current = Production;
     private static readonly object _configLock = new object();
@@ -197,29 +135,18 @@ public sealed record MetricsConfiguration
     /// </summary>
     /// <param name="enableComputationMetrics">Override computation metrics setting</param>
     /// <param name="enableCacheMetrics">Override cache metrics setting</param>
-    /// <param name="enableDetailedTracing">Override tracing setting</param>
+    /// <param name="enableGraphMetrics">Override graph metrics setting</param>
     /// <returns>New configuration with overrides applied</returns>
     public MetricsConfiguration With(
         bool? enableComputationMetrics = null,
         bool? enableCacheMetrics = null,
-        bool? enableDetailedTracing = null)
+        bool? enableGraphMetrics = null)
     {
         return this with
         {
             EnableComputationMetrics = enableComputationMetrics ?? EnableComputationMetrics,
             EnableCacheMetrics = enableCacheMetrics ?? EnableCacheMetrics,
-            EnableDetailedTracing = enableDetailedTracing ?? EnableDetailedTracing
+            EnableGraphMetrics = enableGraphMetrics ?? EnableGraphMetrics
         };
-    }
-
-    /// <summary>
-    /// Validates configuration settings for consistency.
-    /// </summary>
-    /// <returns>True if configuration is valid</returns>
-    public bool IsValid()
-    {
-        return MaxTrackingNamesPerProcess >= 0
-               && MinimumDurationThresholdMs >= 0
-               && TracingSampleRate is >= 0.0 and <= 1.0;
     }
 }

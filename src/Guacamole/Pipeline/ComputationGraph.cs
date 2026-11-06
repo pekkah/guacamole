@@ -1,15 +1,15 @@
 using System.Collections.Concurrent;
 using System.Collections.Immutable;
-using Guacamole.Core.Caching;
-using Guacamole.Core.Diagnostics;
+using Guacamole.Caching;
+using Guacamole.Diagnostics;
 
-namespace Guacamole.Core.Pipeline;
+namespace Guacamole.Pipeline;
 
 /// <summary>
 /// Manages the computation graph, dependency tracking, and cache coordination across all providers.
 /// Immutable with copy-on-write semantics, enforces DAG structure, provides centralized cache management with LRU eviction.
 /// </summary>
-public class ComputationGraph
+internal sealed class ComputationGraph
 {
     /// <summary>
     /// All computation nodes in the graph.
@@ -24,7 +24,7 @@ public class ComputationGraph
     /// <summary>
     /// Shared cache for computed values with LRU eviction.
     /// </summary>
-    public LRUCache<string, object> ValueCache { get; }
+    internal LRUCache<string, object> ValueCache { get; }
 
     /// <summary>
     /// Shared state for runtime-discovered nodes and dependencies.
@@ -46,13 +46,23 @@ public class ComputationGraph
     internal SharedGraphState SharedState => _sharedState;
 
     /// <summary>
-    /// Creates an empty computation graph.
+    /// Creates an empty computation graph with the default value cache capacity.
     /// </summary>
     public ComputationGraph()
+        : this(ComputingContextBase.DefaultCacheCapacity)
+    {
+    }
+
+    /// <summary>
+    /// Creates an empty computation graph whose value cache holds at most
+    /// <paramref name="cacheCapacity"/> values.
+    /// </summary>
+    /// <exception cref="ArgumentOutOfRangeException"><paramref name="cacheCapacity"/> is less than 1.</exception>
+    public ComputationGraph(int cacheCapacity)
         : this(
             ImmutableDictionary<string, IComputationNode>.Empty,
             ImmutableDictionary<string, ImmutableHashSet<string>>.Empty,
-            new LRUCache<string, object>(10000),
+            new LRUCache<string, object>(cacheCapacity),
             new SharedGraphState())
     {
     }
@@ -138,46 +148,9 @@ public class ComputationGraph
     }
 
     /// <summary>
-    /// Checks if the graph maintains DAG invariant.
-    /// </summary>
-    public bool IsValidDAG()
-    {
-        foreach (var nodeId in Nodes.Keys)
-        {
-            if (HasCycle(nodeId, new HashSet<string>(), new HashSet<string>()))
-            {
-                return false;
-            }
-        }
-        return true;
-    }
-
-    /// <summary>
-    /// Validates that all node dependencies exist in the graph.
-    /// </summary>
-    /// <returns>Collection of missing dependency errors</returns>
-    public IEnumerable<string> ValidateDependencies()
-    {
-        var missingDependencies = new List<string>();
-
-        foreach (var node in Nodes.Values)
-        {
-            foreach (var dep in node.Dependencies)
-            {
-                if (!Nodes.ContainsKey(dep))
-                {
-                    missingDependencies.Add($"Node '{node.Id}' depends on missing node '{dep}'");
-                }
-            }
-        }
-
-        return missingDependencies;
-    }
-
-    /// <summary>
     /// Extension method for caching values (used by tests).
     /// </summary>
-    public ComputationGraph WithCachedValue(string nodeId, object value)
+    internal ComputationGraph WithCachedValue(string nodeId, object value)
     {
         ValueCache.Set(nodeId, value);
         return this; // Simplified for tests
@@ -186,7 +159,7 @@ public class ComputationGraph
     /// <summary>
     /// Extension method for replacing nodes (used by tests).
     /// </summary>
-    public ComputationGraph ReplaceNode(IComputationNode node)
+    internal ComputationGraph ReplaceNode(IComputationNode node)
     {
         var newNodes = Nodes.SetItem(node.Id, node);
 
@@ -204,29 +177,6 @@ public class ComputationGraph
         string nodeId)
     {
         return HasCycleInDependencies(dependencies, nodeId, new HashSet<string>(), new HashSet<string>());
-    }
-
-    private bool HasCycle(string nodeId, HashSet<string> visiting, HashSet<string> visited)
-    {
-        if (visiting.Contains(nodeId))
-            return true;
-        if (visited.Contains(nodeId))
-            return false;
-
-        visiting.Add(nodeId);
-
-        if (Dependencies.TryGetValue(nodeId, out var deps))
-        {
-            foreach (var dep in deps)
-            {
-                if (HasCycle(dep, visiting, visited))
-                    return true;
-            }
-        }
-
-        visiting.Remove(nodeId);
-        visited.Add(nodeId);
-        return false;
     }
 
     private bool HasCycleInDependencies(
@@ -260,11 +210,6 @@ public class ComputationGraph
     /// Gets the count of runtime-discovered nodes.
     /// </summary>
     public int GetRuntimeNodeCount() => _sharedState.RuntimeNodes.Count;
-
-    /// <summary>
-    /// Checks if a node is registered (either static or runtime).
-    /// </summary>
-    public bool IsNodeRegistered(string nodeId) => Nodes.ContainsKey(nodeId) || _sharedState.RuntimeNodes.ContainsKey(nodeId);
 
     /// <summary>
     /// Gets all runtime node IDs (for debugging).

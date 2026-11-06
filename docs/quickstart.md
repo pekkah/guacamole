@@ -96,17 +96,18 @@ For the context above, the generator emits (simplified; see [Generated Code Refe
 ```csharp
 partial class CompilerContext
 {
-    private global::Guacamole.Sources.IncrementalValueSource<string>? _SourceCodeSource;
+    private global::Guacamole.IIncrementalValueSource<string>? _SourceCodeSource;
 
     public CompilerContext() : base()
     {
-        // creates the source, registers its node in Graph and subscribes to its changes
+        // creates the source, registers its node in the context's graph and subscribes to its changes
+        _SourceCodeSource = CreateValueSource<string>("CompilerContext.SourceCode");
     }
 
     public partial global::Guacamole.IncrementalValueProvider<string> SourceCode
         => _SourceCodeSource.AsProvider();
 
-    public global::Guacamole.Sources.IIncrementalValueSource<string> SourceCodeSource
+    public global::Guacamole.IIncrementalValueSource<string> SourceCodeSource
         => _SourceCodeSource;
 }
 ```
@@ -149,6 +150,17 @@ IncrementalValueProvider<int> tokenCount = tokens.Select(t => t.Length);
 **Collection (`IncrementalValuesProvider<T>`):** `Select`, `Where`, `SelectMany`, `Collect()` (returns `IncrementalValueProvider<ImmutableArray<T>>`), `Combine(singleValue)`, `Merge(other)`, `Flatten()`.
 
 `Select`, `Where` and `SelectMany` have overloads that take an `IEqualityComparer<T>` for the result values.
+
+A single-value `Where` may leave its provider with **no value**. That is not an error: `GetValue()` returns a `Result` whose `IsNone` is true, downstream operators skip their lambdas, and output handlers don't run. `.Value` throws in that case, so read possibly-filtered providers with `TryGetValue`:
+
+```csharp
+IncrementalValueProvider<string> nonEmpty = context.SourceCode.Where(code => code.Length > 0);
+
+if (nonEmpty.Select(code => code.Split(' ')).TryGetValue(out var words))
+{
+    Console.WriteLine($"{words.Length} words");
+}
+```
 
 ### Build pipelines once
 
@@ -207,7 +219,7 @@ Alternatively, keep the context minimal and build pipelines next to it, as the [
 There is no commit step: every source operation takes effect immediately.
 
 ```csharp
-using Guacamole.Sources; // PushRange and BeginBatch extension methods
+using Guacamole; // also brings the PushRange and BeginBatch extension methods into scope
 
 var context = new BuildContext(new Compiler());
 
@@ -281,7 +293,7 @@ context.SourcesSource.Push(new SourceFile("Main.cs", "a b"));
 
 Handler behavior:
 - Handlers are not run at registration; they run after **any** source of the context changes.
-- A handler is called only if its provider computes successfully and the value differs from the last value delivered to that handler.
+- A handler is called only if its provider computes a value (not an error, and not "no value" from a `Where`) and the value differs from the last value delivered to that handler.
 - Handlers run synchronously on the thread that changed the source.
 - If handlers throw, the remaining handlers still run and the exceptions are rethrown together as an `AggregateException` from the `Push`/`Set`/... call.
 - After `Dispose()`, the context no longer listens to its sources and its handlers are dropped.

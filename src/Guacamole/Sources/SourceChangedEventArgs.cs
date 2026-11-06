@@ -1,6 +1,6 @@
 using System;
 
-namespace Guacamole.Sources;
+namespace Guacamole;
 
 /// <summary>
 /// Event args for source change notifications.

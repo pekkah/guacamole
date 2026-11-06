@@ -1,11 +1,8 @@
 using System.Collections.Immutable;
-using Guacamole.Core.Common;
-using Guacamole.Core.Diagnostics;
-using Guacamole.Core.Pipeline;
-using Guacamole;
+using Guacamole.Pipeline;
 using Xunit;
 
-namespace Guacamole.Core.Tests.Diagnostics;
+namespace Guacamole.Tests.Diagnostics;
 
 /// <summary>
 /// T015: Diagnostic extensions tests (WithTrackingName, WithTags, WithMetrics)

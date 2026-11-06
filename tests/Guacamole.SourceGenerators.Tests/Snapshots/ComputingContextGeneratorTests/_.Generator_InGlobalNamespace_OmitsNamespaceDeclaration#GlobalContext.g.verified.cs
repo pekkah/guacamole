@@ -6,18 +6,14 @@
 
 partial class GlobalContext
 {
-    private global::Guacamole.Sources.IncrementalValueSource<int>? _CountSource;
+    private global::Guacamole.IIncrementalValueSource<int>? _CountSource;
 
     /// <summary>
     /// Initializes the computing context and its sources.
     /// </summary>
     public GlobalContext() : base()
     {
-        _CountSource = new global::Guacamole.Sources.IncrementalValueSource<int>(
-            "GlobalContext.Count",
-            () => Graph); // Pass graph provider, not direct reference
-        Graph = Graph.AddNode(_CountSource.GetNode()); // Register node
-        SubscribeToSource(_CountSource);
+        _CountSource = CreateValueSource<int>("GlobalContext.Count");
     }
 
     /// <summary>
@@ -39,7 +35,7 @@ partial class GlobalContext
     /// Source accessor for Count.
     /// Use this to set the value in the incremental compilation pipeline.
     /// </summary>
-    public global::Guacamole.Sources.IIncrementalValueSource<int> CountSource
+    public global::Guacamole.IIncrementalValueSource<int> CountSource
     {
         get
         {

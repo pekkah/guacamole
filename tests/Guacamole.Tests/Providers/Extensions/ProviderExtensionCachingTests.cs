@@ -1,11 +1,8 @@
 using System.Collections.Immutable;
-using Guacamole.Core.Common;
-using Guacamole.Core.Diagnostics;
-using Guacamole.Core.Pipeline;
-using Guacamole;
+using Guacamole.Pipeline;
 using Xunit;
 
-namespace Guacamole.Core.Tests.Providers.Extensions;
+namespace Guacamole.Tests.Providers.Extensions;
 
 /// <summary>
 /// Integration tests verifying that caching works correctly with provider extension methods.

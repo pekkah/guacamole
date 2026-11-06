@@ -1,7 +1,7 @@
 using System.Diagnostics;
 using System.Diagnostics.Metrics;
 
-namespace Guacamole.Core.Diagnostics;
+namespace Guacamole.Diagnostics;
 
 /// <summary>
 /// Central metrics collection for Guacamole incremental computation framework.
@@ -28,8 +28,8 @@ public static class GuacamoleMetrics
     #region Core Computation Metrics
 
     /// <summary>
-    /// Total number of computations performed across all providers.
-    /// Dimensions: provider.type, operation.type, node.type, tracking.name
+    /// Total number of computations performed across all providers (cache hits are not counted).
+    /// Dimensions: provider.type, node.type, tracking.name, pipeline.stage
     /// </summary>
     public static readonly Counter<long> ComputationsTotal =
         s_meter.CreateCounter<long>(
@@ -47,8 +47,8 @@ public static class GuacamoleMetrics
             description: "Computation execution time distribution");
 
     /// <summary>
-    /// Number of computation errors by type.
-    /// Dimensions: error.type, provider.type, node.type, tracking.name
+    /// Number of computations that produced an error.
+    /// Dimensions: provider.type, node.type, tracking.name, pipeline.stage
     /// </summary>
     public static readonly Counter<long> ComputationErrors =
         s_meter.CreateCounter<long>(
@@ -87,15 +87,6 @@ public static class GuacamoleMetrics
             "guacamole.cache.size.current",
             description: "Current number of cached entries");
 
-    /// <summary>
-    /// Total cache invalidation events.
-    /// Dimensions: invalidation.reason, cascade.level
-    /// </summary>
-    public static readonly Counter<long> CacheInvalidationsTotal =
-        s_meter.CreateCounter<long>(
-            "guacamole.cache.invalidations.total",
-            description: "Total cache invalidation events");
-
     #endregion
 
     #region Graph Structure Metrics
@@ -127,41 +118,6 @@ public static class GuacamoleMetrics
 
     #endregion
 
-    #region Provider Lifecycle Metrics
-
-    /// <summary>
-    /// Total provider creation events.
-    /// Dimensions: provider.type, tracking.name, pipeline.stage
-    /// </summary>
-    public static readonly Counter<long> ProvidersCreatedTotal =
-        s_meter.CreateCounter<long>(
-            "guacamole.providers.created.total",
-            description: "Total provider creation events");
-
-    /// <summary>
-    /// Provider transformation operations.
-    /// Dimensions: transform.type, provider.type, tracking.name
-    /// </summary>
-    public static readonly Counter<long> ProviderTransformationsTotal =
-        s_meter.CreateCounter<long>(
-            "guacamole.provider.transformations.total",
-            description: "Total provider transformation operations");
-
-    #endregion
-
-    #region Memory and Resource Metrics
-
-    /// <summary>
-    /// Estimated memory usage by computation graphs in bytes.
-    /// </summary>
-    public static readonly Gauge<long> MemoryUsageEstimated =
-        s_meter.CreateGauge<long>(
-            "guacamole.memory.usage.estimated",
-            unit: "bytes",
-            description: "Estimated memory usage by computation framework");
-
-    #endregion
-
     /// <summary>
     /// Creates a new activity for tracing computation operations.
     /// Use in using statements for automatic start/stop and timing.
@@ -169,7 +125,7 @@ public static class GuacamoleMetrics
     /// <param name="operationName">Name of the operation being traced</param>
     /// <param name="tags">Additional tags for the activity</param>
     /// <returns>Activity instance for tracing</returns>
-    public static Activity? StartActivity(string operationName, params (string Key, object? Value)[] tags)
+    internal static Activity? StartActivity(string operationName, params (string Key, object? Value)[] tags)
     {
         var activity = ActivitySource.StartActivity(operationName);
 
@@ -185,26 +141,34 @@ public static class GuacamoleMetrics
     }
 
     /// <summary>
-    /// Records a computation operation with standard metrics and tracing.
+    /// Records a computation performed by a provider. The <c>tracking.name</c> and
+    /// <c>pipeline.stage</c> dimensions are included as configured in <paramref name="configuration"/>.
     /// </summary>
+    /// <param name="configuration">Metrics configuration in effect</param>
     /// <param name="providerType">Type of provider (value/values)</param>
     /// <param name="nodeType">Type of computation node</param>
-    /// <param name="trackingName">User-provided tracking name</param>
+    /// <param name="metadata">Metadata of the provider that computed</param>
     /// <param name="durationMs">Duration in milliseconds</param>
-    /// <param name="isError">Whether the operation resulted in error</param>
-    public static void RecordComputation(
+    /// <param name="isError">Whether the computation resulted in an error</param>
+    internal static void RecordComputation(
+        MetricsConfiguration configuration,
         string providerType,
         string nodeType,
-        string? trackingName,
+        ProviderMetadata metadata,
         double durationMs,
-        bool isError = false)
+        bool isError)
     {
-        var tags = new KeyValuePair<string, object?>[]
+        var tags = new TagList
         {
-            new KeyValuePair<string, object?>("provider.type", providerType),
-            new KeyValuePair<string, object?>("node.type", nodeType),
-            new KeyValuePair<string, object?>("tracking.name", trackingName ?? "unknown")
+            { "provider.type", providerType },
+            { "node.type", nodeType }
         };
+
+        if (configuration.CollectTrackingNameDimensions)
+            tags.Add("tracking.name", metadata.TrackingName ?? "unknown");
+
+        if (configuration.CollectPipelineStageDimensions && metadata.PipelineStage != null)
+            tags.Add("pipeline.stage", metadata.PipelineStage);
 
         ComputationsTotal.Add(1, tags);
         ComputationDuration.Record(durationMs, tags);
@@ -220,7 +184,7 @@ public static class GuacamoleMetrics
     /// </summary>
     /// <param name="operationType">Type of cache operation (get/set/invalidate)</param>
     /// <param name="result">Result of operation (hit/miss/success)</param>
-    public static void RecordCacheOperation(string operationType, string result)
+    internal static void RecordCacheOperation(string operationType, string result)
     {
         CacheOperationsTotal.Add(1,
             new KeyValuePair<string, object?>("operation.type", operationType),
@@ -228,36 +192,11 @@ public static class GuacamoleMetrics
     }
 
     /// <summary>
-    /// Records a provider creation event.
-    /// </summary>
-    /// <param name="providerType">Type of provider created</param>
-    /// <param name="trackingName">Tracking name if provided</param>
-    /// <param name="transformType">Type of transformation if applicable</param>
-    public static void RecordProviderCreation(
-        string providerType,
-        string? trackingName = null,
-        string? transformType = null)
-    {
-        var tags = new List<KeyValuePair<string, object?>>
-        {
-            new KeyValuePair<string, object?>("provider.type", providerType)
-        };
-
-        if (trackingName != null)
-            tags.Add(new KeyValuePair<string, object?>("tracking.name", trackingName));
-
-        if (transformType != null)
-            tags.Add(new KeyValuePair<string, object?>("transform.type", transformType));
-
-        ProvidersCreatedTotal.Add(1, tags.ToArray());
-    }
-
-    /// <summary>
     /// Updates graph structure metrics.
     /// </summary>
     /// <param name="activeNodes">Current number of active nodes</param>
     /// <param name="totalDependencies">Total number of dependency edges</param>
-    public static void UpdateGraphMetrics(int activeNodes, int totalDependencies)
+    internal static void UpdateGraphMetrics(int activeNodes, int totalDependencies)
     {
         GraphNodesActive.Record(activeNodes);
         GraphDependenciesTotal.Record(totalDependencies);
@@ -268,7 +207,7 @@ public static class GuacamoleMetrics
     /// </summary>
     /// <param name="hitRatio">Current hit ratio as percentage (0-100)</param>
     /// <param name="cacheSize">Current number of cached entries</param>
-    public static void UpdateCacheMetrics(double hitRatio, int cacheSize)
+    internal static void UpdateCacheMetrics(double hitRatio, int cacheSize)
     {
         CacheHitRatio.Record(hitRatio);
         CacheSize.Record(cacheSize);

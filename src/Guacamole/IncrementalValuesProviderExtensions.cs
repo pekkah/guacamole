@@ -1,7 +1,5 @@
 using System.Collections.Immutable;
-using Guacamole.Core.Common;
-using Guacamole.Core.Diagnostics;
-using Guacamole.Core.Pipeline;
+using Guacamole.Pipeline;
 
 namespace Guacamole;
 
@@ -623,8 +621,12 @@ internal sealed class CombineValuesWithValueNode<TLeft, TRight> : ICollectionCom
 
             // Compute right side (single value)
             var rightResult = _right.Compute(context);
-            if (!rightResult.IsSuccess)
+            if (rightResult.IsError)
                 return Result<IEnumerable<(TLeft, TRight)>, ComputationError>.Error(rightResult.ErrorValue!);
+
+            // No right value (filtered out by Where) means nothing to pair with
+            if (rightResult.IsNone)
+                return Result<IEnumerable<(TLeft, TRight)>, ComputationError>.Success(Array.Empty<(TLeft, TRight)>());
 
             // Combine each left value with the single right value
             // Materialize to avoid multiple enumerations when cached result is reused

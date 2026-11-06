@@ -80,12 +80,8 @@ internal static class ContextEmitter
         writer.Open();
         foreach (var property in model.Properties)
         {
-            var field = FieldName(property);
-            writer.Line($"{field} = new {SourceType(property)}(");
-            writer.Line($"    \"{model.ClassName}.{property.Name}\",");
-            writer.Line("    () => Graph); // Pass graph provider, not direct reference");
-            writer.Line($"Graph = Graph.AddNode({field}.GetNode()); // Register node");
-            writer.Line($"SubscribeToSource({field});");
+            var factory = property.IsCollection ? "CreateSource" : "CreateValueSource";
+            writer.Line($"{FieldName(property)} = {factory}<{property.ItemType}>(\"{model.ClassName}.{property.Name}\");");
         }
 
         writer.Close();
@@ -117,9 +113,7 @@ internal static class ContextEmitter
 
     private static void WriteSourceAccessor(CodeWriter writer, SourcePropertyModel property)
     {
-        var accessorType = property.IsCollection
-            ? $"global::Guacamole.Sources.IIncrementalSource<{property.ItemType}>"
-            : $"global::Guacamole.Sources.IIncrementalValueSource<{property.ItemType}>";
+        var accessorType = SourceType(property);
 
         writer.Line();
         writer.Line("/// <summary>");
@@ -150,8 +144,8 @@ internal static class ContextEmitter
     private static string FieldName(SourcePropertyModel property) => $"_{property.Name}Source";
 
     private static string SourceType(SourcePropertyModel property) => property.IsCollection
-        ? $"global::Guacamole.Sources.IncrementalSource<{property.ItemType}>"
-        : $"global::Guacamole.Sources.IncrementalValueSource<{property.ItemType}>";
+        ? $"global::Guacamole.IIncrementalSource<{property.ItemType}>"
+        : $"global::Guacamole.IIncrementalValueSource<{property.ItemType}>";
 
     /// <summary>
     /// Minimal indented writer that always uses '\n' line endings so output is platform independent.

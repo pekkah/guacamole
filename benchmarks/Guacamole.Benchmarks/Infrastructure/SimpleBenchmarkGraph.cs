@@ -1,8 +1,4 @@
-using Guacamole.Core.Pipeline;
-using Guacamole;
-using Guacamole.Core.Common;
-using Guacamole.Core.Nodes;
-using Guacamole.Core.Diagnostics;
+using Guacamole.Pipeline;
 using System.Collections.Immutable;
 
 namespace Guacamole.Benchmarks.Infrastructure;

@@ -100,9 +100,10 @@ Guacamole provides a rich set of extension methods for building computation pipe
 provider.Select(x => x * 2)
 provider.Select(x => x.ToString(), StringComparer.OrdinalIgnoreCase)
 
-// Filter a single value
+// Filter a single value: a rejected value becomes "no value" (not an error)
 provider.Where(x => x > 0)
 provider.Where(x => x.IsValid, customComparer)
+if (provider.Where(x => x > 0).TryGetValue(out var positive)) { /* ... */ }
 
 // Combine two providers
 first.Combine(second)  // Returns IncrementalValueProvider<(TFirst, TSecond)>
@@ -145,6 +146,7 @@ How these behave:
 - **No per-item caching** - a collection `Select`/`Where` reruns its lambda for every item when it is recomputed.
 - **Custom equality comparers** decide whether a recomputed value counts as changed. Use records or `IEquatable<T>` types; without value equality every recomputation looks like a change.
 - **Errors are values** - exceptions thrown by your lambdas become failed `Result`s; `GetValue()`/`GetValues()` do not throw them (`.Value`/`.Values` do).
+- **A filtered-out single value is "no value", not an error.** When a single-value `Where` rejects its input, `GetValue()` returns a `Result` with `IsNone == true` (`IsSuccess` and `IsError` are false). Downstream `Select`/`Where`/`Combine` propagate "no value" without running their lambdas; `SelectMany` and collection `Combine` produce no items; output handlers are not called. `.Value` throws `InvalidOperationException`; use `TryGetValue(out value)`, which returns `false` for no value (and throws only if the computation failed).
 
 ## Packages
 
@@ -227,7 +229,7 @@ Automatic dependency tracking and lazy invalidation:
 
 - Providers form a directed acyclic graph (DAG); every operator call adds a new node
 - A source change increments that source's version; dependents are revalidated lazily when read
-- Computed values live in an LRU cache (10,000 entries per context graph)
+- Computed values live in an LRU cache per context: 10,000 entries by default; override `protected override int CacheCapacity => ...;` on the context to change it
 
 ### 3. **Incremental Providers**
 Immutable pipeline structures that lazily compute values:
@@ -241,7 +243,7 @@ Immutable pipeline structures that lazily compute values:
 
 For each `[ComputingContext]` class the generator emits one file containing:
 
-- A public parameterless constructor that creates an `IncrementalSource<T>` (for `IncrementalValuesProvider<T>` properties) or an `IncrementalValueSource<T>` (for `IncrementalValueProvider<T>` properties) per input property, registers the source's node in the graph and subscribes the context to the source's changes
+- A public parameterless constructor that creates a collection source (for `IncrementalValuesProvider<T>` properties) or a single-value source (for `IncrementalValueProvider<T>` properties) per input property through the protected `CreateSource<T>`/`CreateValueSource<T>` helpers of `ComputingContextBase`, which register the source's node in the graph and subscribe the context to the source's changes
 - The implementation of each partial provider property (returns the source's provider)
 - A `{Property}Source` accessor typed `IIncrementalSource<T>` or `IIncrementalValueSource<T>`
 
@@ -254,7 +256,7 @@ context.RegisterOutput(provider, (value, ctx) => { /* ... */ });
 ```
 
 - Handlers run synchronously, on the thread that changed a source, after **any** source of the context changes. They are not run at registration time.
-- A handler is invoked only if its provider computes successfully and the value differs from the last value delivered to that handler (`EqualityComparer<T>.Default` for single values, element-wise `SequenceEqual` for collections). `ImmutableArray<T>` (the result of `Collect()`) compares by reference, so a handler on a collected provider runs whenever it is recomputed.
+- A handler is invoked only if its provider computes a value (not an error, and not "no value" from a `Where`) and the value differs from the last value delivered to that handler; after a "no value" phase, a reappearing value is delivered again even if it equals the last one (`EqualityComparer<T>.Default` for single values, element-wise `SequenceEqual` for collections). `ImmutableArray<T>` (the result of `Collect()`) compares by reference, so a handler on a collected provider runs whenever it is recomputed.
 - All handlers run even if one throws; afterwards the exceptions are rethrown as one `AggregateException` from the `Push`/`Set`/... call that triggered them.
 - `Dispose()` unsubscribes the context from its sources and drops its output registrations.
 
@@ -272,6 +274,10 @@ What is not:
 - Reading a provider does not lock the pipeline: two threads reading the same stale node may both compute it. Keep your lambdas pure.
 - `BeginBatch()` returns a buffer that is not thread-safe; `Commit()` applies its operations one by one, each with its own notification.
 
+### Namespaces
+
+Everything a typical application uses (contexts, providers and their operators, sources, `Result`, `ComputationError`, `ProviderMetadata`, the dependency-injection extensions) is in the `Guacamole` namespace, so `using Guacamole;` is all you need. The only other public namespace is `Guacamole.Diagnostics` (`MetricsConfiguration` and the `GuacamoleMetrics` instruments). The computation graph, nodes, value cache and concrete source classes are internal implementation details. See the [Migration Guide](MIGRATION_GUIDE.md) for the old namespaces and the members that became internal.
+
 ## Documentation
 
 - [Quickstart](docs/quickstart.md) - Step-by-step introduction
@@ -279,7 +285,7 @@ What is not:
 - [Performance Guide](docs/performance-guide.md) - How caching works and how to get the most out of it
 - [CI/CD](docs/ci-cd.md) - Build, test and release workflow
 - [Examples README](examples/README.md) - Guide to the examples
-- [Migration Guide](MIGRATION_GUIDE.md) - Moving from the removed mutation/`SaveChanges` API
+- [Migration Guide](MIGRATION_GUIDE.md) - Breaking API changes: namespace consolidation, and moving from the removed mutation/`SaveChanges` API
 - [Changelog](CHANGELOG.md)
 - [Push-Based Architecture Research](PUSH_BASED_ARCHITECTURE_RESEARCH.md) - Design research (historical; parts of it differ from the implementation)
 

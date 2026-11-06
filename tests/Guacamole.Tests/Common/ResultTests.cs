@@ -1,7 +1,6 @@
-using Guacamole.Core.Common;
 using Xunit;
 
-namespace Guacamole.Core.Tests.Common;
+namespace Guacamole.Tests.Common;
 
 /// <summary>
 /// Tests for Result discriminated union following TDD progression:
@@ -276,5 +275,93 @@ public class ResultTests
         // Size should be reasonable for the contained data
         var successSize = System.Runtime.InteropServices.Marshal.SizeOf(success);
         Assert.True(successSize > 0, "Result should have measurable size");
+    }
+    /// <summary>
+    /// BASIC: None is a third state, distinct from success and error
+    /// </summary>
+    [Fact]
+    public void Result_ShouldCreate_NoneState()
+    {
+        var none = Result<int, string>.None;
+
+        Assert.True(none.IsNone);
+        Assert.False(none.IsSuccess);
+        Assert.False(none.IsError);
+        Assert.Equal(default, none.Value);
+        Assert.Null(none.ErrorValue);
+        Assert.Equal("None", none.ToString());
+    }
+
+    [Fact]
+    public void Result_SuccessAndError_AreNotNone()
+    {
+        var success = Result<int, string>.Success(1);
+        var error = Result<int, string>.Error("e");
+
+        Assert.False(success.IsNone);
+        Assert.False(success.IsError);
+        Assert.False(error.IsNone);
+        Assert.True(error.IsError);
+    }
+
+    [Fact]
+    public void Result_Default_IsNone()
+    {
+        Assert.True(default(Result<int, string>).IsNone);
+    }
+
+    [Fact]
+    public void Result_None_ShouldImplement_EqualityCorrectly()
+    {
+        Assert.Equal(Result<int, string>.None, Result<int, string>.None);
+        Assert.Equal(Result<int, string>.None.GetHashCode(), Result<int, string>.None.GetHashCode());
+        Assert.NotEqual(Result<int, string>.None, Result<int, string>.Success(0));
+        Assert.NotEqual(Result<int, string>.None, Result<int, string>.Error("e"));
+    }
+
+    [Fact]
+    public void Result_None_PropagatesThroughTransformationsWithoutInvokingThem()
+    {
+        var none = Result<int, string>.None;
+        var calls = 0;
+
+        var mapped = none.Map(x => { calls++; return x + 1; });
+        var bound = none.Bind(x => { calls++; return Result<int, string>.Success(x); });
+        var mappedError = none.MapError(e => { calls++; return e.Length; });
+
+        Assert.True(mapped.IsNone);
+        Assert.True(bound.IsNone);
+        Assert.True(mappedError.IsNone);
+        Assert.Equal(0, calls);
+    }
+
+    [Fact]
+    public void Result_Match_WithNoneHandler_DispatchesAllThreeStates()
+    {
+        string Describe(Result<int, string> r) => r.Match(v => $"value {v}", () => "none", e => $"error {e}");
+
+        Assert.Equal("value 1", Describe(Result<int, string>.Success(1)));
+        Assert.Equal("none", Describe(Result<int, string>.None));
+        Assert.Equal("error x", Describe(Result<int, string>.Error("x")));
+
+        var seen = new List<string>();
+        Result<int, string>.None.Match(_ => seen.Add("value"), () => seen.Add("none"), _ => seen.Add("error"));
+        Assert.Equal(new[] { "none" }, seen);
+    }
+
+    [Fact]
+    public void Result_Match_WithoutNoneHandler_ThrowsForNone()
+    {
+        var none = Result<int, string>.None;
+
+        Assert.Throws<InvalidOperationException>(() => none.Match(v => v, e => -1));
+        Assert.Throws<InvalidOperationException>(() => none.Match(_ => { }, _ => { }));
+        Assert.Throws<InvalidOperationException>(() => none.GetValueOrDefault(e => -1));
+    }
+
+    [Fact]
+    public void Result_GetValueOrDefault_ReturnsDefaultForNone()
+    {
+        Assert.Equal(7, Result<int, string>.None.GetValueOrDefault(7));
     }
 }

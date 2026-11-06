@@ -1,6 +1,6 @@
 using System.Collections.Immutable;
 
-namespace Guacamole.Core.Pipeline;
+namespace Guacamole.Pipeline;
 
 /// <summary>
 /// Version-based cache validation and storage shared by

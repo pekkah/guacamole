@@ -68,7 +68,16 @@ var names = context.People.Select(p => p.Name, StringComparer.OrdinalIgnoreCase)
 
 ## Memory
 
-- Each context graph has an LRU value cache with a capacity of 10,000 entries. Evicted values are simply recomputed on the next read.
+- Each context has an LRU value cache with a capacity of `ComputingContextBase.DefaultCacheCapacity` (10,000) entries. Evicted values are simply recomputed on the next read. To change it, override `CacheCapacity` on the context; the override is read once by the base constructor, so return a constant:
+
+  ```csharp
+  [ComputingContext]
+  public partial class BuildContext : ComputingContextBase
+  {
+      protected override int CacheCapacity => 50_000;
+      // ...
+  }
+  ```
 - Nodes created by operator calls stay registered in the graph for the lifetime of the context (another reason to build pipelines once).
 - `Dispose()` unsubscribes the context from its sources and drops its output registrations.
 
@@ -91,8 +100,7 @@ To benchmark your own context, measure the three things that matter: a cached re
 
 ```csharp
 using BenchmarkDotNet.Attributes;
-using Guacamole;
-using Guacamole.Sources; // PushRange
+using Guacamole; // also brings PushRange into scope
 
 [MemoryDiagnoser]
 public class MyContextBenchmarks

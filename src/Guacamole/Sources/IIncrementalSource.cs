@@ -1,7 +1,7 @@
 using System;
 using System.Collections.Generic;
 
-namespace Guacamole.Sources;
+namespace Guacamole;
 
 /// <summary>
 /// Represents a source of data that can be pushed into the incremental computation graph.

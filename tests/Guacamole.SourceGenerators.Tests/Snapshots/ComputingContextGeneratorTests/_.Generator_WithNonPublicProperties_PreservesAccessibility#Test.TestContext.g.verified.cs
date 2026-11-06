@@ -8,30 +8,18 @@ namespace Test
 {
     partial class TestContext
     {
-        private global::Guacamole.Sources.IncrementalSource<global::Test.Item>? _ItemsSource;
-        private global::Guacamole.Sources.IncrementalValueSource<int>? _CountSource;
-        private global::Guacamole.Sources.IncrementalValueSource<string>? _NameSource;
+        private global::Guacamole.IIncrementalSource<global::Test.Item>? _ItemsSource;
+        private global::Guacamole.IIncrementalValueSource<int>? _CountSource;
+        private global::Guacamole.IIncrementalValueSource<string>? _NameSource;
 
         /// <summary>
         /// Initializes the computing context and its sources.
         /// </summary>
         public TestContext() : base()
         {
-            _ItemsSource = new global::Guacamole.Sources.IncrementalSource<global::Test.Item>(
-                "TestContext.Items",
-                () => Graph); // Pass graph provider, not direct reference
-            Graph = Graph.AddNode(_ItemsSource.GetNode()); // Register node
-            SubscribeToSource(_ItemsSource);
-            _CountSource = new global::Guacamole.Sources.IncrementalValueSource<int>(
-                "TestContext.Count",
-                () => Graph); // Pass graph provider, not direct reference
-            Graph = Graph.AddNode(_CountSource.GetNode()); // Register node
-            SubscribeToSource(_CountSource);
-            _NameSource = new global::Guacamole.Sources.IncrementalValueSource<string>(
-                "TestContext.Name",
-                () => Graph); // Pass graph provider, not direct reference
-            Graph = Graph.AddNode(_NameSource.GetNode()); // Register node
-            SubscribeToSource(_NameSource);
+            _ItemsSource = CreateSource<global::Test.Item>("TestContext.Items");
+            _CountSource = CreateValueSource<int>("TestContext.Count");
+            _NameSource = CreateValueSource<string>("TestContext.Name");
         }
 
         /// <summary>
@@ -53,7 +41,7 @@ namespace Test
         /// Source accessor for Items.
         /// Use this to push data into the incremental compilation pipeline.
         /// </summary>
-        internal global::Guacamole.Sources.IIncrementalSource<global::Test.Item> ItemsSource
+        internal global::Guacamole.IIncrementalSource<global::Test.Item> ItemsSource
         {
             get
             {
@@ -83,7 +71,7 @@ namespace Test
         /// Source accessor for Count.
         /// Use this to set the value in the incremental compilation pipeline.
         /// </summary>
-        protected internal global::Guacamole.Sources.IIncrementalValueSource<int> CountSource
+        protected internal global::Guacamole.IIncrementalValueSource<int> CountSource
         {
             get
             {
@@ -113,7 +101,7 @@ namespace Test
         /// Source accessor for Name.
         /// Use this to set the value in the incremental compilation pipeline.
         /// </summary>
-        private global::Guacamole.Sources.IIncrementalValueSource<string> NameSource
+        private global::Guacamole.IIncrementalValueSource<string> NameSource
         {
             get
             {

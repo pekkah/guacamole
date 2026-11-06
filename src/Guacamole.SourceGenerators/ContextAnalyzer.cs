@@ -59,7 +59,7 @@ internal static class ContextAnalyzer
             }
         }
 
-        // Generated code relies on ComputingContextBase members (Graph, SubscribeToSource).
+        // Generated code relies on ComputingContextBase members (CreateSource, CreateValueSource).
         var baseType = compilation.GetTypeByMetadataName(ComputingContextBaseName);
         if (baseType is null || !DerivesFrom(classSymbol, baseType))
         {

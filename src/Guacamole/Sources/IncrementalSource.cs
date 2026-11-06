@@ -3,18 +3,16 @@ using System.Collections.Generic;
 using System.Collections.Immutable;
 using System.Linq;
 using System.Threading;
-using Guacamole.Core.Common;
-using Guacamole.Core.Diagnostics;
-using Guacamole.Core.Pipeline;
+using Guacamole.Pipeline;
 
-namespace Guacamole.Sources;
+namespace Guacamole;
 
 /// <summary>
 /// Thread-safe implementation of IIncrementalSource using immutable collections.
 /// Raises change events when data changes; cache invalidation is handled by the context.
 /// </summary>
 /// <typeparam name="T">Type of items in the source</typeparam>
-public sealed class IncrementalSource<T> : IIncrementalSource<T>
+internal sealed class IncrementalSource<T> : IIncrementalSource<T>
 {
     private readonly ReaderWriterLockSlim _lock = new(LockRecursionPolicy.NoRecursion);
     private ImmutableHashSet<T> _items = ImmutableHashSet<T>.Empty;

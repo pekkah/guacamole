@@ -1,8 +1,9 @@
 using System.Collections.Generic;
 using System.Collections.Immutable;
-using Guacamole.Core.Common;
-using Guacamole.Core.Diagnostics;
-using Guacamole.Core.Pipeline;
+using System.Diagnostics;
+using System.Diagnostics.CodeAnalysis;
+using Guacamole.Diagnostics;
+using Guacamole.Pipeline;
 
 namespace Guacamole;
 
@@ -28,25 +29,32 @@ namespace Guacamole;
 /// </para>
 /// </summary>
 /// <typeparam name="T">Type of the value (should implement proper equality for optimal performance)</typeparam>
-public readonly record struct IncrementalValueProvider<T>(
-    IComputationNode<T> Node,
-    ComputationGraph Graph,
-    ProviderMetadata Metadata)
+public readonly record struct IncrementalValueProvider<T>
 {
     /// <summary>
-    /// Internal computation node (implementation detail).
+    /// Creates a provider for a node of the given graph.
     /// </summary>
-    public IComputationNode<T> Node { get; } = Node ?? throw new ArgumentNullException(nameof(Node));
+    internal IncrementalValueProvider(IComputationNode<T> node, ComputationGraph graph, ProviderMetadata metadata)
+    {
+        Node = node ?? throw new ArgumentNullException(nameof(node));
+        Graph = graph ?? throw new ArgumentNullException(nameof(graph));
+        Metadata = metadata;
+    }
 
     /// <summary>
-    /// Shared computation graph for dependency tracking.
+    /// Computation node backing this provider (implementation detail).
     /// </summary>
-    public ComputationGraph Graph { get; } = Graph ?? throw new ArgumentNullException(nameof(Graph));
+    internal IComputationNode<T> Node { get; }
+
+    /// <summary>
+    /// Shared computation graph for dependency tracking (implementation detail).
+    /// </summary>
+    internal ComputationGraph Graph { get; }
 
     /// <summary>
     /// Debugging and tracking information.
     /// </summary>
-    public ProviderMetadata Metadata { get; } = Metadata;
+    public ProviderMetadata Metadata { get; }
 
     /// <summary>
     /// Gets the computed value with automatic caching orchestration and version-based
@@ -63,7 +71,10 @@ public readonly record struct IncrementalValueProvider<T>(
     /// This enables equality-based cache skipping where unchanged intermediate
     /// values prevent downstream recomputation.
     /// </remarks>
-    /// <returns>Result containing the computed value or error</returns>
+    /// <returns>
+    /// Result containing the computed value, an error, or no value
+    /// (<see cref="Result{TValue, TError}.IsNone"/>) when a <c>Where</c> upstream rejected its input
+    /// </returns>
     public Result<T, ComputationError> GetValue()
     {
         // Register this node for cache invalidation tracking if not already registered
@@ -82,7 +93,7 @@ public readonly record struct IncrementalValueProvider<T>(
         // Create context with current cache state and compute
         var cachedValues = ProviderCacheCoordinator.BuildCacheContext(Node, Graph);
         var context = new ComputationContext(cachedValues);
-        var result = Node.Compute(context);
+        var result = ComputationMetrics.Measure(Node, Metadata, "value", static (node, ctx) => node.Compute(ctx), context);
 
         // Store result with version tracking
         if (result.IsSuccess && result.Value != null)
@@ -142,8 +153,12 @@ public readonly record struct IncrementalValueProvider<T>(
 
     /// <summary>
     /// Convenience property to get the computed value directly.
-    /// Throws if computation fails. Use GetValue() for Result-based error handling.
+    /// Use <see cref="TryGetValue"/> when the provider may have no value (a <c>Where</c> upstream),
+    /// or <see cref="GetValue"/> for Result-based error handling.
     /// </summary>
+    /// <exception cref="InvalidOperationException">
+    /// The computation failed, or the provider has no value because a <c>Where</c> upstream rejected its input.
+    /// </exception>
     public T Value
     {
         get
@@ -152,10 +167,40 @@ public readonly record struct IncrementalValueProvider<T>(
             if (result.IsSuccess)
                 return result.Value!;
 
-            throw new InvalidOperationException(
-                $"Failed to compute value: {result.ErrorValue?.Message ?? "Unknown error"}");
+            throw NoValueException(result);
         }
     }
+
+    /// <summary>
+    /// Gets the computed value if there is one.
+    /// </summary>
+    /// <param name="value">The computed value, or <c>default</c> when there is no value</param>
+    /// <returns>
+    /// <see langword="true"/> if a value was computed; <see langword="false"/> if the provider has no
+    /// value because a <c>Where</c> upstream rejected its input
+    /// </returns>
+    /// <exception cref="InvalidOperationException">The computation failed.</exception>
+    public bool TryGetValue([MaybeNullWhen(false)] out T value)
+    {
+        var result = GetValue();
+        if (result.IsSuccess)
+        {
+            value = result.Value!;
+            return true;
+        }
+
+        value = default;
+        if (result.IsNone)
+            return false;
+
+        throw NoValueException(result);
+    }
+
+    private static InvalidOperationException NoValueException(Result<T, ComputationError> result) => result.IsNone
+        ? new InvalidOperationException(
+            "The provider has no value: a Where filter upstream rejected its input. Use TryGetValue() or GetValue() to handle a missing value.")
+        : new InvalidOperationException(
+            $"Failed to compute value: {result.ErrorValue?.Message ?? "Unknown error"}");
 }
 
 /// <summary>
@@ -178,25 +223,32 @@ public readonly record struct IncrementalValueProvider<T>(
 /// </para>
 /// </summary>
 /// <typeparam name="T">Type of the values (should implement proper equality for optimal performance)</typeparam>
-public readonly record struct IncrementalValuesProvider<T>(
-    ICollectionComputationNode<T> Node,
-    ComputationGraph Graph,
-    ProviderMetadata Metadata)
+public readonly record struct IncrementalValuesProvider<T>
 {
     /// <summary>
-    /// Internal computation node for multiple values.
+    /// Creates a provider for a collection node of the given graph.
     /// </summary>
-    public ICollectionComputationNode<T> Node { get; } = Node ?? throw new ArgumentNullException(nameof(Node));
+    internal IncrementalValuesProvider(ICollectionComputationNode<T> node, ComputationGraph graph, ProviderMetadata metadata)
+    {
+        Node = node ?? throw new ArgumentNullException(nameof(node));
+        Graph = graph ?? throw new ArgumentNullException(nameof(graph));
+        Metadata = metadata;
+    }
 
     /// <summary>
-    /// Shared computation graph for dependency tracking.
+    /// Computation node backing this provider (implementation detail).
     /// </summary>
-    public ComputationGraph Graph { get; } = Graph ?? throw new ArgumentNullException(nameof(Graph));
+    internal ICollectionComputationNode<T> Node { get; }
+
+    /// <summary>
+    /// Shared computation graph for dependency tracking (implementation detail).
+    /// </summary>
+    internal ComputationGraph Graph { get; }
 
     /// <summary>
     /// Debugging and tracking information.
     /// </summary>
-    public ProviderMetadata Metadata { get; } = Metadata;
+    public ProviderMetadata Metadata { get; }
 
     /// <summary>
     /// Gets the computed values with automatic caching orchestration and version-based
@@ -224,7 +276,7 @@ public readonly record struct IncrementalValuesProvider<T>(
         // Create context with current cache state and compute
         var cachedValues = ProviderCacheCoordinator.BuildCacheContext(Node, Graph);
         var context = new ComputationContext(cachedValues);
-        var result = Node.Compute(context);
+        var result = ComputationMetrics.Measure(Node, Metadata, "values", static (node, ctx) => node.Compute(ctx), context);
 
         // Store result with version tracking
         if (result.IsSuccess && result.Value != null)
@@ -317,5 +369,40 @@ public readonly record struct IncrementalValuesProvider<T>(
             throw new InvalidOperationException(
                 $"Failed to compute values: {result.ErrorValue?.Message ?? "Unknown error"}");
         }
+    }
+}
+
+/// <summary>
+/// Records computation metrics around a provider's node computation.
+/// </summary>
+internal static class ComputationMetrics
+{
+    /// <summary>
+    /// Runs <paramref name="compute"/> and, if computation metrics are enabled, records it in
+    /// <see cref="GuacamoleMetrics.ComputationsTotal"/>, <see cref="GuacamoleMetrics.ComputationDuration"/>
+    /// and (for an error result) <see cref="GuacamoleMetrics.ComputationErrors"/>.
+    /// </summary>
+    public static Result<TValue, ComputationError> Measure<TNode, TValue>(
+        TNode node,
+        ProviderMetadata metadata,
+        string providerType,
+        Func<TNode, ComputationContext, Result<TValue, ComputationError>> compute,
+        ComputationContext context)
+        where TNode : IComputationNode
+    {
+        var configuration = MetricsConfiguration.Current;
+        if (!configuration.EnableComputationMetrics)
+            return compute(node, context);
+
+        var start = Stopwatch.GetTimestamp();
+        var result = compute(node, context);
+        GuacamoleMetrics.RecordComputation(
+            configuration,
+            providerType,
+            node.GetType().Name,
+            metadata,
+            Stopwatch.GetElapsedTime(start).TotalMilliseconds,
+            result.IsError);
+        return result;
     }
 }

@@ -1,9 +1,9 @@
-namespace Guacamole.Core.Caching;
+namespace Guacamole.Caching;
 
 /// <summary>
 /// Statistics provider for cache operations.
 /// </summary>
-public interface ICacheStatisticsProvider
+internal interface ICacheStatisticsProvider
 {
     /// <summary>
     /// Gets current cache statistics.
@@ -17,7 +17,7 @@ public interface ICacheStatisticsProvider
 /// </summary>
 /// <typeparam name="TKey">Type of cache keys (must be non-null)</typeparam>
 /// <typeparam name="TValue">Type of cached values</typeparam>
-public interface ICache<TKey, TValue>
+internal interface ICache<TKey, TValue>
     where TKey : notnull
 {
     /// <summary>

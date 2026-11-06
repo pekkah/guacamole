@@ -1,16 +1,14 @@
 using System;
 using System.Collections.Immutable;
-using Guacamole.Core.Common;
-using Guacamole.Core.Pipeline;
 
-namespace Guacamole.Core.Nodes;
+namespace Guacamole.Pipeline;
 
 /// <summary>
 /// Abstract base class for generated computation nodes.
 /// Provides common functionality for property-specific nodes in computing contexts.
 /// </summary>
 /// <typeparam name="T">Type of value produced by this node</typeparam>
-public abstract class ComputationNodeBase<T> : IComputationNode<T>
+internal abstract class ComputationNodeBase<T> : IComputationNode<T>
 {
     /// <summary>
     /// Unique identifier for this node within the computation graph.
@@ -54,7 +52,7 @@ public abstract class ComputationNodeBase<T> : IComputationNode<T>
 /// Provides common functionality for property-specific collection nodes in computing contexts.
 /// </summary>
 /// <typeparam name="T">Type of values produced by this node</typeparam>
-public abstract class CollectionComputationNodeBase<T> : ICollectionComputationNode<T>
+internal abstract class CollectionComputationNodeBase<T> : ICollectionComputationNode<T>
 {
     /// <summary>
     /// Unique identifier for this node within the computation graph.

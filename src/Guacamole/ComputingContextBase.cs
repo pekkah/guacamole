@@ -2,8 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Threading;
-using Guacamole.Core.Pipeline;
-using Guacamole.Sources;
+using Guacamole.Pipeline;
 
 namespace Guacamole;
 
@@ -14,8 +13,7 @@ namespace Guacamole;
 /// </summary>
 /// <remarks>
 /// This base class provides only the essential infrastructure:
-/// - Computation graph for dependency tracking
-/// - Thread synchronization via ReaderWriterLockSlim (multiple readers, single writer)
+/// - Computation graph for dependency tracking, with an LRU value cache (see <see cref="CacheCapacity"/>)
 /// - Disposal state management
 /// - Source change notification handling
 /// All context-specific functionality (sources, properties) is generated at compile time.
@@ -29,14 +27,8 @@ public abstract partial class ComputingContextBase : IDisposable
 
     /// <summary>
     /// Shared computation graph for dependency management and incremental recomputation.
-    /// Marked as protected internal to allow generated code to update while preventing external modification.
     /// </summary>
-    protected internal ComputationGraph Graph { get; set; }
-
-    /// <summary>
-    /// Thread synchronization lock (multiple readers, single writer model).
-    /// </summary>
-    protected ReaderWriterLockSlim Lock { get; }
+    internal ComputationGraph Graph { get; private set; }
 
     /// <summary>
     /// Indicates if the context has been disposed.
@@ -44,12 +36,29 @@ public abstract partial class ComputingContextBase : IDisposable
     public bool IsDisposed => _disposed;
 
     /// <summary>
+    /// Default maximum number of computed values a context keeps cached.
+    /// </summary>
+    public const int DefaultCacheCapacity = 10_000;
+
+    /// <summary>
+    /// Maximum number of computed values this context keeps in its LRU value cache.
+    /// Evicted values are recomputed on the next read. Defaults to <see cref="DefaultCacheCapacity"/>.
+    /// </summary>
+    /// <remarks>
+    /// Override to change the capacity, for example
+    /// <c>protected override int CacheCapacity =&gt; 50_000;</c>. The value is read once, by the
+    /// <see cref="ComputingContextBase"/> constructor, before the derived class's constructor
+    /// and field initializers run, so the override must not depend on instance state.
+    /// </remarks>
+    protected virtual int CacheCapacity => DefaultCacheCapacity;
+
+    /// <summary>
     /// Creates a new computing context.
     /// </summary>
+    /// <exception cref="ArgumentOutOfRangeException"><see cref="CacheCapacity"/> is less than 1.</exception>
     protected ComputingContextBase()
     {
-        Graph = new ComputationGraph();
-        Lock = new ReaderWriterLockSlim(LockRecursionPolicy.NoRecursion);
+        Graph = new ComputationGraph(CacheCapacity);
     }
 
     /// <summary>
@@ -77,8 +86,6 @@ public abstract partial class ComputingContextBase : IDisposable
             unsubscribe();
         }
 
-        Lock?.Dispose();
-
         GC.SuppressFinalize(this);
     }
 
@@ -94,27 +101,39 @@ public abstract partial class ComputingContextBase : IDisposable
     }
 
     /// <summary>
-    /// Subscribes to a source's change events to automatically trigger output handlers.
-    /// Called by generated code to wire up source notifications.
+    /// Creates a collection source owned by this context: registers its node in the
+    /// context's graph and subscribes the context to its changes.
+    /// Called by the generated constructor for each <see cref="IncrementalValuesProvider{T}"/> input property.
     /// </summary>
     /// <typeparam name="T">The type of items in the source</typeparam>
-    /// <param name="source">The source to subscribe to</param>
-    protected void SubscribeToSource<T>(IIncrementalSource<T> source)
+    /// <param name="sourceId">Unique identifier of the source within this context</param>
+    /// <returns>The new source</returns>
+    protected IIncrementalSource<T> CreateSource<T>(string sourceId)
     {
-        ArgumentNullException.ThrowIfNull(source);
+        ArgumentException.ThrowIfNullOrWhiteSpace(sourceId);
+
+        var source = new IncrementalSource<T>(sourceId, () => Graph);
+        Graph = Graph.AddNode(source.GetNode());
         AddSourceSubscription(() => source.Changed += OnSourceChanged, () => source.Changed -= OnSourceChanged);
+        return source;
     }
 
     /// <summary>
-    /// Subscribes to a value source's change events to automatically trigger output handlers.
-    /// Called by generated code to wire up source notifications.
+    /// Creates a single-value source owned by this context: registers its node in the
+    /// context's graph and subscribes the context to its changes.
+    /// Called by the generated constructor for each <see cref="IncrementalValueProvider{T}"/> input property.
     /// </summary>
-    /// <typeparam name="T">The type of value in the source</typeparam>
-    /// <param name="source">The source to subscribe to</param>
-    protected void SubscribeToSource<T>(IIncrementalValueSource<T> source)
+    /// <typeparam name="T">The type of the source's value</typeparam>
+    /// <param name="sourceId">Unique identifier of the source within this context</param>
+    /// <returns>The new source</returns>
+    protected IIncrementalValueSource<T> CreateValueSource<T>(string sourceId)
     {
-        ArgumentNullException.ThrowIfNull(source);
+        ArgumentException.ThrowIfNullOrWhiteSpace(sourceId);
+
+        var source = new IncrementalValueSource<T>(sourceId, () => Graph);
+        Graph = Graph.AddNode(source.GetNode());
         AddSourceSubscription(() => source.Changed += OnSourceChanged, () => source.Changed -= OnSourceChanged);
+        return source;
     }
 
     private void AddSourceSubscription(Action subscribe, Action unsubscribe)
@@ -152,25 +171,11 @@ public abstract partial class ComputingContextBase : IDisposable
     }
 
     /// <summary>
-    /// Invalidates cache for the specified node and all transitive dependents.
-    /// Delegates to ComputationGraph which handles both static and runtime dependencies.
-    /// </summary>
-    /// <remarks>
-    /// NOTE: This method is kept for backward compatibility and special cases.
-    /// The default source change handling now uses version-based lazy invalidation
-    /// via <see cref="ComputationGraph.MarkSourceChanged"/>.
-    /// </remarks>
-    private void InvalidateNodeCache(string nodeId)
-    {
-        // Delegate to graph's InvalidateCacheForNode which properly handles
-        // both static and runtime dependencies
-        Graph.InvalidateCacheForNode(nodeId);
-    }
-
-    /// <summary>
     /// Registers an output handler that will be called when sources change.
     /// Similar to Roslyn's RegisterSourceOutput - handlers are called after changes occur
     /// and the provider's value is recomputed.
+    /// The handler is not called while the provider has no value (a <c>Where</c> upstream
+    /// rejected its input) or its computation fails.
     /// </summary>
     /// <typeparam name="T">The type of value produced by the provider</typeparam>
     /// <param name="provider">The provider whose output should trigger the handler</param>
@@ -275,6 +280,15 @@ public abstract partial class ComputingContextBase : IDisposable
         public void Execute(ComputingContextBase context)
         {
             var result = _provider.GetValue();
+            if (result.IsNone)
+            {
+                // No value (filtered out by Where): don't run the handler, and run it again
+                // when a value reappears, even if it equals the last delivered one
+                _hasExecuted = false;
+                _lastValue = default;
+                return;
+            }
+
             if (result.IsSuccess && result.Value != null)
             {
                 // Only call handler if value changed (Roslyn-style incremental computation)

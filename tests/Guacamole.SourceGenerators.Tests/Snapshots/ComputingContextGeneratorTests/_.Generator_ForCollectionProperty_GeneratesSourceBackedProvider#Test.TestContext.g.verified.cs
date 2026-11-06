@@ -8,18 +8,14 @@ namespace Test
 {
     partial class TestContext
     {
-        private global::Guacamole.Sources.IncrementalSource<string>? _ItemsSource;
+        private global::Guacamole.IIncrementalSource<string>? _ItemsSource;
 
         /// <summary>
         /// Initializes the computing context and its sources.
         /// </summary>
         public TestContext() : base()
         {
-            _ItemsSource = new global::Guacamole.Sources.IncrementalSource<string>(
-                "TestContext.Items",
-                () => Graph); // Pass graph provider, not direct reference
-            Graph = Graph.AddNode(_ItemsSource.GetNode()); // Register node
-            SubscribeToSource(_ItemsSource);
+            _ItemsSource = CreateSource<string>("TestContext.Items");
         }
 
         /// <summary>
@@ -41,7 +37,7 @@ namespace Test
         /// Source accessor for Items.
         /// Use this to push data into the incremental compilation pipeline.
         /// </summary>
-        public global::Guacamole.Sources.IIncrementalSource<string> ItemsSource
+        public global::Guacamole.IIncrementalSource<string> ItemsSource
         {
             get
             {
