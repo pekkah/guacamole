@@ -1,6 +1,5 @@
 using System.Collections.Immutable;
-using System.Security.Cryptography;
-using System.Text;
+using System.Globalization;
 using Guacamole.Core.Common;
 using Guacamole.Core.Diagnostics;
 using Guacamole.Core.Pipeline;
@@ -8,24 +7,24 @@ using Guacamole.Core.Pipeline;
 namespace Guacamole;
 
 /// <summary>
-/// Generates deterministic node IDs based on operation type and parent IDs.
+/// Generates unique node IDs for nodes created by pipeline operators.
 /// </summary>
+/// <remarks>
+/// Every operator call creates a distinct node (with its own selector, predicate or
+/// argument order), so each node must get its own cache slot. IDs are therefore unique
+/// per node instance rather than derived from the operation name and parent IDs.
+/// </remarks>
 internal static class NodeIdGenerator
 {
+    private static long _counter;
+
     /// <summary>
-    /// Generates a deterministic ID based on operation name and dependencies.
-    /// Uses SHA256 hash of the input to create a stable, reproducible identifier.
+    /// Generates a process-wide unique ID for a new node of the given operation.
     /// </summary>
-    public static string Generate(string operation, params string[] dependencies)
+    public static string Generate(string operation)
     {
-        // Create a stable string representation
-        var combined = operation + ":" + string.Join(",", dependencies.OrderBy(d => d));
-
-        // Hash it to create a fixed-length deterministic ID
-        var hashBytes = SHA256.HashData(Encoding.UTF8.GetBytes(combined));
-
-        // Take first 16 bytes (128 bits) for reasonable length
-        return operation + "_" + Convert.ToHexString(hashBytes[..16]).ToLowerInvariant();
+        var id = Interlocked.Increment(ref _counter);
+        return operation + "_" + id.ToString(CultureInfo.InvariantCulture);
     }
 }
 
@@ -263,7 +262,7 @@ internal sealed class SelectValueNode<TSource, TResult> : IComputationNode<TResu
         _source = source ?? throw new ArgumentNullException(nameof(source));
         _selector = selector ?? throw new ArgumentNullException(nameof(selector));
         _comparer = comparer;
-        Id = NodeIdGenerator.Generate("Select", _source.Id);
+        Id = NodeIdGenerator.Generate("Select");
         Dependencies = ImmutableHashSet.Create(_source.Id);
     }
 
@@ -307,7 +306,7 @@ internal sealed class WhereValueNode<T> : IComputationNode<T>
         _source = source ?? throw new ArgumentNullException(nameof(source));
         _predicate = predicate ?? throw new ArgumentNullException(nameof(predicate));
         _comparer = comparer;
-        Id = NodeIdGenerator.Generate("Where", _source.Id);
+        Id = NodeIdGenerator.Generate("Where");
         Dependencies = ImmutableHashSet.Create(_source.Id);
     }
 
@@ -351,7 +350,7 @@ internal sealed class CombineValueNode<TFirst, TSecond> : IComputationNode<(TFir
     {
         _first = first ?? throw new ArgumentNullException(nameof(first));
         _second = second ?? throw new ArgumentNullException(nameof(second));
-        Id = NodeIdGenerator.Generate("Combine", _first.Id, _second.Id);
+        Id = NodeIdGenerator.Generate("Combine");
         Dependencies = ImmutableHashSet.Create(_first.Id, _second.Id);
     }
 
@@ -406,7 +405,7 @@ internal sealed class SelectManyFromValueNode<TSource, TResult> : ICollectionCom
         _source = source ?? throw new ArgumentNullException(nameof(source));
         _selector = selector ?? throw new ArgumentNullException(nameof(selector));
         _comparer = comparer;
-        Id = NodeIdGenerator.Generate("SelectManyFromValue", _source.Id);
+        Id = NodeIdGenerator.Generate("SelectManyFromValue");
         Dependencies = ImmutableHashSet.Create(_source.Id);
     }
 
