@@ -100,9 +100,10 @@ Guacamole provides a rich set of extension methods for building computation pipe
 provider.Select(x => x * 2)
 provider.Select(x => x.ToString(), StringComparer.OrdinalIgnoreCase)
 
-// Filter a single value
+// Filter a single value: a rejected value becomes "no value" (not an error)
 provider.Where(x => x > 0)
 provider.Where(x => x.IsValid, customComparer)
+if (provider.Where(x => x > 0).TryGetValue(out var positive)) { /* ... */ }
 
 // Combine two providers
 first.Combine(second)  // Returns IncrementalValueProvider<(TFirst, TSecond)>
@@ -145,6 +146,7 @@ How these behave:
 - **No per-item caching** - a collection `Select`/`Where` reruns its lambda for every item when it is recomputed.
 - **Custom equality comparers** decide whether a recomputed value counts as changed. Use records or `IEquatable<T>` types; without value equality every recomputation looks like a change.
 - **Errors are values** - exceptions thrown by your lambdas become failed `Result`s; `GetValue()`/`GetValues()` do not throw them (`.Value`/`.Values` do).
+- **A filtered-out single value is "no value", not an error.** When a single-value `Where` rejects its input, `GetValue()` returns a `Result` with `IsNone == true` (`IsSuccess` and `IsError` are false). Downstream `Select`/`Where`/`Combine` propagate "no value" without running their lambdas; `SelectMany` and collection `Combine` produce no items; output handlers are not called. `.Value` throws `InvalidOperationException`; use `TryGetValue(out value)`, which returns `false` for no value (and throws only if the computation failed).
 
 ## Packages
 
@@ -254,7 +256,7 @@ context.RegisterOutput(provider, (value, ctx) => { /* ... */ });
 ```
 
 - Handlers run synchronously, on the thread that changed a source, after **any** source of the context changes. They are not run at registration time.
-- A handler is invoked only if its provider computes successfully and the value differs from the last value delivered to that handler (`EqualityComparer<T>.Default` for single values, element-wise `SequenceEqual` for collections). `ImmutableArray<T>` (the result of `Collect()`) compares by reference, so a handler on a collected provider runs whenever it is recomputed.
+- A handler is invoked only if its provider computes a value (not an error, and not "no value" from a `Where`) and the value differs from the last value delivered to that handler; after a "no value" phase, a reappearing value is delivered again even if it equals the last one (`EqualityComparer<T>.Default` for single values, element-wise `SequenceEqual` for collections). `ImmutableArray<T>` (the result of `Collect()`) compares by reference, so a handler on a collected provider runs whenever it is recomputed.
 - All handlers run even if one throws; afterwards the exceptions are rethrown as one `AggregateException` from the `Push`/`Set`/... call that triggered them.
 - `Dispose()` unsubscribes the context from its sources and drops its output registrations.
 

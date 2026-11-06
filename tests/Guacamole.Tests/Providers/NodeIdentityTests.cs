@@ -71,7 +71,7 @@ public partial class NodeIdentityTests
         var src = Constant(new ComputationGraph(), "src", 5);
 
         Assert.True(src.Where(x => x > 0).GetValue().IsSuccess);
-        Assert.False(src.Where(x => x < 0).GetValue().IsSuccess);
+        Assert.True(src.Where(x => x < 0).GetValue().IsNone);
     }
 
     [Fact]
@@ -144,7 +144,7 @@ public partial class NodeIdentityTests
         var fails = context.First.Where(x => x < 0);
 
         Assert.True(passes.GetValue().IsSuccess);
-        Assert.False(fails.GetValue().IsSuccess);
+        Assert.True(fails.GetValue().IsNone);
     }
 
     [Fact]

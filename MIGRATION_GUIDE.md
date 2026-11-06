@@ -4,6 +4,7 @@ This guide covers the breaking API changes made before 1.0:
 
 - [Namespace consolidation](#namespace-consolidation)
 - [Internal types and members](#internal-types-and-members)
+- [Single-value `Where` produces "no value"](#single-value-where-produces-no-value)
 - [From mutation-based to push-based sources](#from-mutation-based-to-push-based-sources)
 
 ## Namespace Consolidation
@@ -44,6 +45,23 @@ The computation graph, its nodes and the value cache are implementation details 
 - `GuacamoleMetrics.StartActivity`, `RecordComputation`, `RecordCacheOperation`, `RecordProviderCreation`, `UpdateGraphMetrics` and `UpdateCacheMetrics`. The instruments themselves stay public; observe them with a `MeterListener` or OpenTelemetry.
 
 Custom computation nodes are not supported: build pipelines from sources with the provider operators (`Select`, `Where`, `Combine`, `SelectMany`, `Collect`, ...).
+
+## Single-Value `Where` Produces "No Value"
+
+`IncrementalValueProvider<T>.Where` used to report a rejected value as an error (`"Value filtered out by predicate"`), so `.Value` threw and downstream operators saw an error. A rejected value is now a distinct, non-error **no value** state:
+
+| | Before | Now |
+|---|--------|-----|
+| `GetValue()` | `IsSuccess == false`, `ErrorValue.Message == "Value filtered out by predicate"` | `IsNone == true`, `IsSuccess == false`, `IsError == false`, `ErrorValue == null` |
+| `.Value` | throws `InvalidOperationException` ("Failed to compute value: ...") | throws `InvalidOperationException` ("The provider has no value ...") |
+| `TryGetValue(out v)` | - | returns `false` (throws only if the computation failed) |
+| downstream `Select`/`Where`/`Combine` | error result | no value; lambdas are not run (errors still win in `Combine`) |
+| downstream `SelectMany`, `values.Combine(value)` | error result | empty collection |
+| output handlers | not called | not called; called again when a value reappears |
+
+`Result<TValue, TError>` gained the third state: `Result.None`, `IsNone` and `IsError`, plus `Match` overloads with an `onNone` handler. `Map`/`Bind`/`MapError` propagate None. The two-handler `Match` overloads and `GetValueOrDefault(Func<TError, TValue>)` throw `InvalidOperationException` for None, and `default(Result<TValue, TError>)` is now None (it used to be an error with a `null` error).
+
+To migrate, replace `!result.IsSuccess` checks that mean "failed" with `result.IsError`, and handle `result.IsNone` where a `Where` can reject the value. Replace `try { provider.Value } catch` patterns with `provider.TryGetValue(out var value)`.
 
 ## From Mutation-Based to Push-Based Sources
 

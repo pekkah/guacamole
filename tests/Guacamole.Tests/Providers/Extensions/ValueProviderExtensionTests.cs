@@ -66,7 +66,7 @@ public class ValueProviderExtensionTests
     }
 
     [Fact]
-    public void Where_ShouldFail_WhenPredicateFails()
+    public void Where_ShouldProduceNoValue_WhenPredicateRejects()
     {
         // Arrange
         var graph = new ComputationGraph();
@@ -80,9 +80,9 @@ public class ValueProviderExtensionTests
         var context = new ComputationContext(ImmutableDictionary<string, object>.Empty);
         var result = filteredProvider.Node.Compute(context);
 
-        // Assert
-        Assert.False(result.IsSuccess);
-        Assert.Contains("filtered out", result.ErrorValue!.Message);
+        // Assert - a rejected value is "no value", not an error
+        Assert.True(result.IsNone);
+        Assert.False(result.IsError);
     }
 
     [Fact]

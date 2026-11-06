@@ -151,6 +151,17 @@ IncrementalValueProvider<int> tokenCount = tokens.Select(t => t.Length);
 
 `Select`, `Where` and `SelectMany` have overloads that take an `IEqualityComparer<T>` for the result values.
 
+A single-value `Where` may leave its provider with **no value**. That is not an error: `GetValue()` returns a `Result` whose `IsNone` is true, downstream operators skip their lambdas, and output handlers don't run. `.Value` throws in that case, so read possibly-filtered providers with `TryGetValue`:
+
+```csharp
+IncrementalValueProvider<string> nonEmpty = context.SourceCode.Where(code => code.Length > 0);
+
+if (nonEmpty.Select(code => code.Split(' ')).TryGetValue(out var words))
+{
+    Console.WriteLine($"{words.Length} words");
+}
+```
+
 ### Build pipelines once
 
 Every operator call creates a **new node with a unique ID**, and cached values are stored per node. So:
@@ -282,7 +293,7 @@ context.SourcesSource.Push(new SourceFile("Main.cs", "a b"));
 
 Handler behavior:
 - Handlers are not run at registration; they run after **any** source of the context changes.
-- A handler is called only if its provider computes successfully and the value differs from the last value delivered to that handler.
+- A handler is called only if its provider computes a value (not an error, and not "no value" from a `Where`) and the value differs from the last value delivered to that handler.
 - Handlers run synchronously on the thread that changed the source.
 - If handlers throw, the remaining handlers still run and the exceptions are rethrown together as an `AggregateException` from the `Push`/`Set`/... call.
 - After `Dispose()`, the context no longer listens to its sources and its handlers are dropped.

@@ -101,7 +101,13 @@ public static class IncrementalValueProviderExtensions
 
     /// <summary>
     /// Filters the value based on a predicate.
-    /// Creates a provider that may or may not produce a value.
+    /// Creates a provider that may or may not produce a value: when the predicate rejects the
+    /// value, the provider has <b>no value</b> (<see cref="Result{TValue, TError}.IsNone"/>), which
+    /// is not an error. Downstream operators propagate "no value" without running their lambdas
+    /// (<c>SelectMany</c> and collection <c>Combine</c> produce no items), output handlers are not
+    /// invoked, and <see cref="IncrementalValueProvider{T}.Value"/> throws; use
+    /// <see cref="IncrementalValueProvider{T}.TryGetValue"/> or
+    /// <see cref="IncrementalValueProvider{T}.GetValue"/> to handle it.
     /// </summary>
     /// <typeparam name="T">Value type</typeparam>
     /// <param name="source">Source provider</param>
@@ -131,7 +137,8 @@ public static class IncrementalValueProviderExtensions
 
     /// <summary>
     /// Filters the value based on a predicate with custom equality comparison.
-    /// Creates a provider that may or may not produce a value.
+    /// Creates a provider that may or may not produce a value; see
+    /// <see cref="Where{T}(IncrementalValueProvider{T}, Func{T, bool}, ProviderMetadata)"/>.
     /// </summary>
     /// <typeparam name="T">Value type</typeparam>
     /// <param name="source">Source provider</param>
@@ -289,8 +296,10 @@ internal sealed class SelectValueNode<TSource, TResult> : IComputationNode<TResu
         try
         {
             var sourceResult = _source.Compute(context);
-            if (!sourceResult.IsSuccess)
+            if (sourceResult.IsError)
                 return Result<TResult, ComputationError>.Error(sourceResult.ErrorValue!);
+            if (sourceResult.IsNone)
+                return Result<TResult, ComputationError>.None;
 
             var result = _selector(sourceResult.Value!);
             return Result<TResult, ComputationError>.Success(result);
@@ -334,12 +343,12 @@ internal sealed class WhereValueNode<T> : IComputationNode<T>
         {
             var sourceResult = _source.Compute(context);
             if (!sourceResult.IsSuccess)
-                return sourceResult;
+                return sourceResult; // error or no value: propagate without running the predicate
 
-            if (_predicate(sourceResult.Value!))
-                return sourceResult;
-            else
-                return Result<T, ComputationError>.Error(new ComputationError("Value filtered out by predicate"));
+            // A rejected value is "no value", not an error
+            return _predicate(sourceResult.Value!)
+                ? sourceResult
+                : Result<T, ComputationError>.None;
         }
         catch (Exception ex)
         {
@@ -385,12 +394,16 @@ internal sealed class CombineValueNode<TFirst, TSecond> : IComputationNode<(TFir
         try
         {
             var firstResult = _first.Compute(context);
-            if (!firstResult.IsSuccess)
+            if (firstResult.IsError)
                 return Result<(TFirst, TSecond), ComputationError>.Error(firstResult.ErrorValue!);
 
             var secondResult = _second.Compute(context);
-            if (!secondResult.IsSuccess)
+            if (secondResult.IsError)
                 return Result<(TFirst, TSecond), ComputationError>.Error(secondResult.ErrorValue!);
+
+            // Errors take precedence; otherwise a missing input means no combined value
+            if (firstResult.IsNone || secondResult.IsNone)
+                return Result<(TFirst, TSecond), ComputationError>.None;
 
             return Result<(TFirst, TSecond), ComputationError>.Success((firstResult.Value!, secondResult.Value!));
         }
@@ -432,8 +445,12 @@ internal sealed class SelectManyFromValueNode<TSource, TResult> : ICollectionCom
         try
         {
             var sourceResult = _source.Compute(context);
-            if (!sourceResult.IsSuccess)
+            if (sourceResult.IsError)
                 return Result<IEnumerable<TResult>, ComputationError>.Error(sourceResult.ErrorValue!);
+
+            // No value (filtered out by Where) means no items
+            if (sourceResult.IsNone)
+                return Result<IEnumerable<TResult>, ComputationError>.Success(Array.Empty<TResult>());
 
             // Materialize the selector result to avoid multiple enumerations when cached
             var results = _selector(sourceResult.Value!);

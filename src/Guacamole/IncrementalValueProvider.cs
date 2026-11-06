@@ -1,5 +1,6 @@
 using System.Collections.Generic;
 using System.Collections.Immutable;
+using System.Diagnostics.CodeAnalysis;
 using Guacamole.Pipeline;
 
 namespace Guacamole;
@@ -68,7 +69,10 @@ public readonly record struct IncrementalValueProvider<T>
     /// This enables equality-based cache skipping where unchanged intermediate
     /// values prevent downstream recomputation.
     /// </remarks>
-    /// <returns>Result containing the computed value or error</returns>
+    /// <returns>
+    /// Result containing the computed value, an error, or no value
+    /// (<see cref="Result{TValue, TError}.IsNone"/>) when a <c>Where</c> upstream rejected its input
+    /// </returns>
     public Result<T, ComputationError> GetValue()
     {
         // Register this node for cache invalidation tracking if not already registered
@@ -147,8 +151,12 @@ public readonly record struct IncrementalValueProvider<T>
 
     /// <summary>
     /// Convenience property to get the computed value directly.
-    /// Throws if computation fails. Use GetValue() for Result-based error handling.
+    /// Use <see cref="TryGetValue"/> when the provider may have no value (a <c>Where</c> upstream),
+    /// or <see cref="GetValue"/> for Result-based error handling.
     /// </summary>
+    /// <exception cref="InvalidOperationException">
+    /// The computation failed, or the provider has no value because a <c>Where</c> upstream rejected its input.
+    /// </exception>
     public T Value
     {
         get
@@ -157,10 +165,40 @@ public readonly record struct IncrementalValueProvider<T>
             if (result.IsSuccess)
                 return result.Value!;
 
-            throw new InvalidOperationException(
-                $"Failed to compute value: {result.ErrorValue?.Message ?? "Unknown error"}");
+            throw NoValueException(result);
         }
     }
+
+    /// <summary>
+    /// Gets the computed value if there is one.
+    /// </summary>
+    /// <param name="value">The computed value, or <c>default</c> when there is no value</param>
+    /// <returns>
+    /// <see langword="true"/> if a value was computed; <see langword="false"/> if the provider has no
+    /// value because a <c>Where</c> upstream rejected its input
+    /// </returns>
+    /// <exception cref="InvalidOperationException">The computation failed.</exception>
+    public bool TryGetValue([MaybeNullWhen(false)] out T value)
+    {
+        var result = GetValue();
+        if (result.IsSuccess)
+        {
+            value = result.Value!;
+            return true;
+        }
+
+        value = default;
+        if (result.IsNone)
+            return false;
+
+        throw NoValueException(result);
+    }
+
+    private static InvalidOperationException NoValueException(Result<T, ComputationError> result) => result.IsNone
+        ? new InvalidOperationException(
+            "The provider has no value: a Where filter upstream rejected its input. Use TryGetValue() or GetValue() to handle a missing value.")
+        : new InvalidOperationException(
+            $"Failed to compute value: {result.ErrorValue?.Message ?? "Unknown error"}");
 }
 
 /// <summary>

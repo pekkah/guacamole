@@ -3,30 +3,62 @@ using System.Runtime.CompilerServices;
 namespace Guacamole;
 
 /// <summary>
-/// Discriminated union for handling success/error states in pipeline transformations without exceptions.
+/// Discriminated union for the outcome of a pipeline computation, without exceptions.
+/// A result is in exactly one of three states:
+/// <list type="bullet">
+/// <item><description><b>Success</b> (<see cref="IsSuccess"/>): a value was computed.</description></item>
+/// <item><description><b>None</b> (<see cref="IsNone"/>): no value, and no error. Produced when a
+/// single-value <c>Where</c> rejects its input; downstream operators propagate it without running
+/// their lambdas. <c>default(Result&lt;TValue, TError&gt;)</c> is also None.</description></item>
+/// <item><description><b>Error</b> (<see cref="IsError"/>): the computation failed.</description></item>
+/// </list>
 /// Immutable structure with pattern matching support for railway-oriented programming.
 /// </summary>
 /// <typeparam name="TValue">Type of the success value</typeparam>
 /// <typeparam name="TError">Type of the error information</typeparam>
 public readonly struct Result<TValue, TError> : IEquatable<Result<TValue, TError>>
 {
+    private enum State : byte
+    {
+        None = 0,
+        Success = 1,
+        Error = 2,
+    }
+
     private readonly TValue? _value;
     private readonly TError? _error;
+    private readonly State _state;
 
     /// <summary>
-    /// Indicates whether this result represents a success state.
+    /// Indicates whether this result holds a value.
     /// </summary>
-    public bool IsSuccess { get; }
+    public bool IsSuccess => _state == State.Success;
 
     /// <summary>
-    /// The computed value when IsSuccess = true, otherwise default(TValue).
+    /// Indicates whether this result holds neither a value nor an error
+    /// (for example, the input was filtered out by <c>Where</c>).
+    /// </summary>
+    public bool IsNone => _state == State.None;
+
+    /// <summary>
+    /// Indicates whether this result represents a failed computation.
+    /// </summary>
+    public bool IsError => _state == State.Error;
+
+    /// <summary>
+    /// The computed value when <see cref="IsSuccess"/> is true, otherwise default(TValue).
     /// </summary>
     public TValue? Value => IsSuccess ? _value : default;
 
     /// <summary>
-    /// The error information when IsSuccess = false, otherwise default(TError).
+    /// The error information when <see cref="IsError"/> is true, otherwise default(TError).
     /// </summary>
-    public TError? ErrorValue => IsSuccess ? default : _error;
+    public TError? ErrorValue => IsError ? _error : default;
+
+    /// <summary>
+    /// A result with no value and no error.
+    /// </summary>
+    public static Result<TValue, TError> None => default;
 
     /// <summary>
     /// Creates a Result in success state with the specified value.
@@ -34,7 +66,7 @@ public readonly struct Result<TValue, TError> : IEquatable<Result<TValue, TError
     /// <param name="value">The success value</param>
     private Result(TValue value)
     {
-        IsSuccess = true;
+        _state = State.Success;
         _value = value;
         _error = default;
     }
@@ -48,7 +80,7 @@ public readonly struct Result<TValue, TError> : IEquatable<Result<TValue, TError
     {
         ArgumentNullException.ThrowIfNull(error);
 
-        IsSuccess = false;
+        _state = State.Error;
         _value = default;
         _error = error;
     }
@@ -75,12 +107,15 @@ public readonly struct Result<TValue, TError> : IEquatable<Result<TValue, TError
     /// </summary>
     public bool Equals(Result<TValue, TError> other)
     {
-        if (IsSuccess != other.IsSuccess)
+        if (_state != other._state)
             return false;
 
-        return IsSuccess
-            ? EqualityComparer<TValue>.Default.Equals(_value, other._value)
-            : EqualityComparer<TError>.Default.Equals(_error, other._error);
+        return _state switch
+        {
+            State.Success => EqualityComparer<TValue>.Default.Equals(_value, other._value),
+            State.Error => EqualityComparer<TError>.Default.Equals(_error, other._error),
+            _ => true,
+        };
     }
 
     /// <summary>
@@ -92,23 +127,22 @@ public readonly struct Result<TValue, TError> : IEquatable<Result<TValue, TError
     /// <summary>
     /// Returns the hash code for this Result.
     /// </summary>
-    public override int GetHashCode()
+    public override int GetHashCode() => _state switch
     {
-        if (IsSuccess)
-        {
-            return HashCode.Combine(IsSuccess, _value);
-        }
-        else
-        {
-            return HashCode.Combine(IsSuccess, _error);
-        }
-    }
+        State.Success => HashCode.Combine(_state, _value),
+        State.Error => HashCode.Combine(_state, _error),
+        _ => HashCode.Combine(_state),
+    };
 
     /// <summary>
     /// Returns a string representation of this Result.
     /// </summary>
-    public override string ToString() =>
-        IsSuccess ? $"Success({_value})" : $"Error({_error})";
+    public override string ToString() => _state switch
+    {
+        State.Success => $"Success({_value})",
+        State.Error => $"Error({_error})",
+        _ => "None",
+    };
 
     /// <summary>
     /// Equality operator for Result instances.
@@ -124,7 +158,7 @@ public readonly struct Result<TValue, TError> : IEquatable<Result<TValue, TError
 
     /// <summary>
     /// Transforms the success value using the specified function.
-    /// Error state is propagated unchanged.
+    /// None and error states are propagated unchanged without invoking the mapper.
     /// </summary>
     /// <typeparam name="TResult">Type of the transformed value</typeparam>
     /// <param name="mapper">Function to transform the success value</param>
@@ -134,14 +168,17 @@ public readonly struct Result<TValue, TError> : IEquatable<Result<TValue, TError
     {
         ArgumentNullException.ThrowIfNull(mapper);
 
-        return IsSuccess
-            ? Result<TResult, TError>.Success(mapper(_value!))
-            : Result<TResult, TError>.Error(_error!);
+        return _state switch
+        {
+            State.Success => Result<TResult, TError>.Success(mapper(_value!)),
+            State.Error => Result<TResult, TError>.Error(_error!),
+            _ => Result<TResult, TError>.None,
+        };
     }
 
     /// <summary>
     /// Applies a function that returns a Result, allowing for chaining of Result-returning operations.
-    /// Also known as FlatMap or chain. Error state is propagated unchanged.
+    /// Also known as FlatMap or chain. None and error states are propagated unchanged.
     /// </summary>
     /// <typeparam name="TResult">Type of the new success value</typeparam>
     /// <param name="binder">Function that returns a new Result</param>
@@ -151,49 +188,114 @@ public readonly struct Result<TValue, TError> : IEquatable<Result<TValue, TError
     {
         ArgumentNullException.ThrowIfNull(binder);
 
-        return IsSuccess
-            ? binder(_value!)
-            : Result<TResult, TError>.Error(_error!);
+        return _state switch
+        {
+            State.Success => binder(_value!),
+            State.Error => Result<TResult, TError>.Error(_error!),
+            _ => Result<TResult, TError>.None,
+        };
     }
 
     /// <summary>
     /// Pattern matching for Result. Executes one of two functions based on success/error state.
+    /// Use the overload with an <c>onNone</c> handler for results that can be None.
     /// </summary>
     /// <typeparam name="TResult">Type of the result from both branches</typeparam>
     /// <param name="onSuccess">Function to execute if result is success</param>
     /// <param name="onError">Function to execute if result is error</param>
     /// <returns>The result of the executed function</returns>
+    /// <exception cref="InvalidOperationException">The result is None.</exception>
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public TResult Match<TResult>(Func<TValue, TResult> onSuccess, Func<TError, TResult> onError)
     {
         ArgumentNullException.ThrowIfNull(onSuccess);
         ArgumentNullException.ThrowIfNull(onError);
 
-        return IsSuccess
-            ? onSuccess(_value!)
-            : onError(_error!);
+        return _state switch
+        {
+            State.Success => onSuccess(_value!),
+            State.Error => onError(_error!),
+            _ => throw NoneNotHandled(),
+        };
+    }
+
+    /// <summary>
+    /// Pattern matching for Result. Executes one of three functions based on the state.
+    /// </summary>
+    /// <typeparam name="TResult">Type of the result from all branches</typeparam>
+    /// <param name="onSuccess">Function to execute if result is success</param>
+    /// <param name="onNone">Function to execute if result is None</param>
+    /// <param name="onError">Function to execute if result is error</param>
+    /// <returns>The result of the executed function</returns>
+    public TResult Match<TResult>(Func<TValue, TResult> onSuccess, Func<TResult> onNone, Func<TError, TResult> onError)
+    {
+        ArgumentNullException.ThrowIfNull(onSuccess);
+        ArgumentNullException.ThrowIfNull(onNone);
+        ArgumentNullException.ThrowIfNull(onError);
+
+        return _state switch
+        {
+            State.Success => onSuccess(_value!),
+            State.Error => onError(_error!),
+            _ => onNone(),
+        };
     }
 
     /// <summary>
     /// Pattern matching for Result with side effects. Executes one of two actions based on success/error state.
+    /// Use the overload with an <c>onNone</c> handler for results that can be None.
     /// </summary>
     /// <param name="onSuccess">Action to execute if result is success</param>
     /// <param name="onError">Action to execute if result is error</param>
+    /// <exception cref="InvalidOperationException">The result is None.</exception>
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public void Match(Action<TValue> onSuccess, Action<TError> onError)
     {
         ArgumentNullException.ThrowIfNull(onSuccess);
         ArgumentNullException.ThrowIfNull(onError);
 
-        if (IsSuccess)
-            onSuccess(_value!);
-        else
-            onError(_error!);
+        switch (_state)
+        {
+            case State.Success:
+                onSuccess(_value!);
+                break;
+            case State.Error:
+                onError(_error!);
+                break;
+            default:
+                throw NoneNotHandled();
+        }
+    }
+
+    /// <summary>
+    /// Pattern matching for Result with side effects. Executes one of three actions based on the state.
+    /// </summary>
+    /// <param name="onSuccess">Action to execute if result is success</param>
+    /// <param name="onNone">Action to execute if result is None</param>
+    /// <param name="onError">Action to execute if result is error</param>
+    public void Match(Action<TValue> onSuccess, Action onNone, Action<TError> onError)
+    {
+        ArgumentNullException.ThrowIfNull(onSuccess);
+        ArgumentNullException.ThrowIfNull(onNone);
+        ArgumentNullException.ThrowIfNull(onError);
+
+        switch (_state)
+        {
+            case State.Success:
+                onSuccess(_value!);
+                break;
+            case State.Error:
+                onError(_error!);
+                break;
+            default:
+                onNone();
+                break;
+        }
     }
 
     /// <summary>
     /// Transforms the error value using the specified function.
-    /// Success state is propagated unchanged.
+    /// Success and None states are propagated unchanged.
     /// </summary>
     /// <typeparam name="TNewError">Type of the new error</typeparam>
     /// <param name="mapper">Function to transform the error value</param>
@@ -203,15 +305,18 @@ public readonly struct Result<TValue, TError> : IEquatable<Result<TValue, TError
     {
         ArgumentNullException.ThrowIfNull(mapper);
 
-        return IsSuccess
-            ? Result<TValue, TNewError>.Success(_value!)
-            : Result<TValue, TNewError>.Error(mapper(_error!));
+        return _state switch
+        {
+            State.Success => Result<TValue, TNewError>.Success(_value!),
+            State.Error => Result<TValue, TNewError>.Error(mapper(_error!)),
+            _ => Result<TValue, TNewError>.None,
+        };
     }
 
     /// <summary>
-    /// Returns the success value or a default value if in error state.
+    /// Returns the success value, or a default value if the result is None or an error.
     /// </summary>
-    /// <param name="defaultValue">Value to return if in error state</param>
+    /// <param name="defaultValue">Value to return if the result has no value</param>
     /// <returns>The success value or the default value</returns>
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public TValue GetValueOrDefault(TValue defaultValue)
@@ -224,11 +329,20 @@ public readonly struct Result<TValue, TError> : IEquatable<Result<TValue, TError
     /// </summary>
     /// <param name="getDefault">Function to compute default value from error</param>
     /// <returns>The success value or the computed default value</returns>
+    /// <exception cref="InvalidOperationException">The result is None (there is no error to compute a default from).</exception>
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public TValue GetValueOrDefault(Func<TError, TValue> getDefault)
     {
         ArgumentNullException.ThrowIfNull(getDefault);
 
-        return IsSuccess ? _value! : getDefault(_error!);
+        return _state switch
+        {
+            State.Success => _value!,
+            State.Error => getDefault(_error!),
+            _ => throw NoneNotHandled(),
+        };
     }
+
+    private static InvalidOperationException NoneNotHandled() =>
+        new("The result is None (it has neither a value nor an error). Check IsNone first, or use an overload that handles None.");
 }

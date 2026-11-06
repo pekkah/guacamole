@@ -181,6 +181,8 @@ public abstract partial class ComputingContextBase : IDisposable
     /// Registers an output handler that will be called when sources change.
     /// Similar to Roslyn's RegisterSourceOutput - handlers are called after changes occur
     /// and the provider's value is recomputed.
+    /// The handler is not called while the provider has no value (a <c>Where</c> upstream
+    /// rejected its input) or its computation fails.
     /// </summary>
     /// <typeparam name="T">The type of value produced by the provider</typeparam>
     /// <param name="provider">The provider whose output should trigger the handler</param>
@@ -285,6 +287,15 @@ public abstract partial class ComputingContextBase : IDisposable
         public void Execute(ComputingContextBase context)
         {
             var result = _provider.GetValue();
+            if (result.IsNone)
+            {
+                // No value (filtered out by Where): don't run the handler, and run it again
+                // when a value reappears, even if it equals the last delivered one
+                _hasExecuted = false;
+                _lastValue = default;
+                return;
+            }
+
             if (result.IsSuccess && result.Value != null)
             {
                 // Only call handler if value changed (Roslyn-style incremental computation)
