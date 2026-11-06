@@ -131,7 +131,7 @@ public static class IncrementalSourceExtensions
     }
 
     /// <summary>
-    /// Pushes multiple items in a batch.
+    /// Pushes multiple items in a batch, appending them in enumeration order.
     /// </summary>
     public static void PushRange<T>(this IIncrementalSource<T> source, IEnumerable<T> items)
     {

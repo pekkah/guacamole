@@ -215,9 +215,9 @@ External code pushes changes into sources:
 
 ```csharp
 // A source accessor is generated for each partial get-only provider property
-context.SourcesSource.Push(new SourceFile("Program.cs", "..."));   // collection with set semantics: duplicates are ignored
+context.SourcesSource.Push(new SourceFile("Program.cs", "..."));   // collection with set semantics: duplicates are ignored, items keep insertion order
 context.SourcesSource.Remove(oldFile);
-context.SourcesSource.Replace(oldFile, newFile);                   // throws if oldFile is missing or newFile already present
+context.SourcesSource.Replace(oldFile, newFile);                   // newFile takes oldFile's position; throws if oldFile is missing or newFile already present
 context.SourcesSource.Clear();
 context.OptionsSource.Set(new BuildOptions("Release"));             // single value; setting an equal value is a no-op
 

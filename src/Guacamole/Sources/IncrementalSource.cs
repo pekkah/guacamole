@@ -11,11 +11,24 @@ namespace Guacamole;
 /// Thread-safe implementation of IIncrementalSource using immutable collections.
 /// Raises change events when data changes; cache invalidation is handled by the context.
 /// </summary>
+/// <remarks>
+/// Items have set semantics (using <see cref="EqualityComparer{T}.Default"/>) and are enumerated in
+/// insertion order: each item is assigned an increasing sequence number when pushed. An index
+/// (item to sequence number) answers membership, and a sorted map (sequence number to item) keeps the
+/// order, so <c>Push</c>, <c>Remove</c> and <c>Replace</c> are O(log n) and a snapshot is O(n).
+/// <c>Replace</c> gives the new item the old item's sequence number, so it keeps its position;
+/// removing an item and pushing it again appends it.
+/// </remarks>
 /// <typeparam name="T">Type of items in the source</typeparam>
 internal sealed class IncrementalSource<T> : IIncrementalSource<T>
 {
     private readonly ReaderWriterLockSlim _lock = new(LockRecursionPolicy.NoRecursion);
-    private ImmutableHashSet<T> _items = ImmutableHashSet<T>.Empty;
+    // Items are never null (Push and Replace reject null), so T is a valid dictionary key.
+#pragma warning disable CS8714
+    private ImmutableDictionary<T, long> _sequenceByItem = ImmutableDictionary<T, long>.Empty;
+#pragma warning restore CS8714
+    private ImmutableSortedDictionary<long, T> _itemBySequence = ImmutableSortedDictionary<long, T>.Empty;
+    private long _nextSequence;
     private readonly Func<ComputationGraph> _graphProvider;
     private readonly ICollectionComputationNode<T> _node;
 
@@ -73,11 +86,11 @@ internal sealed class IncrementalSource<T> : IIncrementalSource<T>
         _lock.EnterWriteLock();
         try
         {
-            var newItems = _items.Add(item);
-            // ImmutableHashSet.Add returns same reference if item already exists
-            if (newItems != _items)
+            if (!_sequenceByItem.ContainsKey(item))
             {
-                _items = newItems;
+                var sequence = _nextSequence++;
+                _sequenceByItem = _sequenceByItem.Add(item, sequence);
+                _itemBySequence = _itemBySequence.Add(sequence, item);
                 changed = true;
             }
         }
@@ -104,10 +117,10 @@ internal sealed class IncrementalSource<T> : IIncrementalSource<T>
         _lock.EnterWriteLock();
         try
         {
-            var newItems = _items.Remove(item);
-            if (newItems != _items)
+            if (_sequenceByItem.TryGetValue(item, out var sequence))
             {
-                _items = newItems;
+                _sequenceByItem = _sequenceByItem.Remove(item);
+                _itemBySequence = _itemBySequence.Remove(sequence);
                 changed = true;
             }
         }
@@ -138,13 +151,15 @@ internal sealed class IncrementalSource<T> : IIncrementalSource<T>
         _lock.EnterWriteLock();
         try
         {
-            if (!_items.Contains(oldItem))
+            if (!_sequenceByItem.TryGetValue(oldItem, out var sequence))
                 throw new InvalidOperationException($"Item to replace not found in source '{SourceId}'");
 
-            if (_items.Contains(newItem))
+            if (_sequenceByItem.ContainsKey(newItem))
                 throw new InvalidOperationException($"Replacement item already exists in source '{SourceId}'");
 
-            _items = _items.Remove(oldItem).Add(newItem);
+            // The new item takes the old item's place in the order
+            _sequenceByItem = _sequenceByItem.Remove(oldItem).Add(newItem, sequence);
+            _itemBySequence = _itemBySequence.SetItem(sequence, newItem);
             changed = true;
         }
         finally
@@ -168,10 +183,11 @@ internal sealed class IncrementalSource<T> : IIncrementalSource<T>
         _lock.EnterWriteLock();
         try
         {
-            if (_items.IsEmpty)
+            if (_sequenceByItem.IsEmpty)
                 return;
 
-            _items = ImmutableHashSet<T>.Empty;
+            _sequenceByItem = _sequenceByItem.Clear();
+            _itemBySequence = _itemBySequence.Clear();
             changed = true;
         }
         finally
@@ -186,19 +202,31 @@ internal sealed class IncrementalSource<T> : IIncrementalSource<T>
     }
 
     /// <summary>
-    /// Gets a thread-safe snapshot of the current items.
+    /// Gets a thread-safe snapshot of the current items, in insertion order.
     /// </summary>
     public IReadOnlyCollection<T> GetSnapshot()
     {
+        ImmutableSortedDictionary<long, T> items;
+
         _lock.EnterReadLock();
         try
         {
-            return _items.ToArray();
+            items = _itemBySequence;
         }
         finally
         {
             _lock.ExitReadLock();
         }
+
+        // The map is immutable, so it can be copied outside the lock
+        var snapshot = new T[items.Count];
+        var i = 0;
+        foreach (var (_, item) in items)
+        {
+            snapshot[i++] = item;
+        }
+
+        return snapshot;
     }
 
     /// <summary>

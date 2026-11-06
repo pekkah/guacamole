@@ -6,6 +6,7 @@ This guide covers the breaking API changes made before 1.0:
 - [Internal types and members](#internal-types-and-members)
 - [Single-value `Where` produces "no value"](#single-value-where-produces-no-value)
 - [Removed settings and dead code](#removed-settings-and-dead-code)
+- [Collection sources keep insertion order](#collection-sources-keep-insertion-order)
 - [From mutation-based to push-based sources](#from-mutation-based-to-push-based-sources)
 
 ## Namespace Consolidation
@@ -83,6 +84,20 @@ What now works:
 
 - **Cache capacity**: `protected virtual int CacheCapacity` on `ComputingContextBase` (default `ComputingContextBase.DefaultCacheCapacity`, 10,000) sets the size of the context's value cache. It is read once by the base constructor, so the override must return a constant.
 - **Computation metrics**: providers record `guacamole.computations.total`, `guacamole.computation.duration` and `guacamole.computation.errors.total` each time they compute a value (not for cache hits), when `MetricsConfiguration.EnableComputationMetrics` is on. `CollectTrackingNameDimensions` and `CollectPipelineStageDimensions` control the `tracking.name` and `pipeline.stage` dimensions.
+
+## Collection Sources Keep Insertion Order
+
+`IIncrementalSource<T>` used to store its items in a hash set and enumerate them in hash order. String hash codes are randomized per process, so the order of `GetSnapshot()`, `.Values` and `Collect()` could differ between runs. Sources now enumerate in **insertion order**; set semantics are unchanged (pushing an item that is already present is still a no-op):
+
+| Operation | Position of the item |
+|-----------|----------------------|
+| `Push(item)` / `PushRange(items)` / batch `Push` | appended, in push order |
+| `Push(existing)` | unchanged (no-op) |
+| `Replace(old, new)` | `new` takes `old`'s position |
+| `Remove(item)` then `Push(item)` | appended at the end |
+| `Clear()` then `Push(...)` | a new order starts |
+
+Code that sorted values only to compensate for the random order keeps working. Code that relied on a particular hash order (rare, and never stable across runs) should sort explicitly. Results should still not depend on processing order: see [cross-item lookups](docs/performance-guide.md#cross-item-lookups-eg-symbol-tables) for computing values such as symbol tables that combine all items.
 
 ## From Mutation-Based to Push-Based Sources
 

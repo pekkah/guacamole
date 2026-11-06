@@ -16,7 +16,8 @@ namespace Guacamole.Tests.Regressions;
 /// symbols of files processed <em>before</em> it, so a reference from <c>main</c> to a type declared
 /// in <c>std</c> resolved to <c>ErrorType</c> whenever <c>main</c> happened to be processed first.
 /// Collection sources used to enumerate in hash order, and string hashes are randomized per
-/// process, so the failure was intermittent.
+/// process, so the failure was intermittent. Sources now enumerate in insertion order, which makes
+/// the anti-pattern deterministic, but its result still depends on the order files are pushed.
 /// </para>
 /// <para>
 /// The supported pattern makes type checking a pure function of (file, symbol table): extract each
@@ -28,18 +29,7 @@ public partial class Issue25CrossFileSymbolLookupTests
 {
     public const string ErrorType = "ErrorType";
 
-    /// <summary>
-    /// A source file. <see cref="Rank"/> is the hash code, which fixes the enumeration order of a
-    /// hash-ordered collection, so the tests can force <c>main</c> before <c>std</c> and vice versa.
-    /// Files are also pushed in rank order.
-    /// </summary>
-    public sealed record SourceFile(string Path, string Text, int Rank)
-    {
-        public bool Equals(SourceFile? other) =>
-            other is not null && Path == other.Path && Text == other.Text && Rank == other.Rank;
-
-        public override int GetHashCode() => Rank;
-    }
+    public sealed record SourceFile(string Path, string Text);
 
     /// <summary>Lines are <c>decl Name</c>, <c>use Name</c> or <c>// comment</c>.</summary>
     public sealed record ParsedFile(string Path, ValueArray<string> Declarations, ValueArray<string> Uses, ValueArray<string> Comments);
@@ -156,18 +146,15 @@ public partial class Issue25CrossFileSymbolLookupTests
     public static TypeCheckedFile TypeCheck(ParsedFile file, SymbolTable table) =>
         new(file.Path, new(file.Uses.Select(name => table.TryResolve(name, out var path) ? $"{name}:{path}" : $"{name}:{ErrorType}")));
 
-    /// <summary>The files in processing order: pushed in this order, with ascending ranks.</summary>
-    private static SourceFile[] Ordered(params (string Path, string Text)[] files) =>
-        files.Select((f, i) => new SourceFile(f.Path, f.Text, i + 1)).ToArray();
-
     public static TheoryData<bool> StdFirst => new() { true, false };
 
+    /// <summary>The files in push (and therefore processing) order.</summary>
     private static SourceFile[] Files(bool stdFirst) => stdFirst
-        ? Ordered(("std.fugu", StdText), ("main.fugu", MainText))
-        : Ordered(("main.fugu", MainText), ("std.fugu", StdText));
+        ? [new("std.fugu", StdText), new("main.fugu", MainText)]
+        : [new("main.fugu", MainText), new("std.fugu", StdText)];
 
     [Fact]
-    public void SideEffectingSymbolBuilder_ResultsDependOnProcessingOrder()
+    public void SideEffectingSymbolBuilder_ResultsDependOnPushOrder()
     {
         TypeCheckedFile MainResult(bool stdFirst)
         {

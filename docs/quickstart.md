@@ -52,7 +52,7 @@ For every input property the source generator creates a push-based source and a 
 
 Sources are where data enters the graph:
 
-- `IIncrementalSource<T>` (for `IncrementalValuesProvider<T>` inputs): `Push`, `Remove`, `Replace`, `Clear`, `GetSnapshot`
+- `IIncrementalSource<T>` (for `IncrementalValuesProvider<T>` inputs): `Push`, `Remove`, `Replace`, `Clear`, `GetSnapshot`. Items are unique and enumerated in insertion order (`Replace` keeps the position; `Remove` then `Push` appends).
 - `IIncrementalValueSource<T>` (for `IncrementalValueProvider<T>` inputs): `Set`, `GetValue`
 
 ### 3. Providers
@@ -223,12 +223,12 @@ using Guacamole; // also brings the PushRange and BeginBatch extension methods i
 
 var context = new BuildContext(new Compiler());
 
-// Collection inputs (set semantics, using the item's equality)
+// Collection inputs (set semantics, using the item's equality; items are enumerated in insertion order)
 context.SourcesSource.Push(new SourceFile("Main.cs", "a b"));   // pushing an equal item again is a no-op
 context.SourcesSource.PushRange(new[] { new SourceFile("Utils.cs", "c") });
 context.SourcesSource.Replace(
     new SourceFile("Utils.cs", "c"),
-    new SourceFile("Utils.cs", "c d"));                          // throws if the old item is missing or the new one exists
+    new SourceFile("Utils.cs", "c d"));                          // keeps the old item's position; throws if the old item is missing or the new one exists
 context.SourcesSource.Remove(new SourceFile("Utils.cs", "c d")); // removing a missing item is a no-op
 IReadOnlyCollection<SourceFile> current = context.SourcesSource.GetSnapshot();
 
