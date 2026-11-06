@@ -268,6 +268,7 @@ public abstract partial class ComputingContextBase : IDisposable
     {
         private readonly IncrementalValueProvider<T> _provider;
         private readonly Action<T, ComputingContextBase> _handler;
+        private readonly IEqualityComparer<T> _comparer;
         private T? _lastValue;
         private bool _hasExecuted;
 
@@ -275,6 +276,9 @@ public abstract partial class ComputingContextBase : IDisposable
         {
             _provider = provider;
             _handler = handler;
+            // Use the provider's custom comparer (e.g. Select(selector, comparer)) to decide
+            // whether a new value is a change worth reporting
+            _comparer = provider.Node is IHasComparer<T> withComparer ? withComparer.Comparer : EqualityComparer<T>.Default;
         }
 
         public void Execute(ComputingContextBase context)
@@ -292,7 +296,7 @@ public abstract partial class ComputingContextBase : IDisposable
             if (result.IsSuccess && result.Value != null)
             {
                 // Only call handler if value changed (Roslyn-style incremental computation)
-                if (!_hasExecuted || !EqualityComparer<T>.Default.Equals(_lastValue, result.Value))
+                if (!_hasExecuted || !_comparer.Equals(_lastValue!, result.Value))
                 {
                     _lastValue = result.Value;
                     _hasExecuted = true;
@@ -307,6 +311,7 @@ public abstract partial class ComputingContextBase : IDisposable
     {
         private readonly IncrementalValuesProvider<T> _provider;
         private readonly Action<IEnumerable<T>, ComputingContextBase> _handler;
+        private readonly IEqualityComparer<T> _comparer;
         private T[]? _lastValue;
         private bool _hasExecuted;
 
@@ -314,6 +319,8 @@ public abstract partial class ComputingContextBase : IDisposable
         {
             _provider = provider;
             _handler = handler;
+            // Compare items with the provider's custom comparer, if it has one
+            _comparer = provider.Node is IHasComparer<T> withComparer ? withComparer.Comparer : EqualityComparer<T>.Default;
         }
 
         public void Execute(ComputingContextBase context)
@@ -326,7 +333,7 @@ public abstract partial class ComputingContextBase : IDisposable
 
                 // For collections, compare using SequenceEqual (structural comparison)
                 // Only call handler if collection changed
-                if (!_hasExecuted || _lastValue == null || !_lastValue.SequenceEqual(currentArray))
+                if (!_hasExecuted || _lastValue == null || !_lastValue.SequenceEqual(currentArray, _comparer))
                 {
                     _lastValue = currentArray;
                     _hasExecuted = true;

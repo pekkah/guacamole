@@ -88,7 +88,7 @@ Every distinct operator call creates a new node with a unique ID, and the cache 
 Equality is used to detect changes at every level: source contents, computed values (equality cut-off) and output handlers.
 
 - Use records or types implementing `IEquatable<T>` for items and computed values. The generator reports GUAC0004 for input and user-managed provider properties whose item type lacks value equality.
-- Pass a comparer to `Select`/`Where`/`SelectMany` when the default equality is too strict or does not exist:
+- Pass a comparer to `Select`/`Where`/`SelectMany` when the default equality is too strict or does not exist. The comparer decides whether that stage's recomputed result counts as a change (for collections, element by element), both for the cache cut-off and for output handlers registered on it. The cut-off applies where the stage is read (`Value`/`GetValue`/`GetValues` or an output registration); a stage that is never read itself is looked through:
 
 ```csharp
 var names = context.People.Select(p => p.Name, StringComparer.OrdinalIgnoreCase);

@@ -44,6 +44,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Custom comparers were ignored**: comparers passed to `Select`/`Where`/`SelectMany` (single-value and collection) were stored but never used, because the operator nodes didn't expose them to the change check. They now decide whether a stage's recomputed result counts as a change, both for the cache cut-off and for output handlers registered on that stage (which previously always used `EqualityComparer<T>.Default`).
 - **Node reuse**: identical operator calls (same operator, same ordered inputs, equal delegates and comparers) return the existing node, so pipelines built repeatedly (e.g. in property getters with non-capturing lambdas) share one cache and don't grow the graph.
 - **Node ID collisions**: node IDs were derived from the operation name and parent IDs, so two different operator calls on the same parent (for example two `Select`s with different lambdas) shared one cache slot and could return each other's values. Every operator call now creates a node with a unique ID.
 - **Caching after source changes**: derived values are kept cached across source changes and are recomputed only when an input they depend on (including inputs reached through intermediate, unread stages) has changed. Dependency versions are snapshotted before computing, so a change that happens during a computation is picked up by the next read.

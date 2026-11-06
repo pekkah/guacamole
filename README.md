@@ -258,7 +258,7 @@ context.RegisterOutput(provider, (value, ctx) => { /* ... */ });
 ```
 
 - Handlers run synchronously, on the thread that changed a source, after **any** source of the context changes. They are not run at registration time.
-- A handler is invoked only if its provider computes a value (not an error, and not "no value" from a `Where`) and the value differs from the last value delivered to that handler; after a "no value" phase, a reappearing value is delivered again even if it equals the last one (`EqualityComparer<T>.Default` for single values, element-wise `SequenceEqual` for collections). `ImmutableArray<T>` (the result of `Collect()`) compares by reference, so a handler on a collected provider runs whenever it is recomputed.
+- A handler is invoked only if its provider computes a value (not an error, and not "no value" from a `Where`) and the value differs from the last value delivered to that handler; after a "no value" phase, a reappearing value is delivered again even if it equals the last one (the provider's comparer when it was created with one, e.g. `Select(selector, comparer)`, otherwise `EqualityComparer<T>.Default`; element-wise for collections). `ImmutableArray<T>` (the result of `Collect()`) compares by reference, so a handler on a collected provider runs whenever it is recomputed.
 - All handlers run even if one throws; afterwards the exceptions are rethrown as one `AggregateException` from the `Push`/`Set`/... call that triggered them.
 - `Dispose()` unsubscribes the context from its sources and drops its output registrations.
 
