@@ -51,14 +51,14 @@ jobs:
         run: dotnet build --no-restore --configuration Release
 
       - name: Run tests
-        run: dotnet test --no-build --configuration Release --logger "trx;LogFileName=test-results.trx"
+        run: dotnet test --no-build --configuration Release --report-xunit-trx
 
       - name: Upload test results
         uses: actions/upload-artifact@v4
         if: always()
         with:
           name: test-results-${{ matrix.os }}
-          path: '**/test-results.trx'
+          path: '**/TestResults/*.trx'
 
   publish:
     name: Publish to NuGet.org
