@@ -1,79 +1,76 @@
 # Guacamole Examples
 
-This directory contains simple, practical examples demonstrating the push-based incremental compilation architecture.
+This directory contains small console projects demonstrating the push-based incremental computation API. All of them are part of `guacamole.sln`, so CI builds them and catches public API drift.
 
 ## Examples
 
-### 1. BasicSourceUsage/
-Simple example showing how to use incremental sources to push data and trigger computation.
+### 1. [BasicSourceUsage](BasicSourceUsage/)
+Pushing data into a source and reacting to it.
 
 **Key concepts:**
-- Creating a computing context with source properties
-- Pushing data through sources
-- Using provider extension methods (Where, Collect, Select)
-- Automatic cache invalidation and recomputation
+- A computing context with one input property (`People`) and its generated `PeopleSource` accessor
+- Pushing and removing items
+- Provider extension methods (`Where`, `Collect`, `Select`)
 - Registering output handlers
 
-### 2. FileWatcherExample/
-Simulated file system watcher example showing how to push file changes through incremental compilation.
+### 2. [FileWatcherExample](FileWatcherExample/)
+A simulated file system watcher pushing file changes.
 
 **Key concepts:**
-- Integrating external event sources (simulated file watcher)
-- Push-based reactive updates
-- Incremental pipeline transformations (Where, Collect, Select)
-- Automatic output triggering
+- Forwarding external events into a source (`Push`, `Replace`, `Remove`)
+- Pipeline transformations (`Where`, `Collect`, `Select`)
+- Output handlers that run automatically after each change
 
-### 3. DataPipelineExample/
-Example showing multi-stage incremental data transformation pipelines with caching.
+### 3. [DataPipelineExample](DataPipelineExample/)
+A multi-stage data transformation pipeline.
 
 **Key concepts:**
-- Building computation pipelines with Where, Collect, Select
-- Dependency tracking and cache invalidation
-- Multiple transformation stages
-- Performance benefits of incremental recomputation
+- Chaining `Where`, `Collect` and `Select` stages
+- Counting how often an output handler runs
+- Handlers run only when their provider's value changes
 
 ## Push-Based Architecture
 
-### Sources Replace Mutation Methods
-Instead of mutation methods, data is pushed through sources:
+### Sources
+Data is pushed through the source accessor the generator creates for each `partial` get-only provider property:
 
 ```csharp
 [ComputingContext]
 public partial class MyContext : ComputingContextBase
 {
-    // Property generates a source accessor
+    // Generates a SourceFilesSource accessor
     public partial IncrementalValuesProvider<SourceFile> SourceFiles { get; }
 }
 
-// Use the source to push data
 context.SourceFilesSource.Push(new SourceFile("Program.cs", "..."));
 context.SourceFilesSource.Remove(oldFile);
 context.SourceFilesSource.Replace(oldFile, newFile);
-
-// Changes trigger automatic recomputation - no SaveChanges() needed
 ```
 
-### Automatic Output Triggering
-Outputs are triggered automatically when sources change:
+There is no commit step: each change takes effect immediately.
+
+### Output Handlers
+Output handlers run automatically after a source changes:
 
 ```csharp
-context.RegisterOutput(context.Diagnostics, (diagnostics, ctx) => {
-    // Called automatically when SourceFiles changes
-    foreach (var diagnostic in diagnostics) {
-        Console.WriteLine(diagnostic);
-    }
+var csharpFiles = context.SourceFiles.Where(f => f.Path.EndsWith(".cs")).Collect();
+
+context.RegisterOutput(csharpFiles, (files, ctx) =>
+{
+    Console.WriteLine($"{files.Length} C# files");
 });
 ```
 
-### No SaveChanges Required
-The push-based architecture eliminates the need for `SaveChanges()`:
-- Sources trigger events immediately when data changes
-- Context automatically invalidates affected caches
-- Registered outputs are called with updated values
+What happens on a change:
+- The source raises its `Changed` event synchronously
+- The context increments the source's version (cached values are revalidated lazily when read; nothing is cleared eagerly)
+- Each registered handler's provider is read, and the handler is called if the value changed since the handler last ran
+
+Note that the examples build their pipelines once, right after creating the context. Every operator call creates a new node with its own cache, so pipelines should not be rebuilt on every use.
 
 ## Running Examples
 
-Each example is a standalone .NET project. Build and run using standard .NET commands:
+Each example is a standalone .NET project:
 
 ```bash
 # Build an example
@@ -87,10 +84,11 @@ cd examples/BasicSourceUsage
 dotnet run
 ```
 
-All examples require .NET 11 RC3 SDK or later and use C# partial properties (C# 13+).
+All examples require the .NET 11 RC3 SDK or later and use C# partial properties (C# 13+). They reference the `Guacamole` and `Guacamole.SourceGenerators` projects directly; a NuGet consumer needs both packages.
 
 ## Further Reading
 
-- `PUSH_BASED_ARCHITECTURE_RESEARCH.md` - Detailed architecture documentation
-- `IMPLEMENTATION_SUMMARY.md` - Implementation overview
-- `docs/quickstart.md` - Getting started guide
+- [Quickstart](../docs/quickstart.md) - Getting started guide
+- [Generated Code Reference](../docs/generated-code-reference.md) - What the generator emits
+- [Performance Guide](../docs/performance-guide.md) - Caching behavior
+- [README](../README.md) - Overview

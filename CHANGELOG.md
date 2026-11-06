@@ -9,52 +9,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
-#### ⚠️ BREAKING CHANGE: Property Convention Reversal
+- **Platform upgrade**: all projects target .NET 11 (`net11.0`) with the .NET 11 RC3 SDK pinned in `global.json`, and use `LangVersion=latest` (C# 15). Test projects moved to xUnit v3 on Microsoft.Testing.Platform. Dependencies bumped (Microsoft.Extensions.DependencyInjection 11.0 RC3, Microsoft.SourceLink.GitHub 10.0.403, Microsoft.CodeAnalysis 5.9.0).
+- **Release flow**: packages are published to nuget.org only from `v*` version tags (or a manual run of the Publish workflow); the tag name is the package version. Pushes to `main` only build, test and pack. The Publish workflow reuses the CI workflow. Example projects are now part of `guacamole.sln` and built in CI. See [docs/ci-cd.md](docs/ci-cd.md).
+- **Source generator rewrite** (`ComputingContextGenerator`):
+  - Cacheable incremental pipeline based on `ForAttributeWithMetadataName`, with all semantic analysis producing equatable models; source and diagnostic outputs are separate branches.
+  - Generated code fully qualifies all types with `global::`, so item types from other namespaces work without `using` directives.
+  - Unique hint names (namespace + containing types + metadata name), so same-named contexts in different namespaces or types no longer collide.
+  - Support for nested contexts (containing types re-emitted as partial), generic contexts and contexts in the global namespace; input properties keep their declared accessibility.
+  - New diagnostics: **GUAC0006** (context or a containing type is not `partial`) and **GUAC0007** (context does not derive from `ComputingContextBase`). GUAC0003 and GUAC0005 are now reported at the offending property. See [docs/generated-code-reference.md](docs/generated-code-reference.md#diagnostics).
+  - The disabled legacy generator and its mutation-method/`SaveChanges` code generators were deleted.
+- **Breaking: push-based sources replace mutation methods.** Generated `Add{X}`/`Remove{X}`/`Replace{X}`/`Set{X}` methods, `SaveChanges()`, `SaveChangesAsync()`, `DiscardChanges()` and `HasPendingChanges` were removed. Each input property now gets a `{X}Source` accessor (`IIncrementalSource<T>` with `Push`/`Remove`/`Replace`/`Clear`, or `IIncrementalValueSource<T>` with `Set`), and changes take effect immediately. See [MIGRATION_GUIDE.md](MIGRATION_GUIDE.md).
+- **Breaking: version-based lazy invalidation.** A source change only increments the source's version; cached values are revalidated when read, and a provider whose recomputed value is equal keeps its version so dependents stay cached.
+- **Breaking: property convention reversal.** `partial` get-only provider properties (`{ get; }`) are inputs implemented by the generator; non-`partial` properties with a setter are user-managed. See [docs/migration/010-property-convention-reversal.md](docs/migration/010-property-convention-reversal.md).
 
-**The property generation convention has been reversed:**
+### Removed
 
-- **OLD:** Properties WITH setters (`{ get; set; }`) → Auto-managed (mutation methods generated)
-- **NEW:** Properties WITHOUT setters (`{ get; }`) → Auto-managed (mutation methods generated)
-
-**Migration Required:**
-
-To migrate existing code:
-1. Remove setters from properties where you want auto-generated mutation methods
-2. Add setters to properties you manage manually
-
-**Before:**
-```csharp
-[ComputingContext]
-public partial class MyContext : ComputingContextBase
-{
-    public partial IncrementalValueProvider<string> Name { get; set; }  // Auto-managed
-}
-```
-
-**After:**
-```csharp
-[ComputingContext]
-public partial class MyContext : ComputingContextBase
-{
-    public partial IncrementalValueProvider<string> Name { get; }  // Auto-managed
-}
-```
-
-**Rationale:** The new convention is more intuitive and aligns with C# 13's partial property semantics. Get-only properties signal "I need an implementation" and the framework provides it. Properties with setters signal "I'll manage this myself."
-
-See [Migration Guide](docs/migration/010-property-convention-reversal.md) for detailed instructions.
-
-### Added
-
-- Comprehensive migration guide for property convention reversal
-- Updated API documentation with new examples
-- Improved error messages for common migration scenarios
+- Diagnostics **GUAC0001** (duplicate property name) and **GUAC0002** (conflicting type parameters). They could never be reported; their IDs are retired and will not be reused.
 
 ### Fixed
 
-- PropertyGenerator now correctly handles the reversed logic for property classification
-- All snapshot tests updated to reflect new generated code structure
-- Examples updated to use new convention
+- **Node ID collisions**: node IDs were derived from the operation name and parent IDs, so two different operator calls on the same parent (for example two `Select`s with different lambdas) shared one cache slot and could return each other's values. Every operator call now creates a node with a unique ID.
+- **Caching after source changes**: derived values are kept cached across source changes and are recomputed only when an input they depend on (including inputs reached through intermediate, unread stages) has changed. Dependency versions are snapshotted before computing, so a change that happens during a computation is picked up by the next read.
+- **Thread safety**: `LRUCache.TryGet` performs lookup, LRU update and value read atomically; storing a computed value with its version information is atomic; output registration, source subscription and `Dispose()` are synchronized.
+- **Output handlers**: all registered handlers run even if one throws; afterwards the exceptions are rethrown together as an `AggregateException`.
+- **Dispose**: disposing a context unsubscribes it from its sources (so they neither keep it alive nor notify it) and clears its output registrations; notifications that race with `Dispose()` are ignored.
+- **Collection operators**: exceptions thrown by lambdas in collection `Select`/`Where`/`SelectMany` are returned as error results instead of escaping during enumeration.
+- **Generated code**: compiles without errors or warnings for item types from other namespaces, nested and generic contexts (verified by snapshot tests that compile the output).
 
 ## [0.0.1] - 2024-10-02
 

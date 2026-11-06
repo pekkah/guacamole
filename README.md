@@ -8,13 +8,12 @@ A .NET framework for building incremental compilers and computation pipelines, i
 
 ## Features
 
-- **Push-Based Reactive Architecture**: External sources push data changes, triggering automatic recomputation
-- **Incremental Computation**: Automatic dependency tracking and selective recomputation
+- **Push-Based Reactive Architecture**: External code pushes changes into sources; registered output handlers run automatically
+- **Incremental Computation**: Automatic dependency tracking with lazy, version-based cache validation
 - **Provider-based API**: Familiar Roslyn-style `IncrementalValueProvider<T>` and `IncrementalValuesProvider<T>`
-- **Source Generation**: Generate context classes with push-based source accessors at compile time
-- **Thread-safe**: Built-in reader/writer locking for concurrent access
-- **Dependency Injection**: First-class DI support with Microsoft.Extensions.DependencyInjection
-- **Performance**: LRU caching, optimized graph invalidation, comprehensive benchmarks
+- **Source Generation**: Generates push-based source accessors for `[ComputingContext]` classes at compile time
+- **Thread-safe building blocks**: Sources, the value cache and version bookkeeping are synchronized (see [Thread safety](#thread-safety) for what is and is not covered)
+- **Performance**: Equality-based cut-off (unchanged values do not invalidate dependents), LRU value cache, BenchmarkDotNet benchmarks
 
 ## Quick Start
 
@@ -25,9 +24,9 @@ dotnet add package Guacamole
 dotnet add package Guacamole.SourceGenerators
 ```
 
-> **Note**: `Guacamole` provides the core runtime functionality, while `Guacamole.SourceGenerators` contains the source generators that create push-based source accessors at compile time. Both packages are required for full functionality.
+> **Note**: `Guacamole` is the runtime library. `Guacamole.SourceGenerators` contains the source generator that implements `[ComputingContext]` classes. The runtime package does not depend on the generator package, so **install both**.
 
-Define a computing context:
+Define a computing context. Every `partial` get-only provider property becomes an input source:
 
 ```csharp
 using Guacamole;
@@ -35,44 +34,60 @@ using Guacamole;
 [ComputingContext]
 public partial class MyCompilerContext : ComputingContextBase
 {
-    // Source property - generates SourceCodeSource accessor
+    // Input: the generator implements this property and adds a SourceCodeSource accessor
     public partial IncrementalValueProvider<string> SourceCode { get; }
-
-    // Derived computation
-    public IncrementalValueProvider<ParseTree> ParsedTree { get; }
-
-    public MyCompilerContext()
-    {
-        // Build computation pipeline
-        ParsedTree = SourceCode.Select(Parse);
-    }
-
-    private ParseTree Parse(string source) => /* ... */;
 }
 ```
 
-Use the push-based source API:
+Build the pipeline **once**, then push data through the generated source accessor:
 
 ```csharp
-var context = new MyCompilerContext();
+using var context = new MyCompilerContext();
 
-// Register output handler - called automatically when data changes
-context.RegisterOutput(context.ParsedTree, (tree, ctx) =>
-{
-    Console.WriteLine($"Parsed: {tree}");
-});
+// Build the pipeline once and keep the provider
+IncrementalValueProvider<int> tokenCount = context.SourceCode.Select(code => code.Split(' ').Length);
 
-// Push data through source - triggers automatic recomputation
+// Output handlers run whenever a source of the context changes (if the value changed)
+context.RegisterOutput(tokenCount, (count, ctx) => Console.WriteLine($"Tokens: {count}"));
+
+// Push data: the context is notified synchronously and runs its output handlers
 context.SourceCodeSource.Set("let x = 42");
 
-// Output handler called automatically - no SaveChanges() needed!
-
-var result = context.ParsedTree.GetValue();
+// Pull a value on demand (Result-based; use .Value to throw on error instead)
+var result = tokenCount.GetValue();
 if (result.IsSuccess)
 {
-    var tree = result.Value;
+    Console.WriteLine(result.Value);
 }
 ```
+
+### Build pipelines once
+
+Every operator call (`Select`, `Where`, `Combine`, `Collect`, ...) creates a **new computation node with a unique ID**, and cached values are stored per node. Build a pipeline once (in a constructor or at startup) and keep the resulting provider. Do **not** build pipelines inside property getters or per request: every call would create fresh nodes that start with an empty cache, and those nodes stay registered in the context's graph.
+
+The generator emits the context's public parameterless constructor, so you cannot declare your own parameterless constructor. To expose derived pipelines as properties, declare them as non-partial properties with a setter and assign them in a constructor that chains to `this()`:
+
+```csharp
+[ComputingContext]
+public partial class BuildContext : ComputingContextBase
+{
+    // Inputs (generated): SourcesSource and OptionsSource accessors
+    public partial IncrementalValuesProvider<SourceFile> Sources { get; }
+    public partial IncrementalValueProvider<BuildOptions> Options { get; }
+
+    // Derived (user-managed): not partial, has a setter
+    public IncrementalValuesProvider<CompiledUnit> Compiled { get; private set; }
+    public IncrementalValueProvider<BuildResult> Result { get; private set; }
+
+    public BuildContext(Compiler compiler) : this()
+    {
+        Compiled = Sources.Select(compiler.Compile);
+        Result = Compiled.Collect().Select(units => new BuildResult(units.Length));
+    }
+}
+```
+
+A get-only provider property that is not `partial` (for example `=> Sources.Select(...)`) is rejected with GUAC0003, which also steers you away from building pipelines in getters.
 
 ## Provider Extension Methods
 
@@ -117,20 +132,26 @@ values.Collect()  // Returns IncrementalValueProvider<ImmutableArray<T>>
 
 // Combine with single value
 values.Combine(singleValue)  // Pairs each value with the single value
+
+// Concatenate two collection providers
+values.Merge(otherValues)
 ```
 
-All methods support:
-- **Custom equality comparers** for fine-grained cache control
-- **Automatic caching** at each pipeline stage
-- **Lazy evaluation** - computed only when accessed
-- **Dependency tracking** - automatic invalidation when inputs change
+How these behave:
+
+- **Lazy evaluation** - nothing is computed until a provider is read with `GetValue()`/`GetValues()` (or `.Value`/`.Values`), or an output handler reads it.
+- **Caching happens at the nodes you read.** The provider you call `GetValue()`/`GetValues()` on caches its result together with the versions of the inputs it used. Intermediate stages that are never read directly are not cached: they are recomputed inline whenever the node you read is recomputed, and cache validation looks through them to the sources they depend on. To cache an intermediate stage, read it (for example by registering an output on it).
+- **Version-based invalidation** - a source change only increments that source's version; cached values are revalidated lazily on the next read. A read node whose recomputed value equals its previous value keeps its version, so downstream nodes built from its cached value stay valid and are not recomputed.
+- **No per-item caching** - a collection `Select`/`Where` reruns its lambda for every item when it is recomputed.
+- **Custom equality comparers** decide whether a recomputed value counts as changed. Use records or `IEquatable<T>` types; without value equality every recomputation looks like a change.
+- **Errors are values** - exceptions thrown by your lambdas become failed `Result`s; `GetValue()`/`GetValues()` do not throw them (`.Value`/`.Values` do).
 
 ## Packages
 
 | Package | Description | NuGet |
 |---------|-------------|-------|
-| **Guacamole** | Complete framework including `ComputingContextBase`, incremental computation engine, provider APIs, and all core infrastructure | [![NuGet](https://img.shields.io/nuget/v/Guacamole.svg)](https://www.nuget.org/packages/Guacamole/) |
-| **Guacamole.SourceGenerators** | Source generators for code generation (automatically installed with Guacamole) | [![NuGet](https://img.shields.io/nuget/v/Guacamole.SourceGenerators.svg)](https://www.nuget.org/packages/Guacamole.SourceGenerators/) |
+| **Guacamole** | Runtime: `ComputingContextBase`, sources, providers and operators, computation graph, caching, DI registration | [![NuGet](https://img.shields.io/nuget/v/Guacamole.svg)](https://www.nuget.org/packages/Guacamole/) |
+| **Guacamole.SourceGenerators** | Source generator and diagnostics for `[ComputingContext]` classes (separate package; required) | [![NuGet](https://img.shields.io/nuget/v/Guacamole.SourceGenerators.svg)](https://www.nuget.org/packages/Guacamole.SourceGenerators/) |
 
 ## Requirements
 
@@ -140,7 +161,7 @@ All methods support:
 ## Building
 
 ```bash
-dotnet build
+dotnet build guacamole.sln
 ```
 
 ## Testing
@@ -148,6 +169,8 @@ dotnet build
 ```bash
 dotnet test
 ```
+
+Test projects use xUnit v3 on Microsoft.Testing.Platform (selected in `global.json`).
 
 ## Benchmarking
 
@@ -170,15 +193,15 @@ The tag name (without `v`) is the package version. Pushes to `main` only build, 
 
 ## Examples
 
-See the [`examples/`](examples/) directory for complete working examples:
+The [`examples/`](examples/) directory contains runnable console projects. They are part of `guacamole.sln`, so CI builds them:
 
-- [`BasicSourceUsage.cs`](examples/BasicSourceUsage.cs) - Fundamental push-based source usage patterns
-- [`FileWatcherExample.cs`](examples/FileWatcherExample.cs) - File system integration with incremental compilation
-- [`DataPipelineExample.cs`](examples/DataPipelineExample.cs) - Multi-stage data transformation pipeline
+- [`examples/BasicSourceUsage`](examples/BasicSourceUsage/) - Pushing items, `Where`/`Collect`/`Select`, output handlers
+- [`examples/FileWatcherExample`](examples/FileWatcherExample/) - Simulated file watcher pushing file changes
+- [`examples/DataPipelineExample`](examples/DataPipelineExample/) - Multi-stage data transformation pipeline
 
-Run examples with:
+Run an example with:
 ```bash
-dotnet script examples/BasicSourceUsage.cs
+dotnet run --project examples/BasicSourceUsage
 ```
 
 ## Architecture
@@ -186,24 +209,25 @@ dotnet script examples/BasicSourceUsage.cs
 Guacamole is built on three core concepts:
 
 ### 1. **Push-Based Sources**
-External data sources push changes into the computation graph:
+External code pushes changes into sources:
 
 ```csharp
-// Sources are auto-generated for each property
-context.SourceFilesSource.Push(new SourceFile("Program.cs", "..."));
-context.SourceFilesSource.Remove(oldFile);
-context.SourceFilesSource.Replace(oldFile, newFile);
+// A source accessor is generated for each partial get-only provider property
+context.SourcesSource.Push(new SourceFile("Program.cs", "..."));   // collection with set semantics: duplicates are ignored
+context.SourcesSource.Remove(oldFile);
+context.SourcesSource.Replace(oldFile, newFile);                   // throws if oldFile is missing or newFile already present
+context.SourcesSource.Clear();
+context.OptionsSource.Set(new BuildOptions("Release"));             // single value; setting an equal value is a no-op
 
-// Changes trigger automatic cache invalidation and recomputation
+// Each effective change increments the source's version and runs the context's output handlers
 ```
 
 ### 2. **Computation Graph**
-Automatic dependency tracking and invalidation:
+Automatic dependency tracking and lazy invalidation:
 
-- Providers form a directed acyclic graph (DAG)
-- Changes propagate through dependencies automatically
-- LRU cache for computed values
-- Thread-safe concurrent access
+- Providers form a directed acyclic graph (DAG); every operator call adds a new node
+- A source change increments that source's version; dependents are revalidated lazily when read
+- Computed values live in an LRU cache (10,000 entries per context graph)
 
 ### 3. **Incremental Providers**
 Immutable pipeline structures that lazily compute values:
@@ -211,43 +235,53 @@ Immutable pipeline structures that lazily compute values:
 - `IncrementalValueProvider<T>` - Single value provider
 - `IncrementalValuesProvider<T>` - Collection provider
 - Composable via extension methods (Select, Where, Combine, etc.)
-- Automatic caching and dependency tracking
+- Values are cached for the nodes that are read (see [Provider Extension Methods](#provider-extension-methods))
 
 ### Source Generation
 
-The source generators analyze `[ComputingContext]` classes and generate:
+For each `[ComputingContext]` class the generator emits one file containing:
 
-- **Source accessor properties** (e.g., `NameSource`, `ItemsSource`)
-- **Push-based reactive sources** (`IncrementalSource<T>`, `IncrementalValueSource<T>`)
-- **Automatic cache invalidation** infrastructure
-- **Computation nodes** for each provider in the graph
-- **Event subscriptions** for change notifications
+- A public parameterless constructor that creates an `IncrementalSource<T>` (for `IncrementalValuesProvider<T>` properties) or an `IncrementalValueSource<T>` (for `IncrementalValueProvider<T>` properties) per input property, registers the source's node in the graph and subscribes the context to the source's changes
+- The implementation of each partial provider property (returns the source's provider)
+- A `{Property}Source` accessor typed `IIncrementalSource<T>` or `IIncrementalValueSource<T>`
 
-### Key Differences from Mutation-Based Approaches
+The generator also reports diagnostics (GUAC0003-GUAC0007) for invalid declarations; see [Generated Code Reference](docs/generated-code-reference.md#diagnostics).
 
-**No SaveChanges Required:**
+### Output Handlers
+
 ```csharp
-// Old (mutation-based):
-context.AddItem(item);
-context.SaveChanges();  // Explicit commit
-
-// New (push-based):
-context.ItemsSource.Push(item);  // Triggers automatically
+context.RegisterOutput(provider, (value, ctx) => { /* ... */ });
 ```
 
-**Reactive by Default:**
-```csharp
-// Outputs trigger automatically when sources change
-context.RegisterOutput(context.Results, (results, ctx) => {
-    // Called automatically when ItemsSource changes
-});
-```
+- Handlers run synchronously, on the thread that changed a source, after **any** source of the context changes. They are not run at registration time.
+- A handler is invoked only if its provider computes successfully and the value differs from the last value delivered to that handler (`EqualityComparer<T>.Default` for single values, element-wise `SequenceEqual` for collections). `ImmutableArray<T>` (the result of `Collect()`) compares by reference, so a handler on a collected provider runs whenever it is recomputed.
+- All handlers run even if one throws; afterwards the exceptions are rethrown as one `AggregateException` from the `Push`/`Set`/... call that triggered them.
+- `Dispose()` unsubscribes the context from its sources and drops its output registrations.
+
+### Thread Safety
+
+What is synchronized:
+
+- Each source guards its contents with its own `ReaderWriterLockSlim`, so `Push`/`Remove`/`Replace`/`Clear`/`Set` and `GetSnapshot`/`GetValue` can be called concurrently.
+- The LRU value cache locks internally, version counters and node registries use concurrent collections, and storing a computed value together with its version information is a single atomic step.
+- Registering outputs, subscribing sources and `Dispose()` are synchronized with each other; a change notification that races with `Dispose()` is ignored.
+
+What is not:
+
+- Change notifications and output handlers run synchronously on the caller's thread with no lock held, so handlers triggered by concurrent changes can run concurrently. Make handlers thread-safe or serialize your writes.
+- Reading a provider does not lock the pipeline: two threads reading the same stale node may both compute it. Keep your lambdas pure.
+- `BeginBatch()` returns a buffer that is not thread-safe; `Commit()` applies its operations one by one, each with its own notification.
 
 ## Documentation
 
-- [Push-Based Architecture Research](PUSH_BASED_ARCHITECTURE_RESEARCH.md) - Detailed architecture documentation
-- [Implementation Summary](IMPLEMENTATION_SUMMARY.md) - Implementation overview
-- [Examples README](examples/README.md) - Guide to examples
+- [Quickstart](docs/quickstart.md) - Step-by-step introduction
+- [Generated Code Reference](docs/generated-code-reference.md) - What the generator emits, and its diagnostics
+- [Performance Guide](docs/performance-guide.md) - How caching works and how to get the most out of it
+- [CI/CD](docs/ci-cd.md) - Build, test and release workflow
+- [Examples README](examples/README.md) - Guide to the examples
+- [Migration Guide](MIGRATION_GUIDE.md) - Moving from the removed mutation/`SaveChanges` API
+- [Changelog](CHANGELOG.md)
+- [Push-Based Architecture Research](PUSH_BASED_ARCHITECTURE_RESEARCH.md) - Design research (historical; parts of it differ from the implementation)
 
 ## License
 

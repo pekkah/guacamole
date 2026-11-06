@@ -1,342 +1,138 @@
-# Performance Guide: ComputingContext
+# Performance Guide
 
-This guide describes the performance characteristics and optimization strategies for ComputingContext.
+This guide explains how Guacamole decides what to recompute, and how to structure pipelines so it recomputes as little as possible. For the API itself see the [Quickstart](quickstart.md).
 
-## Performance Targets
+## How Recomputation Works
 
-| Metric | Target | Notes |
-|--------|--------|-------|
-| Cached Access | <1ms | Reading from provider cache |
-| Incremental Update | <10ms | Small change propagation |
-| Memory Overhead | <2x | Compared to raw data |
-| Complexity | O(changes) | Not O(total data size) |
-| Boxing/Reflection | Zero | Compile-time code generation |
+### Sources and versions
 
-## Zero Boxing Architecture
+Every node in a context's graph has an output version. Pushing to a source (`Push`, `Remove`, `Replace`, `Clear`, `Set`) that actually changes it increments that source's version and nothing else: no cache is cleared and no dependent node is touched eagerly. Operations that do not change the source (pushing an item that is already present, setting an equal value, removing a missing item) raise no notification at all.
 
-### Problem: Boxing Overhead
+### Lazy validation on read
 
-Traditional change tracking uses `object` or interfaces:
-```csharp
-// ❌ BAD - causes boxing for value types
-List<IChange> changes;  // IChange forces boxing
-changes.Add(new Change { Item = 42 });  // int boxed to object
-```
+When you read a provider (`GetValue()`/`GetValues()`, `.Value`/`.Values`, or an output handler reading it), the provider:
 
-### Solution: Generated Strongly-Typed Records
+1. Checks whether its cached value is still valid: every input version it recorded when it was computed must be unchanged (and, for inputs whose own cached values it used, those must still be valid).
+2. If valid, returns the cached value. No lambda runs.
+3. Otherwise records the current input versions, recomputes, and stores the result. Its own version is incremented **only if the new value is not equal** to the previous one (using the provider's comparer).
+
+Step 3 is the equality cut-off: when a read provider's value did not change, downstream providers built from its cached value remain valid and are not recomputed.
+
+### Only read nodes are cached
+
+Values are cached for the providers that are read. Intermediate stages that are never read are recomputed inline whenever a provider that depends on them is recomputed. Validation looks through such intermediate stages to the inputs behind them, so correctness does not depend on what you read, but caching does.
 
 ```csharp
-// ✅ GOOD - no boxing
-List<SourceFileChange> changes;  // Concrete type
-changes.Add(new SourceFileChange.Add(sourceFile, timestamp));  // No boxing
+// Only `report` is read: a change to Files reruns Parse for every file, then Analyze, then Format.
+var parsed = context.Files.Select(Parse);
+var analyzed = parsed.Collect().Select(Analyze);
+var report = analyzed.Select(Format);
+context.RegisterOutput(report, (r, _) => Publish(r));
+
+// Also reading `analyzed` caches it: if Analyze returns an equal value, Format does not rerun.
+context.RegisterOutput(analyzed, (_, _) => { });
 ```
 
-**Benefit**:
-- No heap allocations for value types
-- Better CPU cache utilization
-- JIT can optimize switch expressions
+Output handlers run in registration order, so register handlers for upstream stages before downstream ones if you rely on their cached values.
 
-## O(changes) Complexity
+### No per-item caching
 
-### Principle
+Collection operators (`Select`, `Where`, `SelectMany` on `IncrementalValuesProvider<T>`) process the whole collection whenever they are recomputed. Changing one item of a 10,000-item source reruns the lambda for all 10,000 items in every recomputed stage. If a per-item computation is expensive:
 
-Incremental recomputation should scale with the number of changes, not the total dataset size.
+- memoize it yourself (for example a dictionary keyed by the item, which works well with records), or
+- split independent data into separate sources so unrelated changes do not reach it.
 
-### Example
+## Build Pipelines Once
+
+Every operator call creates a new node with a unique ID, and the cache is keyed by node ID. Calling `context.Files.Select(Parse)` twice creates two independent nodes, each computing and caching on its own.
+
+- Build pipelines once, in a constructor (chaining to the generated `this()`) or at startup, and keep the providers.
+- Never build pipelines in property getters, per request or inside loops. Each call would start with an empty cache and add nodes to the context's graph, which are never removed.
+
+## Equality
+
+Equality is used to detect changes at every level: source contents, computed values (equality cut-off) and output handlers.
+
+- Use records or types implementing `IEquatable<T>` for items and computed values. The generator reports GUAC0004 for input and user-managed provider properties whose item type lacks value equality.
+- Pass a comparer to `Select`/`Where`/`SelectMany` when the default equality is too strict or does not exist:
 
 ```csharp
-// Dataset: 10,000 files
-context.AddSourceFiles(Enumerable.Range(1, 10000).Select(CreateFile));
-await context.SaveChangesAsync();  // Time: T
-
-// Change 1 file out of 10,000
-context.ReplaceSourceFile(oldFile, newFile);
-await context.SaveChangesAsync();  // Time: ~T/10000 (not T!)
+var names = context.People.Select(p => p.Name, StringComparer.OrdinalIgnoreCase);
 ```
 
-### How It Works
+- `ImmutableArray<T>` (the result of `Collect()`) and other collection types such as `List<T>`, arrays or dictionaries compare **by reference**. A collected provider, or a `Select` that returns a new list or dictionary, therefore counts as changed every time it is recomputed, which disables the cut-off below it and fires its output handlers. Map collections to a type with structural equality, or pass a comparer, where that matters.
 
-1. **Change Tracking**: Only modified items tracked in change lists
-2. **Graph Invalidation**: Only dependent nodes invalidated
-3. **Lazy Recomputation**: Only when values are queried
-4. **Precise Caching**: Cache keys include item identity
+## Batching
 
-### Validation
+`BeginBatch()` buffers operations, but `Commit()` still applies them one at a time, and each effective change raises its own notification, which runs all output handlers. `PushRange` behaves the same way. When loading many items with output handlers registered, consider registering the handlers after the initial load, or keeping handlers cheap.
 
-Use `IncrementalUpdateBenchmarks.cs` to verify:
-```csharp
-[Params(10, 100, 1000)]
-public int TotalItems { get; set; }
+## Memory
 
-[Params(1, 10)]
-public int ChangedItems { get; set; }
+- Each context graph has an LRU value cache with a capacity of 10,000 entries. Evicted values are simply recomputed on the next read.
+- Nodes created by operator calls stay registered in the graph for the lifetime of the context (another reason to build pipelines once).
+- `Dispose()` unsubscribes the context from its sources and drops its output registrations.
 
-// Should scale with ChangedItems, not TotalItems
+## Thread Safety and Performance
+
+- Source operations take the source's own write lock only while updating its contents; notifications and output handlers run afterwards, without a lock.
+- Reads do not lock the pipeline. Two threads reading the same stale provider may both compute it; the cache is updated atomically and the last result wins. Keep lambdas pure and side-effect free.
+- Output handlers run synchronously on the thread that changed a source. Long-running handlers delay the `Push`/`Set` call that triggered them.
+
+## Benchmarking
+
+The repository contains BenchmarkDotNet benchmarks in [`benchmarks/Guacamole.Benchmarks`](../benchmarks/Guacamole.Benchmarks/) (`SimpleProviderBenchmarks`, `CachingBenchmarks`, `ComplexGraphBenchmarks`):
+
+```bash
+cd benchmarks/Guacamole.Benchmarks
+dotnet run -c Release
 ```
 
-## Memory Efficiency
-
-### Target: <2x Overhead
-
-**Baseline**: Raw data in `HashSet<T>`
-```csharp
-HashSet<SourceFile> files;  // Baseline memory
-```
-
-**With Context**: Data + Change Tracking
-```csharp
-HashSet<SourceFile> _currentSourceFiles;  // Same as baseline
-List<SourceFileChange> _SourceFilesChanges;  // Usually small
-```
-
-**Total**: ~1.1x-1.5x depending on pending changes
-
-### Memory Management
-
-1. **Change Lists Cleared**: After `SaveChanges()`, lists are emptied
-2. **LRU Cache**: Computation graph uses LRU eviction for cache
-3. **No Memory Leaks**: ReaderWriterLockSlim properly disposed
-
-### Benchmarking
-
-```csharp
-[MemoryDiagnoser]
-public class MemoryEfficiencyBenchmarks
-{
-    [Params(100, 1000, 10000)]
-    public int ItemCount { get; set; }
-
-    [Benchmark(Baseline = true)]
-    public void BaselineMemory()
-    {
-        var data = new HashSet<SourceFile>(CreateFiles(ItemCount));
-    }
-
-    [Benchmark]
-    public void ContextWithTracking()
-    {
-        var context = new CompilerContext(services);
-        context.AddSourceFiles(CreateFiles(ItemCount));
-        context.SaveChanges();
-    }
-}
-```
-
-## Thread Safety Model
-
-### Multiple Readers, Single Writer
-
-```csharp
-// Concurrent reads OK
-Task.WaitAll(
-    Task.Run(() => context.SourceFiles.ToList()),
-    Task.Run(() => context.SourceFiles.Count()),
-    Task.Run(() => context.SourceFiles.First())
-);
-
-// Write blocks all
-context.AddSourceFile(newFile);  // Exclusive lock
-```
-
-### Lock Implementation
-
-```csharp
-protected ReaderWriterLockSlim Lock { get; }
-
-// Mutations acquire write lock
-Lock.EnterWriteLock();
-try { /* mutation */ }
-finally { Lock.ExitWriteLock(); }
-
-// Reads can happen concurrently (no explicit lock needed)
-var items = context.SourceFiles.ToList();
-```
-
-### Performance Impact
-
-- **Read contention**: None - multiple readers allowed
-- **Write contention**: Blocked - only one writer at a time
-- **Lock acquisition**: ~100ns on modern hardware
-
-## Hot Path Optimizations
-
-### 1. Duplicate Detection
-
-```csharp
-// O(1) duplicate check using HashSet
-if (_currentSourceFiles.Contains(item))
-{
-    throw ContextOperationException.DuplicateItem("SourceFiles", item);
-}
-```
-
-**Benefit**: Fast duplicate detection without linear scan
-
-### 2. Change Application
-
-```csharp
-// Direct HashSet modification (no extra allocations)
-foreach (var change in _SourceFilesChanges)
-{
-    switch (change)  // JIT optimizes sealed record switches
-    {
-        case SourceFileChange.Add add:
-            _currentSourceFiles.Add(add.Item);  // O(1)
-            break;
-        // ...
-    }
-}
-```
-
-**Benefit**: Minimal allocations, optimal collection operations
-
-### 3. Property Access
-
-```csharp
-// Lazy initialization with null check (no lock needed)
-if (_SourceFilesProvider == null)
-{
-    _SourceFilesProvider = new IncrementalValuesProvider<SourceFile>(...);
-}
-return _SourceFilesProvider.Value;
-```
-
-**Benefit**: Read path has no lock overhead
-
-## Benchmarking Your Context
-
-### Setup BenchmarkDotNet
+To benchmark your own context, measure the three things that matter: a cached read (should run no lambdas), a read after a small change (should run only the affected stages), and the cost of a source operation with your output handlers registered.
 
 ```csharp
 using BenchmarkDotNet.Attributes;
-using BenchmarkDotNet.Running;
+using Guacamole;
+using Guacamole.Sources; // PushRange
 
 [MemoryDiagnoser]
 public class MyContextBenchmarks
 {
-    private CompilerContext _context;
+    private BuildContext _context = null!;
+    private int _counter;
 
     [GlobalSetup]
     public void Setup()
     {
-        _context = new CompilerContext(services);
-        // Pre-populate with data
+        _context = new BuildContext(new Compiler());
+        _context.SourcesSource.PushRange(
+            Enumerable.Range(0, 1000).Select(i => new SourceFile($"File{i}.cs", "a b c")));
+        _ = _context.Result.Value; // warm the cache
     }
 
     [Benchmark]
-    public void AddFile()
-    {
-        _context.AddSourceFile(CreateFile());
-    }
+    public BuildResult CachedRead() => _context.Result.Value;
 
     [Benchmark]
-    public void SaveChanges()
+    public BuildResult ReadAfterChange()
     {
-        _context.SaveChanges();
-    }
-}
-
-class Program
-{
-    static void Main(string[] args)
-    {
-        BenchmarkRunner.Run<MyContextBenchmarks>();
+        _context.SourcesSource.Push(new SourceFile($"New{_counter++}.cs", "x"));
+        return _context.Result.Value;
     }
 }
 ```
 
-### Key Metrics to Watch
+(`BuildContext`, `Compiler`, `SourceFile` and `BuildResult` are the types from the [Quickstart](quickstart.md#derived-properties-on-the-context).)
 
-1. **Allocations**: Should be minimal for hot paths
-2. **Mean Time**: Should meet <1ms or <10ms targets
-3. **Scalability**: O(changes) not O(data size)
+## Checklist
 
-## Common Performance Issues
-
-### Issue 1: Large Batch Operations
-
-**Problem**: Adding 10,000 items at once
-```csharp
-context.AddSourceFiles(hugeList);  // All tracked in memory
-```
-
-**Solution**: Commit in chunks
-```csharp
-foreach (var batch in hugeList.Chunk(100))
-{
-    context.AddSourceFiles(batch);
-    await context.SaveChangesAsync();
-}
-```
-
-### Issue 2: Forgetting to SaveChanges
-
-**Problem**: Changes accumulate without commit
-```csharp
-for (int i = 0; i < 10000; i++)
-{
-    context.AddSourceFile(files[i]);  // Memory grows!
-}
-// Never calls SaveChanges - change list has 10k items
-```
-
-**Solution**: Regular commits
-```csharp
-for (int i = 0; i < 10000; i++)
-{
-    context.AddSourceFile(files[i]);
-    if (i % 100 == 0)
-        await context.SaveChangesAsync();
-}
-```
-
-### Issue 3: Over-Invalidation
-
-**Problem**: Too many properties depend on one source
-```csharp
-// Every property depends on SourceFiles
-ParsedTrees = SourceFiles.Select(...);
-Types = SourceFiles.Select(...);
-Errors = SourceFiles.Select(...);
-```
-
-**Solution**: Chain dependencies
-```csharp
-// Build dependency chain
-ParsedTrees = SourceFiles.Select(Parse);
-Types = ParsedTrees.SelectMany(ExtractTypes);
-Errors = Types.SelectMany(AnalyzeType);
-```
-
-## Profiling Tools
-
-### 1. Visual Studio Profiler
-- CPU usage
-- Memory allocations
-- Lock contention
-
-### 2. dotTrace/dotMemory
-- Detailed allocation tracking
-- Timeline analysis
-
-### 3. BenchmarkDotNet
-- Accurate microbenchmarks
-- Statistical analysis
-- Memory diagnostics
-
-## Performance Checklist
-
-- [ ] Run benchmarks to establish baseline
-- [ ] Verify O(changes) complexity with different dataset sizes
-- [ ] Check memory overhead is <2x
-- [ ] Measure cached access (<1ms target)
-- [ ] Measure incremental updates (<10ms target)
-- [ ] Profile hot paths for allocations
-- [ ] Test concurrent access patterns
-- [ ] Validate no boxing in IL (use ILSpy)
+- [ ] Pipelines are built once and the providers are kept
+- [ ] Item and computed value types have value equality (records / `IEquatable<T>`) or explicit comparers
+- [ ] Expensive intermediate stages are read (so they are cached) or memoized
+- [ ] Output handlers are cheap and thread-safe
 
 ## References
 
-- Computation Graph: `src/Guacamole.Core/Pipeline/ComputationGraph.cs`
-- LRU Cache: `src/Guacamole.Core/Caching/LRUCache.cs`
-- Benchmarks: `benchmarks/ComputingContext.Benchmarks/`
+- Cache validation: [`src/Guacamole/Pipeline/ProviderCacheCoordinator.cs`](../src/Guacamole/Pipeline/ProviderCacheCoordinator.cs)
+- Computation graph: [`src/Guacamole/Pipeline/ComputationGraph.cs`](../src/Guacamole/Pipeline/ComputationGraph.cs)
+- LRU cache: [`src/Guacamole/Caching/LRUCache.cs`](../src/Guacamole/Caching/LRUCache.cs)
+- Benchmarks: [`benchmarks/Guacamole.Benchmarks/`](../benchmarks/Guacamole.Benchmarks/)
