@@ -45,6 +45,29 @@ internal sealed class SharedGraphState
     public object CommitLock { get; } = new();
 
     /// <summary>
+    /// Nodes created by pipeline operators, keyed by the structural identity of the
+    /// operator call, so that repeated identical calls reuse one node. Scoped to this
+    /// graph state, so nothing is shared across contexts and nothing outlives the graph.
+    /// <see cref="Lazy{T}"/> guarantees a single node per key under concurrent access.
+    /// </summary>
+    private readonly ConcurrentDictionary<NodeReuseKey, Lazy<IComputationNode>> _reusableNodes = new();
+
+    /// <summary>
+    /// Returns the node previously created for <paramref name="key"/>, or creates one with
+    /// <paramref name="factory"/>. Thread-safe: concurrent callers with equal keys all
+    /// receive the same node instance and the factory runs at most once per key.
+    /// </summary>
+    public IComputationNode GetOrCreateReusableNode(NodeReuseKey key, Func<IComputationNode> factory)
+    {
+        ArgumentNullException.ThrowIfNull(key);
+        ArgumentNullException.ThrowIfNull(factory);
+
+        return _reusableNodes
+            .GetOrAdd(key, static (_, f) => new Lazy<IComputationNode>(f, LazyThreadSafetyMode.ExecutionAndPublication), factory)
+            .Value;
+    }
+
+    /// <summary>
     /// Registers a node for runtime tracking if not already registered.
     /// This is used for dynamically discovered nodes (e.g., from extension methods).
     /// Thread-safe and idempotent.
