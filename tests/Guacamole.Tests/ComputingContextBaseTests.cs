@@ -56,4 +56,65 @@ public partial class ComputingContextBaseTests
         context.Dispose();
         context.Dispose();
     }
+
+    [ComputingContext]
+    private partial class LifecycleTestContext : ComputingContextBase
+    {
+        public partial IncrementalValueProvider<string> Name { get; }
+    }
+
+    [Fact]
+    public void Dispose_ThenSourceChanges_DoesNotThrowOrTriggerOutputs()
+    {
+        var context = new LifecycleTestContext();
+        var source = context.NameSource;
+        var handlerCalls = 0;
+        context.RegisterOutput(context.Name, (_, _) => handlerCalls++);
+        source.Set("before");
+        Assert.Equal(1, handlerCalls);
+
+        context.Dispose();
+
+        // The disposed context must have unsubscribed from its sources
+        source.Set("after");
+        Assert.Equal(1, handlerCalls);
+    }
+
+    [Fact]
+    public async Task RegisterOutput_ConcurrentWithSourceChanges_DoesNotThrow()
+    {
+        using var context = new LifecycleTestContext();
+        context.NameSource.Set("initial");
+        var provider = context.Name;
+        using var stop = CancellationTokenSource.CreateLinkedTokenSource(
+            Xunit.TestContext.Current.CancellationToken);
+
+        var writer = Task.Run(() =>
+        {
+            var i = 0;
+            while (!stop.IsCancellationRequested)
+            {
+                context.NameSource.Set("value" + i++);
+            }
+        }, Xunit.TestContext.Current.CancellationToken);
+
+        Parallel.For(0, 2_000, _ => context.RegisterOutput(provider, (_, _) => { }));
+        await stop.CancelAsync();
+        await writer;
+    }
+
+    [Fact]
+    public void TriggerOutputs_WhenHandlerThrows_RunsRemainingHandlersAndThrowsAggregate()
+    {
+        using var context = new LifecycleTestContext();
+        var secondHandlerValues = new List<string>();
+        context.RegisterOutput(context.Name, (_, _) => throw new InvalidOperationException("handler failed"));
+        context.RegisterOutput(context.Name, (value, _) => secondHandlerValues.Add(value));
+
+        var ex = Assert.Throws<AggregateException>(() => context.NameSource.Set("Alice"));
+
+        var inner = Assert.Single(ex.InnerExceptions);
+        Assert.IsType<InvalidOperationException>(inner);
+        Assert.Equal(new[] { "Alice" }, secondHandlerValues);
+    }
 }
