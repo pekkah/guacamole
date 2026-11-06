@@ -20,7 +20,9 @@
     <RepositoryUrl>https://github.com/pekkah/guacamole</RepositoryUrl>
     <RepositoryType>git</RepositoryType>
 
-    <!-- Simple static versioning (GitVersion removed for cross-platform compatibility) -->
+    <!-- Versioning: local builds default to 0.1.0-dev. CI (.github/workflows/ci.yml) computes the
+         real version (GitVersion SemVer, or the v* tag name for releases; see GitVersion.yml and
+         docs/ci-cd.md) and overrides this with -p:Version=... at pack time. -->
     <Version>0.1.0-dev</Version>
     <GenerateAssemblyInfo>true</GenerateAssemblyInfo>
 
