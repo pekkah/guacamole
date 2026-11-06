@@ -1,76 +1,68 @@
 name: Publish
 
+# Publishes to nuget.org and creates a GitHub release.
+#
+# Triggers:
+#   - push of a version tag  v1.2.3 / v1.2.3-beta.1  -> package version = tag without "v"
+#   - manual run (workflow_dispatch), only from main or a v* tag.
+#       * on a tag:  same as a tag push
+#       * on main:   publishes the current GitVersion prerelease (e.g. 0.2.0-alpha.5)
+#                    to nuget.org; no GitHub release is created (there is no tag)
+#
+# Plain pushes to main do NOT publish; ci.yml builds, tests and packs them.
+
 on:
   push:
     tags:
       - 'v*'
-    branches:
-      - main
+  workflow_dispatch:
 
 permissions:
-  contents: write
-  packages: write
+  contents: read
+
+concurrency:
+  group: publish-${{ github.ref }}
+  cancel-in-progress: false
 
 env:
   DOTNET_SKIP_FIRST_TIME_EXPERIENCE: true
   DOTNET_CLI_TELEMETRY_OPTOUT: true
+  DOTNET_NOLOGO: true
 
 jobs:
-  test:
-    name: Test on ${{ matrix.os }}
-    runs-on: ${{ matrix.os }}
-    strategy:
-      matrix:
-        os: [ubuntu-latest, windows-latest]
-
+  guard:
+    name: Check ref
+    runs-on: ubuntu-latest
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v7
-        with:
-          fetch-depth: 0
-          fetch-tags: true
+      - name: Only main or v* tags may publish
+        shell: bash
+        run: |
+          if [ "$GITHUB_REF_TYPE" = "tag" ] && [[ "$GITHUB_REF_NAME" == v* ]]; then exit 0; fi
+          if [ "$GITHUB_REF" = "refs/heads/main" ]; then exit 0; fi
+          echo "::error::Publishing is only allowed from main or a v* tag (got $GITHUB_REF)"
+          exit 1
 
-      - name: Setup .NET
-        uses: actions/setup-dotnet@v6
-        with:
-          dotnet-version: '11.0.x'
-          dotnet-quality: 'preview'
-
-      - name: Cache NuGet packages
-        uses: actions/cache@v6
-        with:
-          path: ~/.nuget/packages
-          key: ${{ runner.os }}-nuget-${{ hashFiles('**/*.csproj') }}
-          restore-keys: |
-            ${{ runner.os }}-nuget-
-
-      - name: Restore dependencies
-        run: dotnet restore
-
-      - name: Build solution
-        run: dotnet build --no-restore --configuration Release
-
-      - name: Run tests
-        run: dotnet test --no-build --configuration Release --report-xunit-trx
-
-      - name: Upload test results
-        uses: actions/upload-artifact@v7
-        if: always()
-        with:
-          name: test-results-${{ matrix.os }}
-          path: '**/TestResults/*.trx'
+  # Same test matrix + pack as CI, reused instead of duplicated.
+  build:
+    name: Build
+    needs: guard
+    uses: ./.github/workflows/ci.yml
+    permissions:
+      contents: read
 
   publish:
     name: Publish to NuGet.org
     runs-on: ubuntu-latest
-    needs: test
+    needs: build
+    permissions:
+      contents: write  # gh release create
 
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v7
+      - name: Download packages
+        uses: actions/download-artifact@v8
         with:
-          fetch-depth: 0
-          fetch-tags: true
+          name: nuget-packages
+          path: artifacts
 
       - name: Setup .NET
         uses: actions/setup-dotnet@v6
@@ -78,39 +70,39 @@ jobs:
           dotnet-version: '11.0.x'
           dotnet-quality: 'preview'
 
-      - name: Restore tools
-        run: dotnet tool restore
-
-      - name: Calculate version
-        id: gitversion
+      - name: Show version
         run: |
-          dotnet gitversion /output json | tee version.json
-          echo "semVer=$(jq -r .SemVer version.json)" >> $GITHUB_OUTPUT
-          echo "nuGetVersion=$(jq -r .FullSemVer version.json)" >> $GITHUB_OUTPUT
-          echo "preReleaseTag=$(jq -r .PreReleaseTag version.json)" >> $GITHUB_OUTPUT
+          echo "Version:    ${{ needs.build.outputs.version }}"
+          echo "Prerelease: ${{ needs.build.outputs.prerelease }}"
+          ls -l artifacts/
 
-      - name: Display version
-        run: |
-          echo "SemVer: ${{ steps.gitversion.outputs.semVer }}"
-          echo "NuGetVersion: ${{ steps.gitversion.outputs.nuGetVersion }}"
-          echo "IsPreRelease: ${{ steps.gitversion.outputs.preReleaseTag }}"
-
-      - name: Restore dependencies
-        run: dotnet restore
-
-      - name: Build packages
-        run: dotnet pack --no-restore --configuration Release -p:Version=${{ steps.gitversion.outputs.nuGetVersion }}
-
+      # .snupkg files next to the .nupkg are pushed to the symbol server automatically.
+      # --skip-duplicate only makes re-runs of the same tag idempotent; versions never
+      # contain build metadata, so distinct commits never collapse to the same version.
       - name: Publish to NuGet.org
-        run: dotnet nuget push artifacts/*.nupkg --api-key ${{ secrets.NUGET_API_KEY }} --source https://api.nuget.org/v3/index.json --skip-duplicate
-
-      - name: Create GitHub Release
-        if: startsWith(github.ref, 'refs/tags/')
-        uses: actions/create-release@v1
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        with:
-          tag_name: ${{ github.ref_name }}
-          release_name: Release ${{ steps.gitversion.outputs.semVer }}
-          draft: false
-          prerelease: false
+          NUGET_API_KEY: ${{ secrets.NUGET_API_KEY }}
+        run: dotnet nuget push "artifacts/*.nupkg" --api-key "$NUGET_API_KEY" --source https://api.nuget.org/v3/index.json --skip-duplicate
+
+      - name: Create GitHub release
+        if: github.ref_type == 'tag'
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.ref_name }}
+          VERSION: ${{ needs.build.outputs.version }}
+          PRERELEASE: ${{ needs.build.outputs.prerelease }}
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          files=(artifacts/*.nupkg artifacts/*.snupkg)
+
+          if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" > /dev/null 2>&1; then
+            echo "Release $TAG already exists; re-uploading assets"
+            gh release upload "$TAG" "${files[@]}" --repo "$GITHUB_REPOSITORY" --clobber
+            exit 0
+          fi
+
+          flags=(--repo "$GITHUB_REPOSITORY" --title "$VERSION" --generate-notes --verify-tag)
+          if [ "$PRERELEASE" = "true" ]; then flags+=(--prerelease); fi
+          gh release create "$TAG" "${files[@]}" "${flags[@]}"

@@ -156,6 +156,18 @@ cd benchmarks/Guacamole.Benchmarks
 dotnet run -c Release
 ```
 
+## Releasing
+
+Packages are published to nuget.org only from version tags (or a manual run of the Publish workflow):
+
+```bash
+git checkout main && git pull
+git tag -a v0.2.0 -m "Release 0.2.0"      # or v0.2.0-beta.1 for a prerelease
+git push origin v0.2.0
+```
+
+The tag name (without `v`) is the package version. Pushes to `main` only build, test and pack. See [docs/ci-cd.md](docs/ci-cd.md) for details.
+
 ## Examples
 
 See the [`examples/`](examples/) directory for complete working examples:

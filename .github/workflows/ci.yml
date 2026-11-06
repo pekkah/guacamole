@@ -1,24 +1,39 @@
 name: CI
 
+# Build, test and pack. Runs on its own for pushes to main and pull requests,
+# and is reused by publish.yml (workflow_call) so release builds run the exact
+# same test matrix and packaging steps without duplicating them.
+#
+# This workflow never publishes anything; it only uploads build artifacts.
+
 on:
   push:
     branches: [main]
   pull_request:
     branches: [main]
+  workflow_call:
+    outputs:
+      version:
+        description: Package version that was packed (SemVer 2.0, no build metadata)
+        value: ${{ jobs.pack.outputs.version }}
+      prerelease:
+        description: "'true' when the version has a prerelease label"
+        value: ${{ jobs.pack.outputs.prerelease }}
 
 permissions:
   contents: read
-  pull-requests: write
 
 env:
   DOTNET_SKIP_FIRST_TIME_EXPERIENCE: true
   DOTNET_CLI_TELEMETRY_OPTOUT: true
+  DOTNET_NOLOGO: true
 
 jobs:
   test:
     name: Test on ${{ matrix.os }}
     runs-on: ${{ matrix.os }}
     strategy:
+      fail-fast: false
       matrix:
         os: [ubuntu-latest, windows-latest]
 
@@ -39,18 +54,19 @@ jobs:
         uses: actions/cache@v6
         with:
           path: ~/.nuget/packages
-          key: ${{ runner.os }}-nuget-${{ hashFiles('**/*.csproj') }}
+          key: ${{ runner.os }}-nuget-${{ hashFiles('**/*.csproj', 'Directory.Build.props', 'global.json') }}
           restore-keys: |
             ${{ runner.os }}-nuget-
 
       - name: Restore dependencies
-        run: dotnet restore
+        run: dotnet restore guacamole.sln
 
+      # Builds src, tests, benchmarks and examples (examples catch public API drift).
       - name: Build solution
-        run: dotnet build --no-restore --configuration Release
+        run: dotnet build guacamole.sln --no-restore --configuration Release
 
       - name: Run tests
-        run: dotnet test --no-build --configuration Release --report-xunit-trx
+        run: dotnet test --solution guacamole.sln --no-build --configuration Release --report-xunit-trx
 
       - name: Upload test results
         uses: actions/upload-artifact@v7
@@ -59,10 +75,13 @@ jobs:
           name: test-results-${{ matrix.os }}
           path: '**/TestResults/*.trx'
 
-  build:
-    name: Build NuGet packages
+  pack:
+    name: Pack NuGet packages
     runs-on: ubuntu-latest
     needs: test
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      prerelease: ${{ steps.version.outputs.prerelease }}
 
     steps:
       - name: Checkout code
@@ -77,29 +96,67 @@ jobs:
           dotnet-version: '11.0.x'
           dotnet-quality: 'preview'
 
+      - name: Cache NuGet packages
+        uses: actions/cache@v6
+        with:
+          path: ~/.nuget/packages
+          key: ${{ runner.os }}-nuget-${{ hashFiles('**/*.csproj', 'Directory.Build.props', 'global.json') }}
+          restore-keys: |
+            ${{ runner.os }}-nuget-
+
       - name: Restore tools
         run: dotnet tool restore
 
+      # Version selection:
+      #  - tag builds (refs/tags/vX.Y.Z[-label]): the tag *is* the version. GitVersion's
+      #    ContinuousDelivery mode on main ignores prerelease tags whose label is not
+      #    "alpha" (e.g. v1.0.0-beta.1 would come out as 1.0.0-alpha.N), so we do not
+      #    trust it for releases.
+      #  - everything else: GitVersion `SemVer`. Never `FullSemVer`, which can carry
+      #    "+N" build metadata that NuGet drops when comparing versions (so a later
+      #    push with --skip-duplicate would silently be skipped). GitVersion 6 no
+      #    longer emits NuGetVersion/NuGetVersionV2.
       - name: Calculate version
-        id: gitversion
+        id: version
+        shell: bash
         run: |
-          dotnet gitversion /output json | tee version.json
-          echo "semVer=$(jq -r .SemVer version.json)" >> $GITHUB_OUTPUT
-          echo "nuGetVersion=$(jq -r .FullSemVer version.json)" >> $GITHUB_OUTPUT
+          set -euo pipefail
+          dotnet gitversion /output json > gitversion.json
+          jq '{SemVer, FullSemVer, PreReleaseTag, BranchName, Sha}' gitversion.json
 
-      - name: Display version
-        run: |
-          echo "SemVer: ${{ steps.gitversion.outputs.semVer }}"
-          echo "NuGetVersion: ${{ steps.gitversion.outputs.nuGetVersion }}"
+          if [ "$GITHUB_REF_TYPE" = "tag" ]; then
+            version="${GITHUB_REF_NAME#v}"
+          else
+            version="$(jq -r .SemVer gitversion.json)"
+          fi
+
+          semver_re='^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(-[0-9A-Za-z.-]+)?$'
+          if ! [[ "$version" =~ $semver_re ]]; then
+            echo "::error::'$version' is not a valid SemVer 2.0 version without build metadata (tags must look like v1.2.3 or v1.2.3-beta.1)"
+            exit 1
+          fi
+
+          prerelease=false
+          if [[ "$version" == *-* ]]; then prerelease=true; fi
+
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "prerelease=$prerelease" >> "$GITHUB_OUTPUT"
+          echo "### Package version: \`$version\` (prerelease: $prerelease)" >> "$GITHUB_STEP_SUMMARY"
 
       - name: Restore dependencies
-        run: dotnet restore
+        run: dotnet restore guacamole.sln
 
-      - name: Build packages
-        run: dotnet pack --no-restore --configuration Release -p:Version=${{ steps.gitversion.outputs.nuGetVersion }}
+      - name: Pack
+        run: dotnet pack guacamole.sln --no-restore --configuration Release -p:Version=${{ steps.version.outputs.version }}
+
+      - name: List packages
+        run: ls -l artifacts/
 
       - name: Upload packages
         uses: actions/upload-artifact@v7
         with:
           name: nuget-packages
-          path: 'artifacts/*.nupkg'
+          path: |
+            artifacts/*.nupkg
+            artifacts/*.snupkg
+          if-no-files-found: error

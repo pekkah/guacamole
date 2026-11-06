@@ -485,3 +485,6 @@ $RECYCLE.BIN/
 
 artifacts/
 TestResults/
+
+# Claude Code agent worktrees
+.claude/worktrees/
