@@ -75,6 +75,10 @@ public readonly record struct IncrementalValueProvider<T>(
             return Result<T, ComputationError>.Success(cachedResult);
         }
 
+        // Snapshot dependency versions BEFORE computing: a change that happens while
+        // computing must not be recorded as already seen by this value.
+        var depVersions = ProviderCacheCoordinator.SnapshotDependencyVersions(Node, Graph);
+
         // Create context with current cache state and compute
         var cachedValues = ProviderCacheCoordinator.BuildCacheContext(Node, Graph);
         var context = new ComputationContext(cachedValues);
@@ -83,7 +87,6 @@ public readonly record struct IncrementalValueProvider<T>(
         // Store result with version tracking
         if (result.IsSuccess && result.Value != null)
         {
-            var depVersions = ProviderCacheCoordinator.SnapshotDependencyVersions(Node, Graph);
             var value = result.Value;
             var comparer = GetNodeComparer();
             ProviderCacheCoordinator.Commit(
@@ -214,6 +217,10 @@ public readonly record struct IncrementalValuesProvider<T>(
             return Result<IEnumerable<T>, ComputationError>.Success(cachedResult);
         }
 
+        // Snapshot dependency versions BEFORE computing: a change that happens while
+        // computing must not be recorded as already seen by this value.
+        var depVersions = ProviderCacheCoordinator.SnapshotDependencyVersions(Node, Graph);
+
         // Create context with current cache state and compute
         var cachedValues = ProviderCacheCoordinator.BuildCacheContext(Node, Graph);
         var context = new ComputationContext(cachedValues);
@@ -225,7 +232,6 @@ public readonly record struct IncrementalValuesProvider<T>(
             // Materialize to array for comparison and storage
             var currentArray = result.Value as T[] ?? result.Value.ToArray();
 
-            var depVersions = ProviderCacheCoordinator.SnapshotDependencyVersions(Node, Graph);
             var comparer = GetElementComparer();
             ProviderCacheCoordinator.Commit(
                 Graph,

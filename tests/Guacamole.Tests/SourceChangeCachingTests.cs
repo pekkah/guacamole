@@ -120,4 +120,29 @@ public partial class SourceChangeCachingTests
         Assert.Equal(10, doubled.Value);
         Assert.Equal(2, computeCount);
     }
+
+    [Fact]
+    public void Select_WhenSourceChangesDuringCompute_RecomputesOnNextRead()
+    {
+        using var context = new CachingValueContext();
+        var computeCount = 0;
+        var doubled = context.Number.Select(x =>
+        {
+            computeCount++;
+            if (computeCount == 1)
+            {
+                // Simulate a concurrent writer changing the source mid-computation
+                context.NumberSource.Set(2);
+            }
+            return x * 2;
+        });
+
+        context.NumberSource.Set(1);
+
+        // The first computation read 1; the change to 2 must not be recorded as seen
+        Assert.Equal(2, doubled.Value);
+        Assert.Equal(4, doubled.Value);
+        Assert.Equal(4, doubled.Value);
+        Assert.Equal(2, computeCount);
+    }
 }
