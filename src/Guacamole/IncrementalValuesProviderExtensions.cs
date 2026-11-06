@@ -412,7 +412,7 @@ public static class IncrementalValuesProviderExtensions
 }
 
 // Supporting node implementations for extensions
-internal sealed class SelectManyValuesNode<TSource, TResult> : ICollectionComputationNode<TResult>
+internal sealed class SelectManyValuesNode<TSource, TResult> : ICollectionComputationNode<TResult>, IHasComparer<TResult>
 {
     private readonly ICollectionComputationNode<TSource> _source;
     private readonly Func<TSource, IEnumerable<TResult>> _selector;
@@ -499,7 +499,7 @@ internal sealed class CollectValuesNode<T> : IComputationNode<ImmutableArray<T>>
     }
 }
 
-internal sealed class SelectValuesNode<TSource, TResult> : ICollectionComputationNode<TResult>
+internal sealed class SelectValuesNode<TSource, TResult> : ICollectionComputationNode<TResult>, IHasComparer<TResult>
 {
     private readonly ICollectionComputationNode<TSource> _source;
     private readonly Func<TSource, TResult> _selector;
@@ -546,7 +546,7 @@ internal sealed class SelectValuesNode<TSource, TResult> : ICollectionComputatio
     }
 }
 
-internal sealed class WhereValuesNode<T> : ICollectionComputationNode<T>
+internal sealed class WhereValuesNode<T> : ICollectionComputationNode<T>, IHasComparer<T>
 {
     private readonly ICollectionComputationNode<T> _source;
     private readonly Func<T, bool> _predicate;
@@ -600,7 +600,7 @@ internal sealed class WhereValuesNode<T> : ICollectionComputationNode<T>
     }
 }
 
-internal sealed class CombineValuesWithValueNode<TLeft, TRight> : ICollectionComputationNode<(TLeft, TRight)>
+internal sealed class CombineValuesWithValueNode<TLeft, TRight> : ICollectionComputationNode<(TLeft, TRight)>, IHasComparer<(TLeft, TRight)>
 {
     private readonly ICollectionComputationNode<TLeft> _left;
     private readonly IComputationNode<TRight> _right;

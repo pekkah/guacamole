@@ -265,7 +265,7 @@ public static class IncrementalValueProviderExtensions
 }
 
 // Supporting node implementations for extensions
-internal sealed class SelectValueNode<TSource, TResult> : IComputationNode<TResult>
+internal sealed class SelectValueNode<TSource, TResult> : IComputationNode<TResult>, IHasComparer<TResult>
 {
     private readonly IComputationNode<TSource> _source;
     private readonly Func<TSource, TResult> _selector;
@@ -311,7 +311,7 @@ internal sealed class SelectValueNode<TSource, TResult> : IComputationNode<TResu
     }
 }
 
-internal sealed class WhereValueNode<T> : IComputationNode<T>
+internal sealed class WhereValueNode<T> : IComputationNode<T>, IHasComparer<T>
 {
     private readonly IComputationNode<T> _source;
     private readonly Func<T, bool> _predicate;
@@ -414,7 +414,7 @@ internal sealed class CombineValueNode<TFirst, TSecond> : IComputationNode<(TFir
     }
 }
 
-internal sealed class SelectManyFromValueNode<TSource, TResult> : ICollectionComputationNode<TResult>
+internal sealed class SelectManyFromValueNode<TSource, TResult> : ICollectionComputationNode<TResult>, IHasComparer<TResult>
 {
     private readonly IComputationNode<TSource> _source;
     private readonly Func<TSource, IEnumerable<TResult>> _selector;
