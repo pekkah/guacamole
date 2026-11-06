@@ -63,7 +63,7 @@ if (result.IsSuccess)
 
 ### Build pipelines once
 
-Every operator call (`Select`, `Where`, `Combine`, `Collect`, ...) creates a **new computation node with a unique ID**, and cached values are stored per node. Build a pipeline once (in a constructor or at startup) and keep the resulting provider. Do **not** build pipelines inside property getters or per request: every call would create fresh nodes that start with an empty cache, and those nodes stay registered in the context's graph.
+Every operator call (`Select`, `Where`, `Combine`, `Collect`, ...) creates a **new computation node with a unique ID**, and cached values are stored per node. Build a pipeline once (in a constructor or at startup) and keep the resulting provider. Avoid building pipelines inside property getters or per request. Identical operator calls are reused: calling the same operator on the same input with an equal delegate (a non-capturing lambda, a lambda that only captures `this`, or a method group on the same instance) returns the existing node. Lambdas that capture locals allocate a new closure per call, so they never match and create a new node each time. Such nodes start with an empty cache and stay registered in the context's graph.
 
 The generator emits the context's public parameterless constructor, so you cannot declare your own parameterless constructor. To expose derived pipelines as properties, declare them as non-partial properties with a setter and assign them in a constructor that chains to `this()`:
 
@@ -245,7 +245,7 @@ For each `[ComputingContext]` class the generator emits one file containing:
 - The implementation of each partial provider property (returns the source's provider)
 - A `{Property}Source` accessor typed `IIncrementalSource<T>` or `IIncrementalValueSource<T>`
 
-The generator also reports diagnostics (GUAC0003-GUAC0007) for invalid declarations; see [Generated Code Reference](docs/generated-code-reference.md#diagnostics).
+The generator also reports diagnostics (GUAC0003-GUAC0009) for invalid declarations; see [Generated Code Reference](docs/generated-code-reference.md#diagnostics).
 
 ### Output Handlers
 

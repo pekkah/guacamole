@@ -155,7 +155,7 @@ IncrementalValueProvider<int> tokenCount = tokens.Select(t => t.Length);
 Every operator call creates a **new node with a unique ID**, and cached values are stored per node. So:
 
 - Build each pipeline **once** (in a constructor or at startup) and keep the provider.
-- Do **not** build pipelines in property getters, per request or in a loop. Each call creates fresh nodes that start with an empty cache (so nothing is ever reused), and the nodes stay registered in the context's graph.
+- Avoid building pipelines in property getters, per request or in a loop. Identical operator calls are reused: calling the same operator on the same input with an equal delegate (a non-capturing lambda, a lambda that only captures `this`, or a method group on the same instance) returns the existing node. Lambdas that capture locals allocate a new closure per call, so they never match and create a new node each time. New nodes start with an empty cache and stay registered in the context's graph.
 
 ### Derived properties on the context
 
@@ -309,7 +309,7 @@ Derived providers must be non-partial with a setter, assigned in a constructor (
 
 **Q: error CS0111 (type already defines a member with the same parameter types) on my constructor**
 
-The generator emits the parameterless constructor. Declare a constructor with parameters that chains to `: this()` instead.
+The generator emits the parameterless constructor and reports **GUAC0008** if you declare your own. Declare a constructor with parameters that chains to `: this()` instead; constructors that never reach `: this()` get warning **GUAC0009** because the generated sources would stay uninitialized.
 
 ## Next Steps
 

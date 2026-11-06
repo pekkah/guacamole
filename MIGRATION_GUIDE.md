@@ -141,7 +141,7 @@ public partial class CompilerContext : ComputingContextBase
 }
 ```
 
-If your old context declared its own parameterless constructor, move that code into a constructor with parameters (or build the pipeline outside the context). Build pipelines once: every operator call creates a new node with its own cache.
+If your old context declared its own parameterless constructor, move that code into a constructor with parameters (or build the pipeline outside the context). Build pipelines once: distinct operator calls create new nodes with their own caches (identical calls with non-capturing lambdas are reused).
 
 ## Updating Tests
 
@@ -164,6 +164,6 @@ Assert.Contains(file, context.SourceFiles.Values);
 
 **"My output handler is called more often than before."** Handlers used to run once per `SaveChanges()`; now they run after every effective change. Register handlers after bulk loading, or make them cheap. Handlers are skipped when their value did not change, so make sure item and result types have value equality (records or `IEquatable<T>`).
 
-**"CS0111: type already defines a member with the same parameter types."** The generator emits the parameterless constructor; see [Derived properties](#derived-properties).
+**"GUAC0008" (or CS0111 with older generator versions).** The generator emits the parameterless constructor; see [Derived properties](#derived-properties).
 
 **"GUAC0003 / GUAC0005."** See the property rules in the [Generated Code Reference](docs/generated-code-reference.md#property-classification).

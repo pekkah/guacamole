@@ -16,7 +16,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Generated code fully qualifies all types with `global::`, so item types from other namespaces work without `using` directives.
   - Unique hint names (namespace + containing types + metadata name), so same-named contexts in different namespaces or types no longer collide.
   - Support for nested contexts (containing types re-emitted as partial), generic contexts and contexts in the global namespace; input properties keep their declared accessibility.
-  - New diagnostics: **GUAC0006** (context or a containing type is not `partial`) and **GUAC0007** (context does not derive from `ComputingContextBase`). GUAC0003 and GUAC0005 are now reported at the offending property. See [docs/generated-code-reference.md](docs/generated-code-reference.md#diagnostics).
+  - New diagnostics: **GUAC0006** (context or a containing type is not `partial`) **GUAC0007** (context does not derive from `ComputingContextBase`), **GUAC0008** (context declares its own parameterless constructor) and **GUAC0009** (constructor never chains to `: this()`). GUAC0003 and GUAC0005 are now reported at the offending property. See [docs/generated-code-reference.md](docs/generated-code-reference.md#diagnostics).
   - The disabled legacy generator and its mutation-method/`SaveChanges` code generators were deleted.
 - **Breaking: push-based sources replace mutation methods.** Generated `Add{X}`/`Remove{X}`/`Replace{X}`/`Set{X}` methods, `SaveChanges()`, `SaveChangesAsync()`, `DiscardChanges()` and `HasPendingChanges` were removed. Each input property now gets a `{X}Source` accessor (`IIncrementalSource<T>` with `Push`/`Remove`/`Replace`/`Clear`, or `IIncrementalValueSource<T>` with `Set`), and changes take effect immediately. See [MIGRATION_GUIDE.md](MIGRATION_GUIDE.md).
 - **Breaking: version-based lazy invalidation.** A source change only increments the source's version; cached values are revalidated when read, and a provider whose recomputed value is equal keeps its version so dependents stay cached.
@@ -28,6 +28,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Node reuse**: identical operator calls (same operator, same ordered inputs, equal delegates and comparers) return the existing node, so pipelines built repeatedly (e.g. in property getters with non-capturing lambdas) share one cache and don't grow the graph.
 - **Node ID collisions**: node IDs were derived from the operation name and parent IDs, so two different operator calls on the same parent (for example two `Select`s with different lambdas) shared one cache slot and could return each other's values. Every operator call now creates a node with a unique ID.
 - **Caching after source changes**: derived values are kept cached across source changes and are recomputed only when an input they depend on (including inputs reached through intermediate, unread stages) has changed. Dependency versions are snapshotted before computing, so a change that happens during a computation is picked up by the next read.
 - **Thread safety**: `LRUCache.TryGet` performs lookup, LRU update and value read atomically; storing a computed value with its version information is atomic; output registration, source subscription and `Dispose()` are synchronized.

@@ -109,7 +109,7 @@ Notes:
 
 - **Fully qualified names**: every type in generated code is written with `global::`, because the generated file has no `using` directives. Item types from other namespaces, nullable annotations and generic arguments are preserved.
 - **Accessibility**: each input property keeps its declared accessibility (`internal`, `protected internal`, `private`, ...). The `{Property}Source` accessor uses the same accessibility.
-- **Constructor**: the generated parameterless constructor is always `public` and is emitted even for a context with no input properties. You cannot declare another parameterless constructor; declare constructors with parameters that chain to `: this()`.
+- **Constructor**: the generated parameterless constructor is always `public` and is emitted even for a context with no input properties. Declaring your own parameterless constructor reports **GUAC0008** (the generator then omits its constructor). Declare constructors with parameters that chain to `: this()`; a constructor that never reaches `: this()` (via `: base(...)`, no initializer, or a `: this(...)` chain that doesn't end in `: this()`) reports **GUAC0009**.
 - **Source IDs** are `"{ClassName}.{PropertyName}"` and are scoped to the context's own graph.
 
 ### Nested and Generic Contexts
@@ -148,6 +148,8 @@ Each generated file has a hint name that is unique per type: namespace, containi
 | GUAC0005 | Error | Guacamole.SourceGenerator | A `partial` provider property has a setter. User-managed properties must not be `partial`. |
 | GUAC0006 | Error | Guacamole.SourceGenerator | The context class, or a type that contains it, is not `partial`. No code is generated. |
 | GUAC0007 | Error | Guacamole.SourceGenerator | A class marked `[ComputingContext]` does not derive from `Guacamole.ComputingContextBase`. No code is generated. |
+| GUAC0008 | Error | Guacamole.SourceGenerator | The context declares its own parameterless constructor, which would collide with the generated one. The generator omits its constructor; move the code into a constructor with parameters chaining to `: this()`. |
+| GUAC0009 | Warning | Guacamole.SourceGenerator | An instance constructor never reaches `: this()`, so the generated sources stay uninitialized. `: this(...)` chains are followed. |
 
 GUAC0001 and GUAC0002 were removed before the first release (they could never be reported) and their IDs are retired. The rule list is tracked in [`AnalyzerReleases.Unshipped.md`](../src/Guacamole.SourceGenerators/AnalyzerReleases.Unshipped.md).
 

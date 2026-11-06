@@ -44,10 +44,10 @@ Collection operators (`Select`, `Where`, `SelectMany` on `IncrementalValuesProvi
 
 ## Build Pipelines Once
 
-Every operator call creates a new node with a unique ID, and the cache is keyed by node ID. Calling `context.Files.Select(Parse)` twice creates two independent nodes, each computing and caching on its own.
+Every distinct operator call creates a new node with a unique ID, and the cache is keyed by node ID. Identical operator calls are reused: calling the same operator on the same input with an equal delegate (a non-capturing lambda, a lambda that only captures `this`, or a method group on the same instance) returns the existing node. Lambdas that capture locals allocate a new closure per call, so they never match and create a new node each time.
 
 - Build pipelines once, in a constructor (chaining to the generated `this()`) or at startup, and keep the providers.
-- Never build pipelines in property getters, per request or inside loops. Each call would start with an empty cache and add nodes to the context's graph, which are never removed.
+- Avoid building pipelines in property getters, per request or inside loops, especially with capturing lambdas: each non-matching call starts with an empty cache and adds nodes to the context's graph, which are never removed.
 
 ## Equality
 
