@@ -329,7 +329,7 @@ For **properties with setters** (user-managed), no implementation is generated -
 To view generated code:
 1. Add `<EmitCompilerGeneratedFiles>true</EmitCompilerGeneratedFiles>` to your .csproj
 2. Build project
-3. Check `obj/Debug/net10.0/generated/` directory
+3. Check `obj/Debug/net11.0/generated/` directory
 4. Look for `YourContext.g.cs` file
 
 ## Common Patterns

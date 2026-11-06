@@ -87,7 +87,7 @@ cd examples/BasicSourceUsage
 dotnet run
 ```
 
-All examples require .NET 10.0 RC1 or later and use C# 13 partial properties.
+All examples require .NET 11 RC3 SDK or later and use C# 13 partial properties.
 
 ## Further Reading
 
