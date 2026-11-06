@@ -62,15 +62,26 @@ public class LRUCache<TKey, TValue> : ICache<TKey, TValue>, ICacheStatisticsProv
     {
         ArgumentNullException.ThrowIfNull(key);
 
-        if (_index.TryGetValue(key, out var node))
+        bool found = false;
+        value = default;
+
+        // Lookup, LRU update and value read must happen atomically: otherwise the node
+        // can be evicted or replaced between the lookup and the move, and the value read
+        // could race with an update.
+        lock (_lock)
         {
-            lock (_lock)
+            if (_index.TryGetValue(key, out var node))
             {
                 // Move to front (most recently used)
                 _accessOrder.Remove(node);
                 _accessOrder.AddFirst(node);
+                value = node.Value.Value;
+                found = true;
             }
+        }
 
+        if (found)
+        {
             Interlocked.Increment(ref _hitCount);
 
             // Record cache hit metrics
@@ -79,7 +90,6 @@ public class LRUCache<TKey, TValue> : ICache<TKey, TValue>, ICacheStatisticsProv
                 GuacamoleMetrics.RecordCacheOperation("get", "hit");
             }
 
-            value = node.Value.Value;
             return true;
         }
 
@@ -91,7 +101,6 @@ public class LRUCache<TKey, TValue> : ICache<TKey, TValue>, ICacheStatisticsProv
             GuacamoleMetrics.RecordCacheOperation("get", "miss");
         }
 
-        value = default;
         return false;
     }
 

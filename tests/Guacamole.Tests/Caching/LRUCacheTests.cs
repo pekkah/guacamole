@@ -345,4 +345,41 @@ public class LRUCacheTests
         var stats = cache.GetStatistics();
         // CacheStatistics is a value type, no need for null check
     }
+
+    /// <summary>
+    /// CONCURRENCY: TryGet racing with Set (eviction) and Remove on a tiny cache must
+    /// never throw and must only return values that were stored for that key.
+    /// </summary>
+    [Fact]
+    public void LRUCache_ConcurrentGetSetEvict_DoesNotThrow()
+    {
+        var cache = new LRUCache<int, string>(4);
+        const int keySpace = 16;
+        var options = new ParallelOptions { MaxDegreeOfParallelism = Environment.ProcessorCount * 2 };
+
+        for (var round = 0; round < 20; round++)
+        {
+            Parallel.For(0, 20_000, options, i =>
+            {
+                var key = i % keySpace;
+                switch (i % 3)
+                {
+                    case 0:
+                        cache.Set(key, "v" + key);
+                        break;
+                    case 1:
+                        if (cache.TryGet(key, out var value))
+                        {
+                            Assert.Equal("v" + key, value);
+                        }
+                        break;
+                    default:
+                        cache.Remove((key + 1) % keySpace);
+                        break;
+                }
+            });
+        }
+
+        Assert.True(cache.Count <= cache.Capacity);
+    }
 }
