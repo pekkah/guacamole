@@ -25,13 +25,17 @@ internal sealed record ContextAnalysisResult(
 /// <param name="ClassName">Simple class name (used for the constructor).</param>
 /// <param name="TypeParameterList">Type parameter list including angle brackets, or empty.</param>
 /// <param name="Properties">Source-backed properties to implement.</param>
+/// <param name="GenerateConstructor">
+/// False when the user declared a parameterless constructor (GUAC0008); the generated one is then omitted.
+/// </param>
 internal sealed record ContextModel(
     string HintName,
     string? Namespace,
     EquatableArray<ContainingTypeModel> ContainingTypes,
     string ClassName,
     string TypeParameterList,
-    EquatableArray<SourcePropertyModel> Properties);
+    EquatableArray<SourcePropertyModel> Properties,
+    bool GenerateConstructor);
 
 /// <summary>
 /// A type that contains the computing context class (for nested classes).

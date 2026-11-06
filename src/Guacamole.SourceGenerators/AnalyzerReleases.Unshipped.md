@@ -11,3 +11,5 @@ GUAC0004 | Guacamole.Performance | Warning | Provider item type does not impleme
 GUAC0005 | Guacamole.SourceGenerator | Error | User-managed property (with setter) should not be partial
 GUAC0006 | Guacamole.SourceGenerator | Error | Computing context and its containing types must be partial
 GUAC0007 | Guacamole.SourceGenerator | Error | Computing context must derive from ComputingContextBase
+GUAC0008 | Guacamole.SourceGenerator | Error | Computing context must not declare a parameterless constructor
+GUAC0009 | Guacamole.SourceGenerator | Warning | Computing context constructor must chain to ': this()'

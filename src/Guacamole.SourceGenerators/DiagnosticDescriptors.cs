@@ -63,6 +63,24 @@ internal static class DiagnosticDescriptors
         isEnabledByDefault: true,
         description: "Generated code relies on members of Guacamole.ComputingContextBase, so classes marked with [ComputingContext] must derive from it.");
 
+    public static readonly DiagnosticDescriptor UserDeclaredParameterlessConstructor = new(
+        id: "GUAC0008",
+        title: "Computing context must not declare a parameterless constructor",
+        messageFormat: "Computing context '{0}' must not declare a parameterless instance constructor: the source generator emits it to initialize the generated sources. Move the initialization logic into another constructor that chains to ': this()'.",
+        category: UsageCategory,
+        defaultSeverity: DiagnosticSeverity.Error,
+        isEnabledByDefault: true,
+        description: "The source generator emits the public parameterless constructor of a computing context, which initializes the generated source backing fields. A user-declared parameterless constructor would collide with it (CS0111), so the generator reports this error and omits its own constructor; the rest of the class is still generated so that no follow-up errors are produced.");
+
+    public static readonly DiagnosticDescriptor ConstructorMustChainToGeneratedConstructor = new(
+        id: "GUAC0009",
+        title: "Computing context constructor must chain to ': this()'",
+        messageFormat: "Constructor of computing context '{0}' must chain to ': this()' so generated sources are initialized",
+        category: UsageCategory,
+        defaultSeverity: DiagnosticSeverity.Warning,
+        isEnabledByDefault: true,
+        description: "Generated sources are initialized by the generated parameterless constructor. Every other instance constructor must, directly or through other constructors, chain to ': this()'; otherwise the sources stay null and accessing them throws at runtime.");
+
     public static DiagnosticDescriptor GetById(string id) => id switch
     {
         "GUAC0003" => GetOnlyProviderMustBePartial,
@@ -70,6 +88,8 @@ internal static class DiagnosticDescriptors
         "GUAC0005" => UserManagedPropertyMustNotBePartial,
         "GUAC0006" => ContextMustBePartial,
         "GUAC0007" => ContextMustDeriveFromBase,
+        "GUAC0008" => UserDeclaredParameterlessConstructor,
+        "GUAC0009" => ConstructorMustChainToGeneratedConstructor,
         _ => throw new ArgumentOutOfRangeException(nameof(id), id, "Unknown diagnostic id"),
     };
 }
