@@ -148,7 +148,7 @@ MAY be used with explicit justification.
 
 ### Dependency Management
 - Core package MUST depend only on Microsoft.Extensions.DependencyInjection
-- Target framework MUST be .NET 10.0 only
+- Target framework MUST be .NET 11.0 only
 - Dependencies in extension packages MUST use lowest compatible version
 - Transitive dependencies MUST be reviewed for security and licensing
 - Package MUST include THIRD-PARTY-NOTICES for all dependencies
@@ -223,7 +223,7 @@ audit trail for all changes.
   - #regions MUST NOT be used with code as they make it harder for humans to read the codebase
 
 ### .NET Specific Standards
-- Target .NET 10.0 only (upgrade to RTM when available)
+- Target .NET 11.0 only (upgrade to RTM when available)
 - Enable nullable reference types everywhere
 - Use ValueTask for hot paths
 - Implement IAsyncEnumerable for streaming results

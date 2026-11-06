@@ -1,0 +1,37 @@
+# Normalize line endings: LF in the repository, native on checkout
+* text=auto
+
+# Verify snapshot files must keep LF line endings on every platform
+*.verified.txt  text eol=lf working-tree-encoding=UTF-8
+*.verified.xml  text eol=lf working-tree-encoding=UTF-8
+*.verified.json text eol=lf working-tree-encoding=UTF-8
+*.verified.cs   text eol=lf working-tree-encoding=UTF-8
+
+# Shell scripts must use LF; Windows scripts use CRLF
+*.sh   text eol=lf
+*.cmd  text eol=crlf
+*.bat  text eol=crlf
+*.ps1  text eol=crlf
+
+# Source and project files
+*.cs      text diff=csharp
+*.csproj  text
+*.props   text
+*.targets text
+*.sln     text
+*.slnx    text
+*.json    text
+*.yml     text
+*.yaml    text
+*.md      text diff=markdown
+*.xml     text
+
+# Binary files
+*.png   binary
+*.jpg   binary
+*.gif   binary
+*.ico   binary
+*.dll   binary
+*.exe   binary
+*.nupkg binary
+*.snupkg binary

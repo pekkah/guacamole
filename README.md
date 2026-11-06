@@ -134,8 +134,8 @@ All methods support:
 
 ## Requirements
 
-- .NET 10 RC1 or later
-- C# 13
+- .NET 11 RC3 SDK (11.0.100-rc.3) or later
+- C# 15 (LangVersion latest; partial properties require C# 13+)
 
 ## Building
 

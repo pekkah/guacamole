@@ -5,7 +5,6 @@ using Guacamole.Core.Nodes;
 using Guacamole.Core.Pipeline;
 using Guacamole;
 using Xunit;
-using Xunit.Abstractions;
 
 namespace Guacamole.Core.Tests.Providers;
 

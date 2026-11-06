@@ -1,6 +1,5 @@
 using Guacamole;
 using Xunit;
-using Xunit.Abstractions;
 using System.Linq;
 
 namespace Guacamole.Tests;
