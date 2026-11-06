@@ -1,6 +1,5 @@
 using System.Collections.Immutable;
 using System.Runtime.CompilerServices;
-using Guacamole.Diagnostics;
 
 namespace Guacamole;
 
@@ -85,18 +84,6 @@ public readonly record struct ProviderMetadata(
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(pipelineStage);
         return this with { PipelineStage = pipelineStage };
-    }
-
-    /// <summary>
-    /// Records provider creation metrics if enabled in configuration.
-    /// Called automatically by provider constructors.
-    /// </summary>
-    internal void RecordCreationMetrics(string providerType, string? transformType = null)
-    {
-        if (MetricsConfiguration.Current.EnableProviderMetrics)
-        {
-            GuacamoleMetrics.RecordProviderCreation(providerType, TrackingName, transformType);
-        }
     }
 }
 

@@ -229,7 +229,7 @@ Automatic dependency tracking and lazy invalidation:
 
 - Providers form a directed acyclic graph (DAG); every operator call adds a new node
 - A source change increments that source's version; dependents are revalidated lazily when read
-- Computed values live in an LRU cache (10,000 entries per context graph)
+- Computed values live in an LRU cache per context: 10,000 entries by default; override `protected override int CacheCapacity => ...;` on the context to change it
 
 ### 3. **Incremental Providers**
 Immutable pipeline structures that lazily compute values:

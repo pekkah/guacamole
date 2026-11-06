@@ -1,6 +1,8 @@
 using System.Collections.Generic;
 using System.Collections.Immutable;
+using System.Diagnostics;
 using System.Diagnostics.CodeAnalysis;
+using Guacamole.Diagnostics;
 using Guacamole.Pipeline;
 
 namespace Guacamole;
@@ -91,7 +93,7 @@ public readonly record struct IncrementalValueProvider<T>
         // Create context with current cache state and compute
         var cachedValues = ProviderCacheCoordinator.BuildCacheContext(Node, Graph);
         var context = new ComputationContext(cachedValues);
-        var result = Node.Compute(context);
+        var result = ComputationMetrics.Measure(Node, Metadata, "value", static (node, ctx) => node.Compute(ctx), context);
 
         // Store result with version tracking
         if (result.IsSuccess && result.Value != null)
@@ -274,7 +276,7 @@ public readonly record struct IncrementalValuesProvider<T>
         // Create context with current cache state and compute
         var cachedValues = ProviderCacheCoordinator.BuildCacheContext(Node, Graph);
         var context = new ComputationContext(cachedValues);
-        var result = Node.Compute(context);
+        var result = ComputationMetrics.Measure(Node, Metadata, "values", static (node, ctx) => node.Compute(ctx), context);
 
         // Store result with version tracking
         if (result.IsSuccess && result.Value != null)
@@ -367,5 +369,40 @@ public readonly record struct IncrementalValuesProvider<T>
             throw new InvalidOperationException(
                 $"Failed to compute values: {result.ErrorValue?.Message ?? "Unknown error"}");
         }
+    }
+}
+
+/// <summary>
+/// Records computation metrics around a provider's node computation.
+/// </summary>
+internal static class ComputationMetrics
+{
+    /// <summary>
+    /// Runs <paramref name="compute"/> and, if computation metrics are enabled, records it in
+    /// <see cref="GuacamoleMetrics.ComputationsTotal"/>, <see cref="GuacamoleMetrics.ComputationDuration"/>
+    /// and (for an error result) <see cref="GuacamoleMetrics.ComputationErrors"/>.
+    /// </summary>
+    public static Result<TValue, ComputationError> Measure<TNode, TValue>(
+        TNode node,
+        ProviderMetadata metadata,
+        string providerType,
+        Func<TNode, ComputationContext, Result<TValue, ComputationError>> compute,
+        ComputationContext context)
+        where TNode : IComputationNode
+    {
+        var configuration = MetricsConfiguration.Current;
+        if (!configuration.EnableComputationMetrics)
+            return compute(node, context);
+
+        var start = Stopwatch.GetTimestamp();
+        var result = compute(node, context);
+        GuacamoleMetrics.RecordComputation(
+            configuration,
+            providerType,
+            node.GetType().Name,
+            metadata,
+            Stopwatch.GetElapsedTime(start).TotalMilliseconds,
+            result.IsError);
+        return result;
     }
 }

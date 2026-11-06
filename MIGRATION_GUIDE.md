@@ -5,6 +5,7 @@ This guide covers the breaking API changes made before 1.0:
 - [Namespace consolidation](#namespace-consolidation)
 - [Internal types and members](#internal-types-and-members)
 - [Single-value `Where` produces "no value"](#single-value-where-produces-no-value)
+- [Removed settings and dead code](#removed-settings-and-dead-code)
 - [From mutation-based to push-based sources](#from-mutation-based-to-push-based-sources)
 
 ## Namespace Consolidation
@@ -22,7 +23,7 @@ using Guacamole;
 | `Guacamole.Core.Common` | `Result<TValue, TError>` | `Guacamole` |
 | `Guacamole.Core.Pipeline` | `ComputationError` | `Guacamole` |
 | `Guacamole.Core.Diagnostics` | `ProviderMetadata`, `SourceLocation` | `Guacamole` |
-| `Guacamole.Exceptions` | `ContextOperationException` | `Guacamole` |
+| `Guacamole.Exceptions` | `ContextOperationException` | removed (unused) |
 | `Guacamole.Core.Pipeline` | `ComputationGraph`, `IComputationNode`, `IComputationNode<T>`, `ICollectionComputationNode<T>`, `IHasComparer<T>`, `ComputationContext`, `VersionTracker`, `NodeVersionInfo` | internal |
 | `Guacamole.Core.Nodes` | `ComputationNodeBase<T>`, `CollectionComputationNodeBase<T>` | internal |
 | `Guacamole.Core.Caching` | `ICache<TKey, TValue>`, `LRUCache<TKey, TValue>`, `ICacheStatisticsProvider`, `CacheStatistics` | internal |
@@ -36,13 +37,13 @@ To migrate, replace `using Guacamole.Sources;`, `using Guacamole.Core.Common;`, 
 
 The computation graph, its nodes and the value cache are implementation details and are no longer public:
 
-- `ComputationGraph` (including `ReplaceNode`, `WithCachedValue`, `ValueCache`, `IsValidDAG`, `ValidateDependencies`, `MarkSourceChanged`, `InvalidateCacheForNode` and the runtime-node queries), `IComputationNode`, `IComputationNode<T>`, `ICollectionComputationNode<T>`, `IHasComparer<T>`, `ComputationContext`, `ComputationNodeBase<T>`, `CollectionComputationNodeBase<T>`, `VersionTracker`, `NodeVersionInfo`
+- `ComputationGraph` (including `ReplaceNode`, `WithCachedValue`, `ValueCache`, `MarkSourceChanged`, `InvalidateCacheForNode` and the runtime-node queries), `IComputationNode`, `IComputationNode<T>`, `ICollectionComputationNode<T>`, `IHasComparer<T>`, `ComputationContext`, `ComputationNodeBase<T>`, `CollectionComputationNodeBase<T>`, `VersionTracker`, `NodeVersionInfo`
 - `ICache<TKey, TValue>`, `LRUCache<TKey, TValue>`, `ICacheStatisticsProvider`, `CacheStatistics`
 - `IncrementalValueProvider<T>.Node`/`.Graph`, `IncrementalValuesProvider<T>.Node`/`.Graph` and the providers' constructors (providers are created by sources and operators only; the positional `Deconstruct` is gone)
 - `IncrementalSource<T>`, `IncrementalValueSource<T>` and `BatchOperation<T>`: use the `IIncrementalSource<T>`, `IIncrementalValueSource<T>` and `IBatchOperation<T>` interfaces
 - `ComputingContextBase.Graph` and `SubscribeToSource`: a context creates its sources with the protected `CreateSource<T>(id)` / `CreateValueSource<T>(id)` helpers, which register and subscribe them. The generated constructor uses them; rebuild to regenerate it.
 - `IComputationContextFactory`, `IIncrementalValueProviderFactory` and `IIncrementalValuesProviderFactory` (they only accepted node types)
-- `GuacamoleMetrics.StartActivity`, `RecordComputation`, `RecordCacheOperation`, `RecordProviderCreation`, `UpdateGraphMetrics` and `UpdateCacheMetrics`. The instruments themselves stay public; observe them with a `MeterListener` or OpenTelemetry.
+- `GuacamoleMetrics.StartActivity`, `RecordComputation`, `RecordCacheOperation`, `UpdateGraphMetrics` and `UpdateCacheMetrics`. The instruments themselves stay public; observe them with a `MeterListener` or OpenTelemetry.
 
 Custom computation nodes are not supported: build pipelines from sources with the provider operators (`Select`, `Where`, `Combine`, `SelectMany`, `Collect`, ...).
 
@@ -62,6 +63,26 @@ Custom computation nodes are not supported: build pipelines from sources with th
 `Result<TValue, TError>` gained the third state: `Result.None`, `IsNone` and `IsError`, plus `Match` overloads with an `onNone` handler. `Map`/`Bind`/`MapError` propagate None. The two-handler `Match` overloads and `GetValueOrDefault(Func<TError, TValue>)` throw `InvalidOperationException` for None, and `default(Result<TValue, TError>)` is now None (it used to be an error with a `null` error).
 
 To migrate, replace `!result.IsSuccess` checks that mean "failed" with `result.IsError`, and handle `result.IsNone` where a `Where` can reject the value. Replace `try { provider.Value } catch` patterns with `provider.TryGetValue(out var value)`.
+
+## Removed Settings and Dead Code
+
+Several options were accepted but never had any effect. They were removed rather than left as dead knobs; delete the assignments.
+
+| Removed | Notes |
+|---------|-------|
+| `GuacamoleCoreOptions.CacheOptions` (`CacheOptions.DefaultCapacity`, `EnableStatistics`, `CleanupIntervalMs`) | Contexts never used the DI-registered cache; each context's graph had a hardcoded 10,000-entry cache. Override `ComputingContextBase.CacheCapacity` instead (see below). |
+| `GuacamoleCoreOptions.PipelineOptions` (`MaxDependencyDepth`, `EnablePerformanceMetrics`, `ComputationTimeoutMs`) | Never read. |
+| `ProviderOptions.EnableProfiling`, `ProviderOptions.EnableMetadataTracking` | Never read (the latter only by the removed node-based factories). `ProviderOptions.DefaultTags` remains and is applied by `IProviderMetadataFactory`. |
+| DI registrations of `ICache<string, object>`, `ICacheStatisticsProvider`, `ComputationGraph` and the node-based factories | Unused; `AddGuacamoleCore` now registers `GuacamoleCoreOptions` and `IProviderMetadataFactory`. |
+| `MetricsConfiguration.EnableDetailedTracing`, `TracingSampleRate`, `MaxTrackingNamesPerProcess`, `EnableProviderMetrics`, `EnableMemoryMetrics`, `MinimumDurationThresholdMs`, `RecordIndividualNodePerformance`, `TrackInvalidationCascades`, `IsValid()` | Never read. Tracing needs no switch: activities are only created while a listener is attached. `With(...)` now takes `enableGraphMetrics` instead of `enableDetailedTracing`. |
+| `GuacamoleMetrics.CacheInvalidationsTotal`, `ProviderTransformationsTotal`, `ProvidersCreatedTotal`, `MemoryUsageEstimated` | Never recorded. |
+| `ComputingContextBase.Lock` | Never used by the framework. Use your own lock if a derived context needs one. |
+| `ContextOperationException` | Not thrown anywhere. |
+
+What now works:
+
+- **Cache capacity**: `protected virtual int CacheCapacity` on `ComputingContextBase` (default `ComputingContextBase.DefaultCacheCapacity`, 10,000) sets the size of the context's value cache. It is read once by the base constructor, so the override must return a constant.
+- **Computation metrics**: providers record `guacamole.computations.total`, `guacamole.computation.duration` and `guacamole.computation.errors.total` each time they compute a value (not for cache hits), when `MetricsConfiguration.EnableComputationMetrics` is on. `CollectTrackingNameDimensions` and `CollectPipelineStageDimensions` control the `tracking.name` and `pipeline.stage` dimensions.
 
 ## From Mutation-Based to Push-Based Sources
 

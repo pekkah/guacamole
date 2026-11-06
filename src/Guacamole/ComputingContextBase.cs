@@ -13,8 +13,7 @@ namespace Guacamole;
 /// </summary>
 /// <remarks>
 /// This base class provides only the essential infrastructure:
-/// - Computation graph for dependency tracking
-/// - Thread synchronization via ReaderWriterLockSlim (multiple readers, single writer)
+/// - Computation graph for dependency tracking, with an LRU value cache (see <see cref="CacheCapacity"/>)
 /// - Disposal state management
 /// - Source change notification handling
 /// All context-specific functionality (sources, properties) is generated at compile time.
@@ -32,22 +31,34 @@ public abstract partial class ComputingContextBase : IDisposable
     internal ComputationGraph Graph { get; private set; }
 
     /// <summary>
-    /// Thread synchronization lock (multiple readers, single writer model).
-    /// </summary>
-    protected ReaderWriterLockSlim Lock { get; }
-
-    /// <summary>
     /// Indicates if the context has been disposed.
     /// </summary>
     public bool IsDisposed => _disposed;
 
     /// <summary>
+    /// Default maximum number of computed values a context keeps cached.
+    /// </summary>
+    public const int DefaultCacheCapacity = 10_000;
+
+    /// <summary>
+    /// Maximum number of computed values this context keeps in its LRU value cache.
+    /// Evicted values are recomputed on the next read. Defaults to <see cref="DefaultCacheCapacity"/>.
+    /// </summary>
+    /// <remarks>
+    /// Override to change the capacity, for example
+    /// <c>protected override int CacheCapacity =&gt; 50_000;</c>. The value is read once, by the
+    /// <see cref="ComputingContextBase"/> constructor, before the derived class's constructor
+    /// and field initializers run, so the override must not depend on instance state.
+    /// </remarks>
+    protected virtual int CacheCapacity => DefaultCacheCapacity;
+
+    /// <summary>
     /// Creates a new computing context.
     /// </summary>
+    /// <exception cref="ArgumentOutOfRangeException"><see cref="CacheCapacity"/> is less than 1.</exception>
     protected ComputingContextBase()
     {
-        Graph = new ComputationGraph();
-        Lock = new ReaderWriterLockSlim(LockRecursionPolicy.NoRecursion);
+        Graph = new ComputationGraph(CacheCapacity);
     }
 
     /// <summary>
@@ -74,8 +85,6 @@ public abstract partial class ComputingContextBase : IDisposable
         {
             unsubscribe();
         }
-
-        Lock?.Dispose();
 
         GC.SuppressFinalize(this);
     }
@@ -159,22 +168,6 @@ public abstract partial class ComputingContextBase : IDisposable
 
         // Trigger all registered output handlers when any source changes
         TriggerOutputs();
-    }
-
-    /// <summary>
-    /// Invalidates cache for the specified node and all transitive dependents.
-    /// Delegates to ComputationGraph which handles both static and runtime dependencies.
-    /// </summary>
-    /// <remarks>
-    /// NOTE: This method is kept for backward compatibility and special cases.
-    /// The default source change handling now uses version-based lazy invalidation
-    /// via <see cref="ComputationGraph.MarkSourceChanged"/>.
-    /// </remarks>
-    private void InvalidateNodeCache(string nodeId)
-    {
-        // Delegate to graph's InvalidateCacheForNode which properly handles
-        // both static and runtime dependencies
-        Graph.InvalidateCacheForNode(nodeId);
     }
 
     /// <summary>
