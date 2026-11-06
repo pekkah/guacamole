@@ -414,7 +414,7 @@ internal sealed class SelectManyValuesNode<TSource, TResult> : ICollectionComput
         _source = source ?? throw new ArgumentNullException(nameof(source));
         _selector = selector ?? throw new ArgumentNullException(nameof(selector));
         _comparer = comparer;
-        Id = NodeIdGenerator.Generate("SelectMany", _source.Id);
+        Id = NodeIdGenerator.Generate("SelectMany");
         Dependencies = ImmutableHashSet.Create(_source.Id);
     }
 
@@ -437,7 +437,8 @@ internal sealed class SelectManyValuesNode<TSource, TResult> : ICollectionComput
             if (!sourceResult.IsSuccess)
                 return Result<IEnumerable<TResult>, ComputationError>.Error(sourceResult.ErrorValue!);
 
-            var results = sourceResult.Value!.SelectMany(_selector);
+            // Materialize inside the try so selector exceptions become error results
+            var results = sourceResult.Value!.SelectMany(_selector).ToArray();
             return Result<IEnumerable<TResult>, ComputationError>.Success(results);
         }
         catch (Exception ex)
@@ -454,7 +455,7 @@ internal sealed class CollectValuesNode<T> : IComputationNode<ImmutableArray<T>>
     public CollectValuesNode(ICollectionComputationNode<T> source)
     {
         _source = source ?? throw new ArgumentNullException(nameof(source));
-        Id = NodeIdGenerator.Generate("Collect", _source.Id);
+        Id = NodeIdGenerator.Generate("Collect");
         Dependencies = ImmutableHashSet.Create(_source.Id);
     }
 
@@ -497,7 +498,7 @@ internal sealed class SelectValuesNode<TSource, TResult> : ICollectionComputatio
         _source = source ?? throw new ArgumentNullException(nameof(source));
         _selector = selector ?? throw new ArgumentNullException(nameof(selector));
         _comparer = comparer;
-        Id = NodeIdGenerator.Generate("SelectValues", _source.Id);
+        Id = NodeIdGenerator.Generate("SelectValues");
         Dependencies = ImmutableHashSet.Create(_source.Id);
     }
 
@@ -520,7 +521,8 @@ internal sealed class SelectValuesNode<TSource, TResult> : ICollectionComputatio
             if (!sourceResult.IsSuccess)
                 return Result<IEnumerable<TResult>, ComputationError>.Error(sourceResult.ErrorValue!);
 
-            var results = sourceResult.Value!.Select(_selector);
+            // Materialize inside the try so selector exceptions become error results
+            var results = sourceResult.Value!.Select(_selector).ToArray();
             return Result<IEnumerable<TResult>, ComputationError>.Success(results);
         }
         catch (Exception ex)
@@ -541,7 +543,7 @@ internal sealed class WhereValuesNode<T> : ICollectionComputationNode<T>
         _source = source ?? throw new ArgumentNullException(nameof(source));
         _predicate = predicate ?? throw new ArgumentNullException(nameof(predicate));
         _comparer = comparer;
-        Id = NodeIdGenerator.Generate("WhereValues", _source.Id);
+        Id = NodeIdGenerator.Generate("WhereValues");
         Dependencies = ImmutableHashSet.Create(_source.Id);
     }
 
@@ -564,7 +566,8 @@ internal sealed class WhereValuesNode<T> : ICollectionComputationNode<T>
             if (!sourceResult.IsSuccess)
                 return sourceResult;
 
-            var filtered = sourceResult.Value!.Where(_predicate);
+            // Materialize inside the try so predicate exceptions become error results
+            var filtered = sourceResult.Value!.Where(_predicate).ToArray();
             return Result<IEnumerable<T>, ComputationError>.Success(filtered);
         }
         catch (Exception ex)
@@ -583,7 +586,7 @@ internal sealed class CombineValuesWithValueNode<TLeft, TRight> : ICollectionCom
     {
         _left = left ?? throw new ArgumentNullException(nameof(left));
         _right = right ?? throw new ArgumentNullException(nameof(right));
-        Id = NodeIdGenerator.Generate("CombineValuesWithValue", _left.Id, _right.Id);
+        Id = NodeIdGenerator.Generate("CombineValuesWithValue");
         Dependencies = ImmutableHashSet.Create(_left.Id, _right.Id);
     }
 

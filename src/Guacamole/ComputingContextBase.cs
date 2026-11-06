@@ -22,8 +22,10 @@ namespace Guacamole;
 /// </remarks>
 public abstract partial class ComputingContextBase : IDisposable
 {
-    private bool _disposed;
+    private volatile bool _disposed;
     private readonly List<IOutputRegistration> _outputRegistrations = new();
+    private readonly List<Action> _sourceUnsubscriptions = new();
+    private readonly object _registrationsLock = new();
 
     /// <summary>
     /// Shared computation graph for dependency management and incremental recomputation.
@@ -56,11 +58,26 @@ public abstract partial class ComputingContextBase : IDisposable
     /// </summary>
     public virtual void Dispose()
     {
-        if (_disposed)
-            return;
+        Action[] unsubscriptions;
+        lock (_registrationsLock)
+        {
+            if (_disposed)
+                return;
+
+            _disposed = true;
+            unsubscriptions = _sourceUnsubscriptions.ToArray();
+            _sourceUnsubscriptions.Clear();
+            _outputRegistrations.Clear();
+        }
+
+        // Detach from sources so they neither keep this context alive nor
+        // notify it after disposal
+        foreach (var unsubscribe in unsubscriptions)
+        {
+            unsubscribe();
+        }
 
         Lock?.Dispose();
-        _disposed = true;
 
         GC.SuppressFinalize(this);
     }
@@ -85,7 +102,7 @@ public abstract partial class ComputingContextBase : IDisposable
     protected void SubscribeToSource<T>(IIncrementalSource<T> source)
     {
         ArgumentNullException.ThrowIfNull(source);
-        source.Changed += OnSourceChanged;
+        AddSourceSubscription(() => source.Changed += OnSourceChanged, () => source.Changed -= OnSourceChanged);
     }
 
     /// <summary>
@@ -97,7 +114,17 @@ public abstract partial class ComputingContextBase : IDisposable
     protected void SubscribeToSource<T>(IIncrementalValueSource<T> source)
     {
         ArgumentNullException.ThrowIfNull(source);
-        source.Changed += OnSourceChanged;
+        AddSourceSubscription(() => source.Changed += OnSourceChanged, () => source.Changed -= OnSourceChanged);
+    }
+
+    private void AddSourceSubscription(Action subscribe, Action unsubscribe)
+    {
+        lock (_registrationsLock)
+        {
+            ThrowIfDisposed();
+            subscribe();
+            _sourceUnsubscriptions.Add(unsubscribe);
+        }
     }
 
     /// <summary>
@@ -112,6 +139,10 @@ public abstract partial class ComputingContextBase : IDisposable
     /// </remarks>
     private void OnSourceChanged(object? sender, SourceChangedEventArgs e)
     {
+        // A notification can race with Dispose; ignore it once disposed
+        if (_disposed)
+            return;
+
         // Mark the source's version as changed - don't clear caches
         // Lazy validation during GetValue() will handle cache freshness
         Graph.MarkSourceChanged(e.SourceId);
@@ -150,7 +181,7 @@ public abstract partial class ComputingContextBase : IDisposable
     {
         ArgumentNullException.ThrowIfNull(handler);
 
-        _outputRegistrations.Add(new OutputRegistration<T>(provider, handler));
+        AddOutputRegistration(new OutputRegistration<T>(provider, handler));
     }
 
     /// <summary>
@@ -167,33 +198,57 @@ public abstract partial class ComputingContextBase : IDisposable
     {
         ArgumentNullException.ThrowIfNull(handler);
 
-        _outputRegistrations.Add(new CollectionOutputRegistration<T>(provider, handler));
+        AddOutputRegistration(new CollectionOutputRegistration<T>(provider, handler));
+    }
+
+    private void AddOutputRegistration(IOutputRegistration registration)
+    {
+        lock (_registrationsLock)
+        {
+            ThrowIfDisposed();
+            _outputRegistrations.Add(registration);
+        }
     }
 
     /// <summary>
     /// Triggers all registered output handlers by recomputing their providers.
     /// Called automatically when sources change.
     /// </summary>
+    /// <remarks>
+    /// Every handler runs even if an earlier one throws. If any handler throws,
+    /// an <see cref="AggregateException"/> containing all handler exceptions is
+    /// thrown after all handlers have run.
+    /// </remarks>
+    /// <exception cref="AggregateException">One or more output handlers threw.</exception>
     protected void TriggerOutputs()
     {
         // Capture registrations under lock, then execute handlers outside lock
         // to avoid holding lock during potentially long-running handler execution
         IOutputRegistration[] registrations;
 
-        Lock.EnterReadLock();
-        try
+        lock (_registrationsLock)
         {
             registrations = _outputRegistrations.ToArray();
         }
-        finally
-        {
-            Lock.ExitReadLock();
-        }
+
+        List<Exception>? exceptions = null;
 
         // Execute handlers outside the lock
         foreach (var registration in registrations)
         {
-            registration.Execute(this);
+            try
+            {
+                registration.Execute(this);
+            }
+            catch (Exception ex)
+            {
+                (exceptions ??= new List<Exception>()).Add(ex);
+            }
+        }
+
+        if (exceptions != null)
+        {
+            throw new AggregateException("One or more output handlers threw an exception.", exceptions);
         }
     }
 
