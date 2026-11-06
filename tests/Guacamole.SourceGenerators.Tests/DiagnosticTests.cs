@@ -1,0 +1,224 @@
+using System.Linq;
+using Microsoft.CodeAnalysis;
+using Xunit;
+
+namespace Guacamole.SourceGenerators.Tests;
+
+/// <summary>
+/// Tests that the generator reports its GUAC diagnostics at the right source locations.
+/// </summary>
+public class DiagnosticTests
+{
+    [Fact]
+    public void NonPartialGetOnlyProvider_ReportsGUAC0003AtProperty()
+    {
+        var source = """
+            using Guacamole;
+
+            namespace Test
+            {
+                [ComputingContext]
+                public partial class TestContext : ComputingContextBase
+                {
+                    public IncrementalValuesProvider<string> Items { get; }
+                }
+            }
+            """;
+
+        var result = TestHelper.Run(source);
+
+        var diagnostic = Assert.Single(result.GeneratorDiagnostics);
+        AssertDiagnostic(diagnostic, "GUAC0003", DiagnosticSeverity.Error, source, "Items");
+        Assert.Contains("'Items'", diagnostic.GetMessage());
+        Assert.Contains("'TestContext'", diagnostic.GetMessage());
+    }
+
+    [Fact]
+    public void PartialProviderWithSetter_ReportsGUAC0005AtProperty()
+    {
+        var source = """
+            using Guacamole;
+
+            namespace Test
+            {
+                [ComputingContext]
+                public partial class TestContext : ComputingContextBase
+                {
+                    public partial IncrementalValuesProvider<string> DerivedItems { get; set; }
+                }
+            }
+            """;
+
+        var result = TestHelper.Run(source);
+
+        var diagnostic = Assert.Single(result.GeneratorDiagnostics);
+        AssertDiagnostic(diagnostic, "GUAC0005", DiagnosticSeverity.Error, source, "DerivedItems");
+
+        // The property is not implemented by the generator.
+        var generated = Assert.Single(result.GeneratedSources).SourceText.ToString();
+        Assert.DoesNotContain("DerivedItems", generated);
+    }
+
+    [Fact]
+    public void ItemTypeWithoutEquality_ReportsGUAC0004AtProperty()
+    {
+        var source = """
+            using Guacamole;
+
+            namespace Test
+            {
+                public class Person
+                {
+                    public string Name { get; set; } = "";
+                }
+
+                public record PersonRecord(string Name);
+
+                public class EquatablePerson : System.IEquatable<EquatablePerson>
+                {
+                    public bool Equals(EquatablePerson? other) => other is not null;
+                    public override bool Equals(object? obj) => Equals(obj as EquatablePerson);
+                    public override int GetHashCode() => 0;
+                }
+
+                public enum Kind { A, B }
+
+                [ComputingContext]
+                public partial class TestContext : ComputingContextBase
+                {
+                    public partial IncrementalValuesProvider<Person> People { get; }
+                    public partial IncrementalValuesProvider<PersonRecord> Records { get; }
+                    public partial IncrementalValuesProvider<EquatablePerson> Equatables { get; }
+                    public partial IncrementalValueProvider<Kind> CurrentKind { get; }
+                    public partial IncrementalValueProvider<string> Name { get; }
+                    public partial IncrementalValueProvider<int> Count { get; }
+                    public IncrementalValueProvider<Person> Selected { get; set; }
+                }
+            }
+            """;
+
+        var result = TestHelper.Run(source);
+
+        // Only Person-typed properties (input and user-managed) are reported.
+        Assert.Collection(
+            result.GeneratorDiagnostics.OrderBy(d => d.Location.SourceSpan.Start),
+            d => AssertDiagnostic(d, "GUAC0004", DiagnosticSeverity.Warning, source, "People"),
+            d => AssertDiagnostic(d, "GUAC0004", DiagnosticSeverity.Warning, source, "Selected"));
+
+        // Warnings do not prevent generation, and the generated code compiles.
+        Assert.Empty(result.CompilationErrors);
+    }
+
+    [Fact]
+    public void NonPartialContext_ReportsGUAC0006AndGeneratesNothing()
+    {
+        var source = """
+            using Guacamole;
+
+            namespace Test
+            {
+                [ComputingContext]
+                public class TestContext : ComputingContextBase
+                {
+                }
+            }
+            """;
+
+        var result = TestHelper.Run(source);
+
+        var diagnostic = Assert.Single(result.GeneratorDiagnostics);
+        AssertDiagnostic(diagnostic, "GUAC0006", DiagnosticSeverity.Error, source, "TestContext");
+        Assert.Empty(result.GeneratedSources);
+        Assert.Empty(result.CompilationErrors);
+    }
+
+    [Fact]
+    public void NonPartialContainingType_ReportsGUAC0006AtContainingType()
+    {
+        var source = """
+            using Guacamole;
+
+            namespace Test
+            {
+                public class Outer
+                {
+                    [ComputingContext]
+                    public partial class TestContext : ComputingContextBase
+                    {
+                    }
+                }
+            }
+            """;
+
+        var result = TestHelper.Run(source);
+
+        var diagnostic = Assert.Single(result.GeneratorDiagnostics);
+        AssertDiagnostic(diagnostic, "GUAC0006", DiagnosticSeverity.Error, source, "Outer");
+        Assert.Contains("'TestContext'", diagnostic.GetMessage());
+        Assert.Empty(result.GeneratedSources);
+    }
+
+    [Fact]
+    public void ContextNotDerivingFromBase_ReportsGUAC0007AndGeneratesNothing()
+    {
+        var source = """
+            using Guacamole;
+
+            namespace Test
+            {
+                [ComputingContext]
+                public partial class TestContext
+                {
+                }
+            }
+            """;
+
+        var result = TestHelper.Run(source);
+
+        var diagnostic = Assert.Single(result.GeneratorDiagnostics);
+        AssertDiagnostic(diagnostic, "GUAC0007", DiagnosticSeverity.Error, source, "TestContext");
+        Assert.Empty(result.GeneratedSources);
+        Assert.Empty(result.CompilationErrors);
+    }
+
+    [Fact]
+    public void ValidContext_ReportsNoDiagnostics()
+    {
+        var source = """
+            using Guacamole;
+
+            namespace Test
+            {
+                [ComputingContext]
+                public partial class TestContext : ComputingContextBase
+                {
+                    public partial IncrementalValuesProvider<string> Items { get; }
+                    public IncrementalValueProvider<int> Derived { get; set; }
+                }
+            }
+            """;
+
+        var result = TestHelper.Run(source);
+
+        Assert.Empty(result.GeneratorDiagnostics);
+        TestHelper.AssertCompilesCleanly(result);
+    }
+
+    private static void AssertDiagnostic(Diagnostic diagnostic, string id, DiagnosticSeverity severity, string source, string expectedText)
+    {
+        Assert.Equal(id, diagnostic.Id);
+        Assert.Equal(severity, diagnostic.Severity);
+
+        var location = diagnostic.Location;
+        Assert.NotEqual(Location.None, location);
+
+        var lineSpan = location.GetLineSpan();
+        Assert.Equal("Test0.cs", lineSpan.Path);
+        Assert.Equal(expectedText, source.Substring(location.SourceSpan.Start, location.SourceSpan.Length));
+
+        // The line span must agree with the text span.
+        var lines = source.Split('\n');
+        var line = lines[lineSpan.StartLinePosition.Line];
+        Assert.Equal(expectedText, line.Substring(lineSpan.StartLinePosition.Character, expectedText.Length));
+    }
+}
