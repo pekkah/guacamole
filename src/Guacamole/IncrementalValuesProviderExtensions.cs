@@ -437,7 +437,8 @@ internal sealed class SelectManyValuesNode<TSource, TResult> : ICollectionComput
             if (!sourceResult.IsSuccess)
                 return Result<IEnumerable<TResult>, ComputationError>.Error(sourceResult.ErrorValue!);
 
-            var results = sourceResult.Value!.SelectMany(_selector);
+            // Materialize inside the try so selector exceptions become error results
+            var results = sourceResult.Value!.SelectMany(_selector).ToArray();
             return Result<IEnumerable<TResult>, ComputationError>.Success(results);
         }
         catch (Exception ex)
@@ -520,7 +521,8 @@ internal sealed class SelectValuesNode<TSource, TResult> : ICollectionComputatio
             if (!sourceResult.IsSuccess)
                 return Result<IEnumerable<TResult>, ComputationError>.Error(sourceResult.ErrorValue!);
 
-            var results = sourceResult.Value!.Select(_selector);
+            // Materialize inside the try so selector exceptions become error results
+            var results = sourceResult.Value!.Select(_selector).ToArray();
             return Result<IEnumerable<TResult>, ComputationError>.Success(results);
         }
         catch (Exception ex)
@@ -564,7 +566,8 @@ internal sealed class WhereValuesNode<T> : ICollectionComputationNode<T>
             if (!sourceResult.IsSuccess)
                 return sourceResult;
 
-            var filtered = sourceResult.Value!.Where(_predicate);
+            // Materialize inside the try so predicate exceptions become error results
+            var filtered = sourceResult.Value!.Where(_predicate).ToArray();
             return Result<IEnumerable<T>, ComputationError>.Success(filtered);
         }
         catch (Exception ex)
