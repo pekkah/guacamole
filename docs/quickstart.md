@@ -268,6 +268,24 @@ Values are cached for the providers you **read** (with `GetValue()`/`GetValues()
 
 For example, with `Result = Sources.Select(Compile).Collect().Select(Link)` and only `Result` being read, a change to `Sources` reruns `Compile` for the **changed** files only, then `Link`. Collection operators (`Select`, `Where`, `SelectMany`) memoize their lambda per item: items equal to ones seen in their previous computation reuse the previous result, so keep items immutable and lambdas pure. Read intermediate providers you want cached.
 
+### Cross-item lookups (e.g. symbol tables)
+
+When a per-item stage needs data from other items (type checking a file needs every file's declarations), compute that data from all items and combine it back, instead of accumulating it in a lambda (which makes results depend on processing order):
+
+```csharp
+var symbols = Parsed
+    .Select(FileDeclarations.Extract)   // per file
+    .Collect()                          // all files
+    .Select(SymbolTable.Merge);         // sort by path inside Merge; SymbolTable has structural equality
+
+var typeChecked = Parsed
+    .Combine(symbols)
+    .Select(pair => (File: pair.Left, Symbols: pair.Right.Restrict(pair.Left.ReferencedNames))) // optional narrowing
+    .Select(pair => TypeCheck(pair.File, pair.Symbols));
+```
+
+An edit that leaves the table equal (for example a comment) does not rerun other files' type checks, and the optional `Restrict` keeps unaffected files' inputs equal when unrelated declarations change. See [Cross-item lookups](performance-guide.md#cross-item-lookups-eg-symbol-tables) and [`examples/CrossFileSymbolsExample`](../examples/CrossFileSymbolsExample/).
+
 ### Equality matters
 
 ```csharp

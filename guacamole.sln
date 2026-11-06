@@ -29,6 +29,8 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "DataPipelineExample", "exam
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "FileWatcherExample", "examples\FileWatcherExample\FileWatcherExample.csproj", "{504215CD-A6A5-44B7-8407-EBC416B4790E}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "CrossFileSymbolsExample", "examples\CrossFileSymbolsExample\CrossFileSymbolsExample.csproj", "{640145A0-205C-4D9A-B6CA-C5EAB05BE4BB}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -147,6 +149,18 @@ Global
 		{504215CD-A6A5-44B7-8407-EBC416B4790E}.Release|x64.Build.0 = Release|Any CPU
 		{504215CD-A6A5-44B7-8407-EBC416B4790E}.Release|x86.ActiveCfg = Release|Any CPU
 		{504215CD-A6A5-44B7-8407-EBC416B4790E}.Release|x86.Build.0 = Release|Any CPU
+		{640145A0-205C-4D9A-B6CA-C5EAB05BE4BB}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{640145A0-205C-4D9A-B6CA-C5EAB05BE4BB}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{640145A0-205C-4D9A-B6CA-C5EAB05BE4BB}.Debug|x64.ActiveCfg = Debug|Any CPU
+		{640145A0-205C-4D9A-B6CA-C5EAB05BE4BB}.Debug|x64.Build.0 = Debug|Any CPU
+		{640145A0-205C-4D9A-B6CA-C5EAB05BE4BB}.Debug|x86.ActiveCfg = Debug|Any CPU
+		{640145A0-205C-4D9A-B6CA-C5EAB05BE4BB}.Debug|x86.Build.0 = Debug|Any CPU
+		{640145A0-205C-4D9A-B6CA-C5EAB05BE4BB}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{640145A0-205C-4D9A-B6CA-C5EAB05BE4BB}.Release|Any CPU.Build.0 = Release|Any CPU
+		{640145A0-205C-4D9A-B6CA-C5EAB05BE4BB}.Release|x64.ActiveCfg = Release|Any CPU
+		{640145A0-205C-4D9A-B6CA-C5EAB05BE4BB}.Release|x64.Build.0 = Release|Any CPU
+		{640145A0-205C-4D9A-B6CA-C5EAB05BE4BB}.Release|x86.ActiveCfg = Release|Any CPU
+		{640145A0-205C-4D9A-B6CA-C5EAB05BE4BB}.Release|x86.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE
@@ -161,5 +175,6 @@ Global
 		{1969A7DE-08EC-41D2-9572-88FAC5454C7F} = {B36A84DF-456D-A817-6EDD-3EC3E7F6E11F}
 		{403B565D-5B1E-42BF-AACB-6BA18BB2F455} = {B36A84DF-456D-A817-6EDD-3EC3E7F6E11F}
 		{504215CD-A6A5-44B7-8407-EBC416B4790E} = {B36A84DF-456D-A817-6EDD-3EC3E7F6E11F}
+		{640145A0-205C-4D9A-B6CA-C5EAB05BE4BB} = {B36A84DF-456D-A817-6EDD-3EC3E7F6E11F}
 	EndGlobalSection
 EndGlobal
