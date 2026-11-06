@@ -30,10 +30,11 @@ public static class IncrementalValuesProviderExtensions
     {
         ArgumentNullException.ThrowIfNull(selector);
 
-        var selectManyNode = new SelectManyValuesNode<TSource, TResult>(source.Node, selector, null);
-
-        // Register the node immediately for cache invalidation tracking
-        source.Graph.RegisterNodeIfNeeded(selectManyNode);
+        // Reuse the node of an identical earlier call (same inputs, delegates and comparer)
+        // so pipelines built repeatedly (e.g. in property getters) share one node and cache.
+        var selectManyNode = source.Graph.GetOrCreateNode(
+            new NodeReuseKey(typeof(SelectManyValuesNode<TSource, TResult>), [source.Node.Id], selector, null),
+            () => new SelectManyValuesNode<TSource, TResult>(source.Node, selector, null));
 
         // Preserve metadata from source if no metadata is explicitly provided
         var finalMetadata = metadata.TrackingName == null && metadata.CreationLocation == null
@@ -63,10 +64,11 @@ public static class IncrementalValuesProviderExtensions
         ArgumentNullException.ThrowIfNull(selector);
         ArgumentNullException.ThrowIfNull(comparer);
 
-        var selectManyNode = new SelectManyValuesNode<TSource, TResult>(source.Node, selector, comparer);
-
-        // Register the node immediately for cache invalidation tracking
-        source.Graph.RegisterNodeIfNeeded(selectManyNode);
+        // Reuse the node of an identical earlier call (same inputs, delegates and comparer)
+        // so pipelines built repeatedly (e.g. in property getters) share one node and cache.
+        var selectManyNode = source.Graph.GetOrCreateNode(
+            new NodeReuseKey(typeof(SelectManyValuesNode<TSource, TResult>), [source.Node.Id], selector, comparer),
+            () => new SelectManyValuesNode<TSource, TResult>(source.Node, selector, comparer));
 
         // Preserve metadata from source if no metadata is explicitly provided
         var finalMetadata = metadata.TrackingName == null && metadata.CreationLocation == null
@@ -88,10 +90,11 @@ public static class IncrementalValuesProviderExtensions
         this IncrementalValuesProvider<T> source,
         ProviderMetadata metadata = default)
     {
-        var collectNode = new CollectValuesNode<T>(source.Node);
-
-        // Register the node immediately for cache invalidation tracking
-        source.Graph.RegisterNodeIfNeeded(collectNode);
+        // Reuse the node of an identical earlier call (same inputs, delegates and comparer)
+        // so pipelines built repeatedly (e.g. in property getters) share one node and cache.
+        var collectNode = source.Graph.GetOrCreateNode(
+            new NodeReuseKey(typeof(CollectValuesNode<T>), [source.Node.Id]),
+            () => new CollectValuesNode<T>(source.Node));
 
         // Preserve metadata from source if no metadata is explicitly provided
         var finalMetadata = metadata.TrackingName == null && metadata.CreationLocation == null
@@ -118,10 +121,11 @@ public static class IncrementalValuesProviderExtensions
     {
         ArgumentNullException.ThrowIfNull(selector);
 
-        var selectNode = new SelectValuesNode<TSource, TResult>(source.Node, selector, null);
-
-        // Register the node immediately for cache invalidation tracking
-        source.Graph.RegisterNodeIfNeeded(selectNode);
+        // Reuse the node of an identical earlier call (same inputs, delegates and comparer)
+        // so pipelines built repeatedly (e.g. in property getters) share one node and cache.
+        var selectNode = source.Graph.GetOrCreateNode(
+            new NodeReuseKey(typeof(SelectValuesNode<TSource, TResult>), [source.Node.Id], selector, null),
+            () => new SelectValuesNode<TSource, TResult>(source.Node, selector, null));
 
         // Preserve metadata from source if no metadata is explicitly provided
         var finalMetadata = metadata.TrackingName == null && metadata.CreationLocation == null
@@ -151,7 +155,11 @@ public static class IncrementalValuesProviderExtensions
         ArgumentNullException.ThrowIfNull(selector);
         ArgumentNullException.ThrowIfNull(comparer);
 
-        var selectNode = new SelectValuesNode<TSource, TResult>(source.Node, selector, comparer);
+        // Reuse the node of an identical earlier call (same inputs, delegates and comparer)
+        // so pipelines built repeatedly (e.g. in property getters) share one node and cache.
+        var selectNode = source.Graph.GetOrCreateNode(
+            new NodeReuseKey(typeof(SelectValuesNode<TSource, TResult>), [source.Node.Id], selector, comparer),
+            () => new SelectValuesNode<TSource, TResult>(source.Node, selector, comparer));
 
         // Preserve metadata from source if no metadata is explicitly provided
         var finalMetadata = metadata.TrackingName == null && metadata.CreationLocation == null
@@ -177,10 +185,11 @@ public static class IncrementalValuesProviderExtensions
     {
         ArgumentNullException.ThrowIfNull(predicate);
 
-        var whereNode = new WhereValuesNode<T>(source.Node, predicate, null);
-
-        // Register the node immediately for cache invalidation tracking
-        source.Graph.RegisterNodeIfNeeded(whereNode);
+        // Reuse the node of an identical earlier call (same inputs, delegates and comparer)
+        // so pipelines built repeatedly (e.g. in property getters) share one node and cache.
+        var whereNode = source.Graph.GetOrCreateNode(
+            new NodeReuseKey(typeof(WhereValuesNode<T>), [source.Node.Id], predicate, null),
+            () => new WhereValuesNode<T>(source.Node, predicate, null));
 
         // Preserve metadata from source if no metadata is explicitly provided
         var finalMetadata = metadata.TrackingName == null && metadata.CreationLocation == null
@@ -209,10 +218,11 @@ public static class IncrementalValuesProviderExtensions
         ArgumentNullException.ThrowIfNull(predicate);
         ArgumentNullException.ThrowIfNull(comparer);
 
-        var whereNode = new WhereValuesNode<T>(source.Node, predicate, comparer);
-
-        // Register the node immediately for cache invalidation tracking
-        source.Graph.RegisterNodeIfNeeded(whereNode);
+        // Reuse the node of an identical earlier call (same inputs, delegates and comparer)
+        // so pipelines built repeatedly (e.g. in property getters) share one node and cache.
+        var whereNode = source.Graph.GetOrCreateNode(
+            new NodeReuseKey(typeof(WhereValuesNode<T>), [source.Node.Id], predicate, comparer),
+            () => new WhereValuesNode<T>(source.Node, predicate, comparer));
 
         // Preserve metadata from source if no metadata is explicitly provided
         var finalMetadata = metadata.TrackingName == null && metadata.CreationLocation == null
@@ -238,10 +248,11 @@ public static class IncrementalValuesProviderExtensions
         IncrementalValueProvider<TRight> right,
         ProviderMetadata metadata = default)
     {
-        var combineNode = new CombineValuesWithValueNode<TLeft, TRight>(left.Node, right.Node);
-
-        // Register the node immediately for cache invalidation tracking
-        left.Graph.RegisterNodeIfNeeded(combineNode);
+        // Reuse the node of an identical earlier call (same inputs, delegates and comparer)
+        // so pipelines built repeatedly (e.g. in property getters) share one node and cache.
+        var combineNode = left.Graph.GetOrCreateNode(
+            new NodeReuseKey(typeof(CombineValuesWithValueNode<TLeft, TRight>), [left.Node.Id, right.Node.Id]),
+            () => new CombineValuesWithValueNode<TLeft, TRight>(left.Node, right.Node));
 
         // Preserve metadata from left provider if no metadata is explicitly provided
         var finalMetadata = metadata.TrackingName == null && metadata.CreationLocation == null

@@ -121,6 +121,23 @@ public class ComputationGraph
     }
 
     /// <summary>
+    /// Returns the node created by an earlier, identical operator call (same
+    /// <paramref name="key"/>), or creates and registers a new one. This makes repeated
+    /// pipeline construction (e.g. in property getters) share one node and its cache.
+    /// </summary>
+    /// <typeparam name="TNode">The node type created by <paramref name="factory"/></typeparam>
+    /// <param name="key">Structural identity of the operator call</param>
+    /// <param name="factory">Creates the node when no identical call was made before</param>
+    /// <returns>The shared node for <paramref name="key"/></returns>
+    internal TNode GetOrCreateNode<TNode>(NodeReuseKey key, Func<TNode> factory)
+        where TNode : class, IComputationNode
+    {
+        var node = (TNode)_sharedState.GetOrCreateReusableNode(key, factory);
+        RegisterNodeIfNeeded(node);
+        return node;
+    }
+
+    /// <summary>
     /// Checks if the graph maintains DAG invariant.
     /// </summary>
     public bool IsValidDAG()
