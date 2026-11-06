@@ -1,184 +1,60 @@
+using Guacamole.SourceGenerators.Models;
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp.Syntax;
-using System.Collections.Immutable;
-using System.Linq;
+using Microsoft.CodeAnalysis.Text;
+using System.Text;
 
 namespace Guacamole.SourceGenerators;
 
 /// <summary>
-/// Incremental source generator for ComputingContext marked classes.
+/// Incremental source generator for classes marked with [ComputingContext].
 /// Generates source-backed properties with push-based reactive updates.
 /// </summary>
-[Generator]
-public class ComputingContextGeneratorNew : IIncrementalGenerator
+/// <remarks>
+/// Pipeline: ForAttributeWithMetadataName performs all semantic analysis and produces an equatable
+/// <see cref="ContextAnalysisResult"/>. Source generation and diagnostic reporting are split into two
+/// branches so that, for example, a diagnostic location shift does not force re-emitting source.
+/// </remarks>
+[Generator(LanguageNames.CSharp)]
+public sealed class ComputingContextGenerator : IIncrementalGenerator
 {
+    /// <summary>Tracking name of the step that analyses [ComputingContext] classes.</summary>
+    public const string AnalysisStepName = "ComputingContextAnalysis";
+
+    /// <summary>Tracking name of the step that selects code generation models.</summary>
+    public const string ModelStepName = "ComputingContextModels";
+
+    /// <summary>Tracking name of the step that selects diagnostics.</summary>
+    public const string DiagnosticsStepName = "ComputingContextDiagnostics";
+
     public void Initialize(IncrementalGeneratorInitializationContext context)
     {
-        // Register attribute for debugging
-        context.RegisterPostInitializationOutput(ctx =>
+        var analysisResults = context.SyntaxProvider
+            .ForAttributeWithMetadataName(
+                ContextAnalyzer.ComputingContextAttributeName,
+                predicate: static (node, _) => node is ClassDeclarationSyntax,
+                transform: static (ctx, ct) => ContextAnalyzer.Analyze(ctx, ct))
+            .WithTrackingName(AnalysisStepName);
+
+        var models = analysisResults
+            .Where(static result => result.Model is not null)
+            .Select(static (result, _) => result.Model!)
+            .WithTrackingName(ModelStepName);
+
+        var diagnostics = analysisResults
+            .Where(static result => !result.Diagnostics.IsEmpty)
+            .Select(static (result, _) => result.Diagnostics)
+            .WithTrackingName(DiagnosticsStepName);
+
+        context.RegisterSourceOutput(models, static (spc, model) =>
+            spc.AddSource(model.HintName, SourceText.From(ContextEmitter.Emit(model), Encoding.UTF8)));
+
+        context.RegisterSourceOutput(diagnostics, static (spc, items) =>
         {
-            // Attributes are already defined in Guacamole assembly
-            // No need to generate them
-        });
-
-        // Find all classes marked with [ComputingContext] attribute
-        var computingContextClasses = context.SyntaxProvider
-            .CreateSyntaxProvider(
-                predicate: static (node, _) => IsComputingContextCandidate(node),
-                transform: static (ctx, _) => GetSemanticTargetForGeneration(ctx))
-            .Where(static m => m is not null);
-
-        // Combine with compilation
-        var compilationAndClasses = context.CompilationProvider.Combine(computingContextClasses.Collect());
-
-        // Generate code for each context
-        context.RegisterSourceOutput(compilationAndClasses, static (spc, source) => Execute(source.Left, source.Right!, spc));
-    }
-
-    private static bool IsComputingContextCandidate(SyntaxNode node)
-    {
-        // Look for class declarations with attributes
-        return node is ClassDeclarationSyntax classDecl && classDecl.AttributeLists.Count > 0;
-    }
-
-    private static ClassDeclarationSyntax? GetSemanticTargetForGeneration(GeneratorSyntaxContext context)
-    {
-        var classDecl = (ClassDeclarationSyntax)context.Node;
-
-        // Check if class has ComputingContext attribute
-        foreach (var attributeList in classDecl.AttributeLists)
-        {
-            foreach (var attribute in attributeList.Attributes)
+            foreach (var diagnostic in items)
             {
-                var symbol = context.SemanticModel.GetSymbolInfo(attribute).Symbol;
-                if (symbol is IMethodSymbol attrSymbol)
-                {
-                    var attrType = attrSymbol.ContainingType.ToDisplayString();
-                    if (attrType == "Guacamole.ComputingContextAttribute")
-                    {
-                        return classDecl;
-                    }
-                }
+                spc.ReportDiagnostic(diagnostic.ToDiagnostic());
             }
-        }
-
-        return null;
-    }
-
-    private static void Execute(Compilation compilation, ImmutableArray<ClassDeclarationSyntax> classes, SourceProductionContext context)
-    {
-        if (classes.IsDefaultOrEmpty)
-            return;
-
-        foreach (var classDecl in classes.Distinct())
-        {
-            context.CancellationToken.ThrowIfCancellationRequested();
-
-            var semanticModel = compilation.GetSemanticModel(classDecl.SyntaxTree);
-            var symbol = semanticModel.GetDeclaredSymbol(classDecl);
-
-            if (symbol is not INamedTypeSymbol classSymbol)
-                continue;
-
-            GenerateContextExtensions(context, classSymbol, classDecl);
-        }
-    }
-
-    private static void GenerateContextExtensions(
-        SourceProductionContext context,
-        INamedTypeSymbol classSymbol,
-        ClassDeclarationSyntax classDecl)
-    {
-        var namespaceName = classSymbol.ContainingNamespace.ToDisplayString();
-        var className = classSymbol.Name;
-
-        // Check if this is a nested class and build the containing type hierarchy
-        var containingTypes = new System.Collections.Generic.Stack<string>();
-        var currentContaining = classSymbol.ContainingType;
-        while (currentContaining != null)
-        {
-            containingTypes.Push(currentContaining.Name);
-            currentContaining = currentContaining.ContainingType;
-        }
-
-        // Analyze properties
-        var analysisResult = PropertyAnalyzer.Analyze(classSymbol, context);
-
-        // Report any diagnostics
-        foreach (var diagnostic in analysisResult.Diagnostics)
-        {
-            context.ReportDiagnostic(diagnostic);
-        }
-
-        // Generate source-backed properties
-        var sourceFields = string.Join("\n        ", analysisResult.InputProperties.Select(p => CodeGenerators.SourcePropertyGenerator.GenerateSourceField(p, className)));
-        var propertyImplementations = string.Join("\n", analysisResult.InputProperties.Select(CodeGenerators.SourcePropertyGenerator.GeneratePropertyImplementation));
-        var sourceAccessors = string.Join("\n", analysisResult.InputProperties.Select(CodeGenerators.SourcePropertyGenerator.GenerateSourceAccessor));
-        var sourceInitializations = string.Join("\n            ", analysisResult.InputProperties.Select(p => CodeGenerators.SourcePropertyGenerator.GenerateSourceInitialization(p, className)));
-
-        // Generate constructor
-        var constructor = $$"""
-
-                /// <summary>
-                /// Initializes the computing context and its sources.
-                /// </summary>
-                public {{className}}() : base()
-                {
-                    {{sourceInitializations}}
-                }
-
-        """;
-
-        // Build the opening for nested classes if needed
-        var containingTypesOpen = string.Empty;
-        var containingTypesClose = string.Empty;
-        var indent = "    ";
-
-        foreach (var containingType in containingTypes)
-        {
-            containingTypesOpen += $"{indent}partial class {containingType}\n{indent}{{\n";
-            indent += "    ";
-        }
-
-        // Build closing braces for nested classes
-        var closeIndent = "    ";
-        for (int i = 0; i < containingTypes.Count; i++)
-        {
-            closeIndent = new string(' ', 4 * (containingTypes.Count - i));
-            containingTypesClose += $"{closeIndent}}}\n";
-        }
-
-        // Generate complete partial class
-        var source = $$"""
-            // <auto-generated/>
-            // Generated by Guacamole Source Generator
-            // This file contains push-based reactive source properties
-            #nullable enable
-
-            namespace {{namespaceName}}
-            {
-            {{containingTypesOpen}}{{indent}}partial class {{className}}
-            {{indent}}{
-                    // ========================================
-                    // Source Fields (push-based reactive sources)
-                    // ========================================
-                    {{sourceFields}}
-
-            {{constructor}}
-
-                    // ========================================
-                    // Property Implementations (backed by sources)
-                    // ========================================
-            {{propertyImplementations}}
-
-                    // ========================================
-                    // Source Accessors (for pushing data)
-                    // ========================================
-            {{sourceAccessors}}
-            {{indent}}}
-            {{containingTypesClose}}}
-            """;
-
-        context.AddSource($"{className}.g.cs", source);
+        });
     }
 }
