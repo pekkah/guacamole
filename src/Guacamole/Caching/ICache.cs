@@ -1,4 +1,4 @@
-namespace Guacamole.Core.Caching;
+namespace Guacamole.Caching;
 
 /// <summary>
 /// Statistics provider for cache operations.

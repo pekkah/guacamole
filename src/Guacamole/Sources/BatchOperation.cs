@@ -1,7 +1,7 @@
 using System;
 using System.Collections.Generic;
 
-namespace Guacamole.Sources;
+namespace Guacamole;
 
 /// <summary>
 /// Represents a batch operation that defers cache invalidation until commit.

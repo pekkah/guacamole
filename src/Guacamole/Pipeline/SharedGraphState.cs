@@ -1,8 +1,7 @@
 using System.Collections.Concurrent;
 using System.Collections.Immutable;
-using Guacamole.Core.Diagnostics;
 
-namespace Guacamole.Core.Pipeline;
+namespace Guacamole.Pipeline;
 
 /// <summary>
 /// Shared mutable state for computation graph that persists across graph versions.

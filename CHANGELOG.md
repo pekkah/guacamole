@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Breaking
+
+- **Namespaces consolidated.** The `Core` segment is gone and user-facing types moved to `Guacamole`, so `using Guacamole;` is enough for typical code: sources and their extensions (`Guacamole.Sources`), `Result<TValue, TError>` (`Guacamole.Core.Common`), `ComputationError` (`Guacamole.Core.Pipeline`), `ProviderMetadata`/`SourceLocation` (`Guacamole.Core.Diagnostics`) and `ContextOperationException` (`Guacamole.Exceptions`) are now in `Guacamole`. Advanced types moved to `Guacamole.Pipeline` (from `Guacamole.Core.Pipeline` and `Guacamole.Core.Nodes`), `Guacamole.Caching` (from `Guacamole.Core.Caching`) and `Guacamole.Diagnostics` (`GuacamoleMetrics`, `MetricsConfiguration`). Generated code references the new namespaces. See [MIGRATION_GUIDE.md](MIGRATION_GUIDE.md#namespace-consolidation).
+
 ### Changed
 
 - **Platform upgrade**: all projects target .NET 11 (`net11.0`) with the .NET 11 RC3 SDK pinned in `global.json`, and use `LangVersion=latest` (C# 15). Test projects moved to xUnit v3 on Microsoft.Testing.Platform. Dependencies bumped (Microsoft.Extensions.DependencyInjection 11.0 RC3, Microsoft.SourceLink.GitHub 10.0.403, Microsoft.CodeAnalysis 5.9.0).

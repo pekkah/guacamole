@@ -1,7 +1,8 @@
 using System.Collections.Immutable;
 using System.Runtime.CompilerServices;
+using Guacamole.Diagnostics;
 
-namespace Guacamole.Core.Diagnostics;
+namespace Guacamole;
 
 /// <summary>
 /// Debugging and diagnostic information attached to providers for visualization and monitoring.

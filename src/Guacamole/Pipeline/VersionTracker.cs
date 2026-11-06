@@ -1,7 +1,7 @@
 using System.Collections.Concurrent;
 using System.Collections.Immutable;
 
-namespace Guacamole.Core.Pipeline;
+namespace Guacamole.Pipeline;
 
 /// <summary>
 /// Thread-safe tracker for node output versions.

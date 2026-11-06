@@ -1,4 +1,4 @@
-namespace Guacamole.Core.Pipeline;
+namespace Guacamole.Pipeline;
 
 /// <summary>
 /// Structural identity of a pipeline operator call, used to reuse the node created by

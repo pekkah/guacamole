@@ -1,9 +1,9 @@
 using System.Collections.Concurrent;
 using System.Collections.Immutable;
-using Guacamole.Core.Caching;
-using Guacamole.Core.Diagnostics;
+using Guacamole.Caching;
+using Guacamole.Diagnostics;
 
-namespace Guacamole.Core.Pipeline;
+namespace Guacamole.Pipeline;
 
 /// <summary>
 /// Manages the computation graph, dependency tracking, and cache coordination across all providers.

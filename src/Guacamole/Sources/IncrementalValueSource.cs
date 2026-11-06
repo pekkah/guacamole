@@ -3,11 +3,9 @@ using System.Collections.Generic;
 using System.Collections.Immutable;
 using System.Linq;
 using System.Threading;
-using Guacamole.Core.Common;
-using Guacamole.Core.Diagnostics;
-using Guacamole.Core.Pipeline;
+using Guacamole.Pipeline;
 
-namespace Guacamole.Sources;
+namespace Guacamole;
 
 /// <summary>
 /// Thread-safe implementation of IIncrementalValueSource for single values.

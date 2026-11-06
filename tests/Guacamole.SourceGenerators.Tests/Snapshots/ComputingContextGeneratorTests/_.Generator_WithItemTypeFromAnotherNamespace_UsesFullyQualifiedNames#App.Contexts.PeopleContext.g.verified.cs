@@ -8,32 +8,32 @@ namespace App.Contexts
 {
     partial class PeopleContext
     {
-        private global::Guacamole.Sources.IncrementalSource<global::Models.Person>? _PeopleSource;
-        private global::Guacamole.Sources.IncrementalValueSource<global::Models.Status>? _CurrentStatusSource;
-        private global::Guacamole.Sources.IncrementalValueSource<string?>? _OptionalNameSource;
-        private global::Guacamole.Sources.IncrementalValueSource<global::System.Collections.Generic.Dictionary<string, global::Models.Person>>? _LookupSource;
+        private global::Guacamole.IncrementalSource<global::Models.Person>? _PeopleSource;
+        private global::Guacamole.IncrementalValueSource<global::Models.Status>? _CurrentStatusSource;
+        private global::Guacamole.IncrementalValueSource<string?>? _OptionalNameSource;
+        private global::Guacamole.IncrementalValueSource<global::System.Collections.Generic.Dictionary<string, global::Models.Person>>? _LookupSource;
 
         /// <summary>
         /// Initializes the computing context and its sources.
         /// </summary>
         public PeopleContext() : base()
         {
-            _PeopleSource = new global::Guacamole.Sources.IncrementalSource<global::Models.Person>(
+            _PeopleSource = new global::Guacamole.IncrementalSource<global::Models.Person>(
                 "PeopleContext.People",
                 () => Graph); // Pass graph provider, not direct reference
             Graph = Graph.AddNode(_PeopleSource.GetNode()); // Register node
             SubscribeToSource(_PeopleSource);
-            _CurrentStatusSource = new global::Guacamole.Sources.IncrementalValueSource<global::Models.Status>(
+            _CurrentStatusSource = new global::Guacamole.IncrementalValueSource<global::Models.Status>(
                 "PeopleContext.CurrentStatus",
                 () => Graph); // Pass graph provider, not direct reference
             Graph = Graph.AddNode(_CurrentStatusSource.GetNode()); // Register node
             SubscribeToSource(_CurrentStatusSource);
-            _OptionalNameSource = new global::Guacamole.Sources.IncrementalValueSource<string?>(
+            _OptionalNameSource = new global::Guacamole.IncrementalValueSource<string?>(
                 "PeopleContext.OptionalName",
                 () => Graph); // Pass graph provider, not direct reference
             Graph = Graph.AddNode(_OptionalNameSource.GetNode()); // Register node
             SubscribeToSource(_OptionalNameSource);
-            _LookupSource = new global::Guacamole.Sources.IncrementalValueSource<global::System.Collections.Generic.Dictionary<string, global::Models.Person>>(
+            _LookupSource = new global::Guacamole.IncrementalValueSource<global::System.Collections.Generic.Dictionary<string, global::Models.Person>>(
                 "PeopleContext.Lookup",
                 () => Graph); // Pass graph provider, not direct reference
             Graph = Graph.AddNode(_LookupSource.GetNode()); // Register node
@@ -59,7 +59,7 @@ namespace App.Contexts
         /// Source accessor for People.
         /// Use this to push data into the incremental compilation pipeline.
         /// </summary>
-        public global::Guacamole.Sources.IIncrementalSource<global::Models.Person> PeopleSource
+        public global::Guacamole.IIncrementalSource<global::Models.Person> PeopleSource
         {
             get
             {
@@ -89,7 +89,7 @@ namespace App.Contexts
         /// Source accessor for CurrentStatus.
         /// Use this to set the value in the incremental compilation pipeline.
         /// </summary>
-        public global::Guacamole.Sources.IIncrementalValueSource<global::Models.Status> CurrentStatusSource
+        public global::Guacamole.IIncrementalValueSource<global::Models.Status> CurrentStatusSource
         {
             get
             {
@@ -119,7 +119,7 @@ namespace App.Contexts
         /// Source accessor for OptionalName.
         /// Use this to set the value in the incremental compilation pipeline.
         /// </summary>
-        public global::Guacamole.Sources.IIncrementalValueSource<string?> OptionalNameSource
+        public global::Guacamole.IIncrementalValueSource<string?> OptionalNameSource
         {
             get
             {
@@ -149,7 +149,7 @@ namespace App.Contexts
         /// Source accessor for Lookup.
         /// Use this to set the value in the incremental compilation pipeline.
         /// </summary>
-        public global::Guacamole.Sources.IIncrementalValueSource<global::System.Collections.Generic.Dictionary<string, global::Models.Person>> LookupSource
+        public global::Guacamole.IIncrementalValueSource<global::System.Collections.Generic.Dictionary<string, global::Models.Person>> LookupSource
         {
             get
             {

@@ -1,11 +1,8 @@
 using System.Collections.Immutable;
-using Guacamole.Core.Caching;
-using Guacamole.Core.Common;
-using Guacamole.Core.Diagnostics;
-using Guacamole.Core.Pipeline;
+using Guacamole.Pipeline;
 using Xunit;
 
-namespace Guacamole.Core.Tests.Pipeline;
+namespace Guacamole.Tests.Pipeline;
 
 /// <summary>
 /// Tests for ComputationGraph basic functionality following TDD progression:

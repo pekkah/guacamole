@@ -1,7 +1,6 @@
 using System.Collections.Immutable;
 using System.Linq;
-using Guacamole.Core.Common;
-using Guacamole.Core.Pipeline;
+using Guacamole.Pipeline;
 using Xunit;
 
 namespace Guacamole.Tests.Providers;

@@ -118,8 +118,8 @@ internal static class ContextEmitter
     private static void WriteSourceAccessor(CodeWriter writer, SourcePropertyModel property)
     {
         var accessorType = property.IsCollection
-            ? $"global::Guacamole.Sources.IIncrementalSource<{property.ItemType}>"
-            : $"global::Guacamole.Sources.IIncrementalValueSource<{property.ItemType}>";
+            ? $"global::Guacamole.IIncrementalSource<{property.ItemType}>"
+            : $"global::Guacamole.IIncrementalValueSource<{property.ItemType}>";
 
         writer.Line();
         writer.Line("/// <summary>");
@@ -150,8 +150,8 @@ internal static class ContextEmitter
     private static string FieldName(SourcePropertyModel property) => $"_{property.Name}Source";
 
     private static string SourceType(SourcePropertyModel property) => property.IsCollection
-        ? $"global::Guacamole.Sources.IncrementalSource<{property.ItemType}>"
-        : $"global::Guacamole.Sources.IncrementalValueSource<{property.ItemType}>";
+        ? $"global::Guacamole.IncrementalSource<{property.ItemType}>"
+        : $"global::Guacamole.IncrementalValueSource<{property.ItemType}>";
 
     /// <summary>
     /// Minimal indented writer that always uses '\n' line endings so output is platform independent.

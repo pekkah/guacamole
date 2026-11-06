@@ -2,8 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Threading;
-using Guacamole.Core.Pipeline;
-using Guacamole.Sources;
+using Guacamole.Pipeline;
 
 namespace Guacamole;
 

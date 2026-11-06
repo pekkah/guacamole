@@ -1,9 +1,7 @@
 using System;
 using System.Collections.Immutable;
-using Guacamole.Core.Common;
-using Guacamole.Core.Pipeline;
 
-namespace Guacamole.Core.Nodes;
+namespace Guacamole.Pipeline;
 
 /// <summary>
 /// Abstract base class for generated computation nodes.

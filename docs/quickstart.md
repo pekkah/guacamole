@@ -96,7 +96,7 @@ For the context above, the generator emits (simplified; see [Generated Code Refe
 ```csharp
 partial class CompilerContext
 {
-    private global::Guacamole.Sources.IncrementalValueSource<string>? _SourceCodeSource;
+    private global::Guacamole.IncrementalValueSource<string>? _SourceCodeSource;
 
     public CompilerContext() : base()
     {
@@ -106,7 +106,7 @@ partial class CompilerContext
     public partial global::Guacamole.IncrementalValueProvider<string> SourceCode
         => _SourceCodeSource.AsProvider();
 
-    public global::Guacamole.Sources.IIncrementalValueSource<string> SourceCodeSource
+    public global::Guacamole.IIncrementalValueSource<string> SourceCodeSource
         => _SourceCodeSource;
 }
 ```
@@ -207,7 +207,7 @@ Alternatively, keep the context minimal and build pipelines next to it, as the [
 There is no commit step: every source operation takes effect immediately.
 
 ```csharp
-using Guacamole.Sources; // PushRange and BeginBatch extension methods
+using Guacamole; // also brings the PushRange and BeginBatch extension methods into scope
 
 var context = new BuildContext(new Compiler());
 

@@ -1,6 +1,6 @@
 using System.Runtime.CompilerServices;
 
-namespace Guacamole.Core.Common;
+namespace Guacamole;
 
 /// <summary>
 /// Discriminated union for handling success/error states in pipeline transformations without exceptions.

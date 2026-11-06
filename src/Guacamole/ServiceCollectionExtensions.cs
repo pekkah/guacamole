@@ -1,7 +1,6 @@
 using System.Collections.Immutable;
-using Guacamole.Core.Caching;
-using Guacamole.Core.Diagnostics;
-using Guacamole.Core.Pipeline;
+using Guacamole.Caching;
+using Guacamole.Pipeline;
 
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;

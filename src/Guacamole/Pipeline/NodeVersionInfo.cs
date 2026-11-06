@@ -1,6 +1,6 @@
 using System.Collections.Immutable;
 
-namespace Guacamole.Core.Pipeline;
+namespace Guacamole.Pipeline;
 
 /// <summary>
 /// Tracks version information for a computation node's cached value.

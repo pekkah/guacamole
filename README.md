@@ -272,6 +272,10 @@ What is not:
 - Reading a provider does not lock the pipeline: two threads reading the same stale node may both compute it. Keep your lambdas pure.
 - `BeginBatch()` returns a buffer that is not thread-safe; `Commit()` applies its operations one by one, each with its own notification.
 
+### Namespaces
+
+Everything a typical application uses (contexts, providers and their operators, sources, `Result`, `ComputationError`, `ProviderMetadata`, the dependency-injection extensions) is in the `Guacamole` namespace, so `using Guacamole;` is all you need. Advanced and infrastructure types live in `Guacamole.Pipeline` (computation graph and nodes), `Guacamole.Caching` (LRU cache) and `Guacamole.Diagnostics` (metrics). See the [Migration Guide](MIGRATION_GUIDE.md#namespace-consolidation) for the old namespaces.
+
 ## Documentation
 
 - [Quickstart](docs/quickstart.md) - Step-by-step introduction
@@ -279,7 +283,7 @@ What is not:
 - [Performance Guide](docs/performance-guide.md) - How caching works and how to get the most out of it
 - [CI/CD](docs/ci-cd.md) - Build, test and release workflow
 - [Examples README](examples/README.md) - Guide to the examples
-- [Migration Guide](MIGRATION_GUIDE.md) - Moving from the removed mutation/`SaveChanges` API
+- [Migration Guide](MIGRATION_GUIDE.md) - Breaking API changes: namespace consolidation, and moving from the removed mutation/`SaveChanges` API
 - [Changelog](CHANGELOG.md)
 - [Push-Based Architecture Research](PUSH_BASED_ARCHITECTURE_RESEARCH.md) - Design research (historical; parts of it differ from the implementation)
 

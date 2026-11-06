@@ -1,11 +1,8 @@
 using System.Collections.Immutable;
-using Guacamole.Core.Common;
-using Guacamole.Core.Diagnostics;
-using Guacamole.Core.Pipeline;
-using Guacamole;
+using Guacamole.Pipeline;
 using Xunit;
 
-namespace Guacamole.Core.Tests.Providers;
+namespace Guacamole.Tests.Providers;
 
 /// <summary>
 /// End-to-end tests verifying the complete incremental computation engine.

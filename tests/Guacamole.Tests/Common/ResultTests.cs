@@ -1,7 +1,6 @@
-using Guacamole.Core.Common;
 using Xunit;
 
-namespace Guacamole.Core.Tests.Common;
+namespace Guacamole.Tests.Common;
 
 /// <summary>
 /// Tests for Result discriminated union following TDD progression:

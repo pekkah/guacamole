@@ -1,6 +1,6 @@
 using System;
 
-namespace Guacamole.Exceptions;
+namespace Guacamole;
 
 /// <summary>
 /// Exception thrown when computing context operations fail.

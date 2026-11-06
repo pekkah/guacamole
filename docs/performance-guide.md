@@ -91,8 +91,7 @@ To benchmark your own context, measure the three things that matter: a cached re
 
 ```csharp
 using BenchmarkDotNet.Attributes;
-using Guacamole;
-using Guacamole.Sources; // PushRange
+using Guacamole; // also brings PushRange into scope
 
 [MemoryDiagnoser]
 public class MyContextBenchmarks

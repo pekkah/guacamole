@@ -1,4 +1,4 @@
-namespace Guacamole.Core.Diagnostics;
+namespace Guacamole.Diagnostics;
 
 /// <summary>
 /// Configuration for controlling metrics collection granularity and performance impact.

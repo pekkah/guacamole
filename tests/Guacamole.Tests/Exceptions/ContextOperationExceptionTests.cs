@@ -1,5 +1,4 @@
 using System;
-using Guacamole.Exceptions;
 using Xunit;
 
 namespace Guacamole.Tests.Exceptions;

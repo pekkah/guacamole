@@ -54,20 +54,20 @@ namespace Test
 {
     partial class TestContext
     {
-        private global::Guacamole.Sources.IncrementalSource<string>? _ItemsSource;
-        private global::Guacamole.Sources.IncrementalValueSource<int>? _CountSource;
+        private global::Guacamole.IncrementalSource<string>? _ItemsSource;
+        private global::Guacamole.IncrementalValueSource<int>? _CountSource;
 
         /// <summary>
         /// Initializes the computing context and its sources.
         /// </summary>
         public TestContext() : base()
         {
-            _ItemsSource = new global::Guacamole.Sources.IncrementalSource<string>(
+            _ItemsSource = new global::Guacamole.IncrementalSource<string>(
                 "TestContext.Items",
                 () => Graph); // Pass graph provider, not direct reference
             Graph = Graph.AddNode(_ItemsSource.GetNode()); // Register node
             SubscribeToSource(_ItemsSource);
-            _CountSource = new global::Guacamole.Sources.IncrementalValueSource<int>(
+            _CountSource = new global::Guacamole.IncrementalValueSource<int>(
                 "TestContext.Count",
                 () => Graph); // Pass graph provider, not direct reference
             Graph = Graph.AddNode(_CountSource.GetNode()); // Register node
@@ -85,7 +85,7 @@ namespace Test
             }
         }
 
-        public global::Guacamole.Sources.IIncrementalSource<string> ItemsSource
+        public global::Guacamole.IIncrementalSource<string> ItemsSource
         {
             get { /* same null guard */ return _ItemsSource; }
         }
@@ -95,7 +95,7 @@ namespace Test
             get { /* same null guard */ return _CountSource.AsProvider(); }
         }
 
-        public global::Guacamole.Sources.IIncrementalValueSource<int> CountSource
+        public global::Guacamole.IIncrementalValueSource<int> CountSource
         {
             get { /* same null guard */ return _CountSource; }
         }
@@ -125,7 +125,7 @@ namespace Test
         {
             partial class NestedContext
             {
-                private global::Guacamole.Sources.IncrementalSource<T>? _ItemsSource;
+                private global::Guacamole.IncrementalSource<T>? _ItemsSource;
                 // ...
             }
         }

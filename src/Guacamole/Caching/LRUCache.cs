@@ -1,7 +1,7 @@
 using System.Collections.Concurrent;
-using Guacamole.Core.Diagnostics;
+using Guacamole.Diagnostics;
 
-namespace Guacamole.Core.Caching;
+namespace Guacamole.Caching;
 
 /// <summary>
 /// Least-Recently-Used cache implementation for storing computed values with predictable eviction behavior.

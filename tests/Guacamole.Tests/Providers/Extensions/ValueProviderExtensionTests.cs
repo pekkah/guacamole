@@ -1,13 +1,9 @@
 using System;
 using System.Collections.Immutable;
-using Guacamole.Core.Common;
-using Guacamole.Core.Diagnostics;
-using Guacamole.Core.Nodes;
-using Guacamole.Core.Pipeline;
-using Guacamole;
+using Guacamole.Pipeline;
 using Xunit;
 
-namespace Guacamole.Core.Tests.Providers.Extensions;
+namespace Guacamole.Tests.Providers.Extensions;
 
 /// <summary>
 /// T013: IncrementalValueProvider extension methods tests (Select, Where, Combine)

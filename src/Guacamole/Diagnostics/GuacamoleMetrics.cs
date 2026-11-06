@@ -1,7 +1,7 @@
 using System.Diagnostics;
 using System.Diagnostics.Metrics;
 
-namespace Guacamole.Core.Diagnostics;
+namespace Guacamole.Diagnostics;
 
 /// <summary>
 /// Central metrics collection for Guacamole incremental computation framework.

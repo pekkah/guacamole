@@ -1,8 +1,6 @@
 using System.Collections.Immutable;
 using System.Globalization;
-using Guacamole.Core.Common;
-using Guacamole.Core.Diagnostics;
-using Guacamole.Core.Pipeline;
+using Guacamole.Pipeline;
 
 namespace Guacamole;
 

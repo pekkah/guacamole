@@ -1,7 +1,7 @@
-using Guacamole.Core.Caching;
+using Guacamole.Caching;
 using Xunit;
 
-namespace Guacamole.Core.Tests.Caching;
+namespace Guacamole.Tests.Caching;
 
 /// <summary>
 /// Tests for LRUCache implementation following TDD progression:

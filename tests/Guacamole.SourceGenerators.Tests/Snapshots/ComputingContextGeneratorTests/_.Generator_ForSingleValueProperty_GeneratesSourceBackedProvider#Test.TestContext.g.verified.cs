@@ -8,14 +8,14 @@ namespace Test
 {
     partial class TestContext
     {
-        private global::Guacamole.Sources.IncrementalValueSource<int>? _CountSource;
+        private global::Guacamole.IncrementalValueSource<int>? _CountSource;
 
         /// <summary>
         /// Initializes the computing context and its sources.
         /// </summary>
         public TestContext() : base()
         {
-            _CountSource = new global::Guacamole.Sources.IncrementalValueSource<int>(
+            _CountSource = new global::Guacamole.IncrementalValueSource<int>(
                 "TestContext.Count",
                 () => Graph); // Pass graph provider, not direct reference
             Graph = Graph.AddNode(_CountSource.GetNode()); // Register node
@@ -41,7 +41,7 @@ namespace Test
         /// Source accessor for Count.
         /// Use this to set the value in the incremental compilation pipeline.
         /// </summary>
-        public global::Guacamole.Sources.IIncrementalValueSource<int> CountSource
+        public global::Guacamole.IIncrementalValueSource<int> CountSource
         {
             get
             {
