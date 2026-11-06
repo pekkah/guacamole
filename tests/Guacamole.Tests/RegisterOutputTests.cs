@@ -78,8 +78,8 @@ public partial class RegisterOutputTests
 
         // Assert
         Assert.NotNull(capturedItems);
-        // ImmutableHashSet doesn't preserve order, so compare as sets
-        Assert.Equal(new[] { "Item1", "Item2", "Item3" }.OrderBy(x => x), capturedItems.OrderBy(x => x));
+        // Sources enumerate in insertion order
+        Assert.Equal(new[] { "Item1", "Item2", "Item3" }, capturedItems);
     }
 
     [Fact]

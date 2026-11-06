@@ -29,6 +29,15 @@ A multi-stage data transformation pipeline.
 - Counting how often an output handler runs
 - Handlers run only when their provider's value changes
 
+### 4. [CrossFileSymbolsExample](CrossFileSymbolsExample/)
+Resolving references across files, as a compiler's type checker does.
+
+**Key concepts:**
+- Per-file declarations merged into a symbol table with `Collect()` and a deterministic (path-ordered) merge
+- A table type with structural equality: an edit that leaves the declarations unchanged keeps the table's version
+- `Combine` to pair each file with the table, and `Restrict` so unrelated declaration changes do not re-check a file
+- Per-item memoization: the output shows how many type checks each change runs
+
 ## Push-Based Architecture
 
 ### Sources

@@ -8,6 +8,13 @@ namespace Guacamole;
 /// Sources are the entry points for external data (file changes, network events, etc.)
 /// and automatically invalidate the computation cache when data changes.
 /// </summary>
+/// <remarks>
+/// A collection source has set semantics (no duplicates, using the item's equality) and keeps its
+/// items in insertion order: <see cref="GetSnapshot"/> and the provider returned by
+/// <see cref="AsProvider"/> enumerate items in the order they were pushed, so downstream results such
+/// as <c>Collect()</c> are deterministic. <see cref="Replace"/> keeps the replaced item's position;
+/// removing an item and pushing it again moves it to the end.
+/// </remarks>
 /// <typeparam name="T">Type of items this source produces</typeparam>
 public interface IIncrementalSource<T>
 {
@@ -22,7 +29,8 @@ public interface IIncrementalSource<T>
     IncrementalValuesProvider<T> AsProvider();
 
     /// <summary>
-    /// Adds an item to the source. Thread-safe, triggers invalidation automatically.
+    /// Adds an item to the end of the source. Pushing an item that is already present is a no-op.
+    /// Thread-safe, triggers invalidation automatically.
     /// </summary>
     /// <param name="item">The item to add</param>
     void Push(T item);
@@ -34,7 +42,8 @@ public interface IIncrementalSource<T>
     void Remove(T item);
 
     /// <summary>
-    /// Replaces an item in the source. Thread-safe, triggers invalidation automatically.
+    /// Replaces an item in the source; the new item takes the old item's position.
+    /// Thread-safe, triggers invalidation automatically.
     /// </summary>
     /// <param name="oldItem">The item to replace</param>
     /// <param name="newItem">The new item</param>
@@ -46,7 +55,7 @@ public interface IIncrementalSource<T>
     void Clear();
 
     /// <summary>
-    /// Gets the current snapshot of items (thread-safe read).
+    /// Gets the current snapshot of items in insertion order (thread-safe read).
     /// </summary>
     IReadOnlyCollection<T> GetSnapshot();
 

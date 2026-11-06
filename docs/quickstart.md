@@ -52,7 +52,7 @@ For every input property the source generator creates a push-based source and a 
 
 Sources are where data enters the graph:
 
-- `IIncrementalSource<T>` (for `IncrementalValuesProvider<T>` inputs): `Push`, `Remove`, `Replace`, `Clear`, `GetSnapshot`
+- `IIncrementalSource<T>` (for `IncrementalValuesProvider<T>` inputs): `Push`, `Remove`, `Replace`, `Clear`, `GetSnapshot`. Items are unique and enumerated in insertion order (`Replace` keeps the position; `Remove` then `Push` appends).
 - `IIncrementalValueSource<T>` (for `IncrementalValueProvider<T>` inputs): `Set`, `GetValue`
 
 ### 3. Providers
@@ -223,12 +223,12 @@ using Guacamole; // also brings the PushRange and BeginBatch extension methods i
 
 var context = new BuildContext(new Compiler());
 
-// Collection inputs (set semantics, using the item's equality)
+// Collection inputs (set semantics, using the item's equality; items are enumerated in insertion order)
 context.SourcesSource.Push(new SourceFile("Main.cs", "a b"));   // pushing an equal item again is a no-op
 context.SourcesSource.PushRange(new[] { new SourceFile("Utils.cs", "c") });
 context.SourcesSource.Replace(
     new SourceFile("Utils.cs", "c"),
-    new SourceFile("Utils.cs", "c d"));                          // throws if the old item is missing or the new one exists
+    new SourceFile("Utils.cs", "c d"));                          // keeps the old item's position; throws if the old item is missing or the new one exists
 context.SourcesSource.Remove(new SourceFile("Utils.cs", "c d")); // removing a missing item is a no-op
 IReadOnlyCollection<SourceFile> current = context.SourcesSource.GetSnapshot();
 
@@ -266,7 +266,25 @@ using (var batch = context.SourcesSource.BeginBatch())
 
 Values are cached for the providers you **read** (with `GetValue()`/`GetValues()`, `.Value`/`.Values`, or through an output handler). Intermediate stages that are never read are not cached: they are recomputed inline when a provider that depends on them is recomputed. Cache validation looks through those intermediate stages to the sources behind them, so a change to any of those sources is still detected.
 
-For example, with `Result = Sources.Select(Compile).Collect().Select(Link)` and only `Result` being read, a change to `Sources` reruns `Compile` for **every** file, then `Link`. Collection operators do not cache per item. If `Compile` is expensive, structure your inputs so that unrelated changes do not reach it (for example separate sources), and read intermediate providers you want cached.
+For example, with `Result = Sources.Select(Compile).Collect().Select(Link)` and only `Result` being read, a change to `Sources` reruns `Compile` for the **changed** files only, then `Link`. Collection operators (`Select`, `Where`, `SelectMany`) memoize their lambda per item: items equal to ones seen in their previous computation reuse the previous result, so keep items immutable and lambdas pure. Read intermediate providers you want cached.
+
+### Cross-item lookups (e.g. symbol tables)
+
+When a per-item stage needs data from other items (type checking a file needs every file's declarations), compute that data from all items and combine it back, instead of accumulating it in a lambda (which makes results depend on processing order):
+
+```csharp
+var symbols = Parsed
+    .Select(FileDeclarations.Extract)   // per file
+    .Collect()                          // all files
+    .Select(SymbolTable.Merge);         // sort by path inside Merge; SymbolTable has structural equality
+
+var typeChecked = Parsed
+    .Combine(symbols)
+    .Select(pair => (File: pair.Left, Symbols: pair.Right.Restrict(pair.Left.ReferencedNames))) // optional narrowing
+    .Select(pair => TypeCheck(pair.File, pair.Symbols));
+```
+
+An edit that leaves the table equal (for example a comment) does not rerun other files' type checks, and the optional `Restrict` keeps unaffected files' inputs equal when unrelated declarations change. See [Cross-item lookups](performance-guide.md#cross-item-lookups-eg-symbol-tables) and [`examples/CrossFileSymbolsExample`](../examples/CrossFileSymbolsExample/).
 
 ### Equality matters
 

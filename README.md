@@ -143,7 +143,8 @@ How these behave:
 - **Lazy evaluation** - nothing is computed until a provider is read with `GetValue()`/`GetValues()` (or `.Value`/`.Values`), or an output handler reads it.
 - **Caching happens at the nodes you read.** The provider you call `GetValue()`/`GetValues()` on caches its result together with the versions of the inputs it used. Intermediate stages that are never read directly are not cached: they are recomputed inline whenever the node you read is recomputed, and cache validation looks through them to the sources they depend on. To cache an intermediate stage, read it (for example by registering an output on it).
 - **Version-based invalidation** - a source change only increments that source's version; cached values are revalidated lazily on the next read. A read node whose recomputed value equals its previous value keeps its version, so downstream nodes built from its cached value stay valid and are not recomputed.
-- **No per-item caching** - a collection `Select`/`Where` reruns its lambda for every item when it is recomputed.
+- **Per-item memoization** - a recomputed collection `Select`/`Where`/`SelectMany` runs its lambda only for new or changed items; items equal to ones seen in the previous computation reuse the previous result (the same instance). Items should be immutable.
+- **Cross-item lookups** (e.g. a symbol table built from all files) - compute shared data with `Collect()` and a deterministic merge into a type with structural equality, then `Combine` it with each item; never accumulate it in a lambda, which makes results depend on processing order. See [Cross-item lookups](docs/performance-guide.md#cross-item-lookups-eg-symbol-tables).
 - **Custom equality comparers** decide whether a recomputed value counts as changed. Use records or `IEquatable<T>` types; without value equality every recomputation looks like a change.
 - **Errors are values** - exceptions thrown by your lambdas become failed `Result`s; `GetValue()`/`GetValues()` do not throw them (`.Value`/`.Values` do).
 - **A filtered-out single value is "no value", not an error.** When a single-value `Where` rejects its input, `GetValue()` returns a `Result` with `IsNone == true` (`IsSuccess` and `IsError` are false). Downstream `Select`/`Where`/`Combine` propagate "no value" without running their lambdas; `SelectMany` and collection `Combine` produce no items; output handlers are not called. `.Value` throws `InvalidOperationException`; use `TryGetValue(out value)`, which returns `false` for no value (and throws only if the computation failed).
@@ -200,6 +201,7 @@ The [`examples/`](examples/) directory contains runnable console projects. They 
 - [`examples/BasicSourceUsage`](examples/BasicSourceUsage/) - Pushing items, `Where`/`Collect`/`Select`, output handlers
 - [`examples/FileWatcherExample`](examples/FileWatcherExample/) - Simulated file watcher pushing file changes
 - [`examples/DataPipelineExample`](examples/DataPipelineExample/) - Multi-stage data transformation pipeline
+- [`examples/CrossFileSymbolsExample`](examples/CrossFileSymbolsExample/) - Cross-file symbol resolution with `Collect`, a deterministic merge and `Combine`
 
 Run an example with:
 ```bash
@@ -215,9 +217,9 @@ External code pushes changes into sources:
 
 ```csharp
 // A source accessor is generated for each partial get-only provider property
-context.SourcesSource.Push(new SourceFile("Program.cs", "..."));   // collection with set semantics: duplicates are ignored
+context.SourcesSource.Push(new SourceFile("Program.cs", "..."));   // collection with set semantics: duplicates are ignored, items keep insertion order
 context.SourcesSource.Remove(oldFile);
-context.SourcesSource.Replace(oldFile, newFile);                   // throws if oldFile is missing or newFile already present
+context.SourcesSource.Replace(oldFile, newFile);                   // newFile takes oldFile's position; throws if oldFile is missing or newFile already present
 context.SourcesSource.Clear();
 context.OptionsSource.Set(new BuildOptions("Release"));             // single value; setting an equal value is a no-op
 

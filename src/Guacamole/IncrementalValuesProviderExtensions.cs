@@ -417,6 +417,7 @@ internal sealed class SelectManyValuesNode<TSource, TResult> : ICollectionComput
     private readonly ICollectionComputationNode<TSource> _source;
     private readonly Func<TSource, IEnumerable<TResult>> _selector;
     private readonly IEqualityComparer<TResult>? _comparer;
+    private readonly ItemMemo<TSource, TResult[]> _memo = new();
 
     public SelectManyValuesNode(ICollectionComputationNode<TSource> source, Func<TSource, IEnumerable<TResult>> selector, IEqualityComparer<TResult>? comparer)
     {
@@ -446,8 +447,10 @@ internal sealed class SelectManyValuesNode<TSource, TResult> : ICollectionComput
             if (!sourceResult.IsSuccess)
                 return Result<IEnumerable<TResult>, ComputationError>.Error(sourceResult.ErrorValue!);
 
-            // Materialize inside the try so selector exceptions become error results
-            var results = sourceResult.Value!.SelectMany(_selector).ToArray();
+            // Unchanged items reuse their previous results without running the selector.
+            // Materialize inside the try so selector exceptions become error results.
+            var perItem = _memo.Apply(sourceResult.Value!, item => _selector(item).ToArray());
+            var results = perItem.SelectMany(r => r).ToArray();
             return Result<IEnumerable<TResult>, ComputationError>.Success(results);
         }
         catch (Exception ex)
@@ -501,6 +504,7 @@ internal sealed class SelectValuesNode<TSource, TResult> : ICollectionComputatio
     private readonly ICollectionComputationNode<TSource> _source;
     private readonly Func<TSource, TResult> _selector;
     private readonly IEqualityComparer<TResult>? _comparer;
+    private readonly ItemMemo<TSource, TResult> _memo = new();
 
     public SelectValuesNode(ICollectionComputationNode<TSource> source, Func<TSource, TResult> selector, IEqualityComparer<TResult>? comparer)
     {
@@ -530,8 +534,9 @@ internal sealed class SelectValuesNode<TSource, TResult> : ICollectionComputatio
             if (!sourceResult.IsSuccess)
                 return Result<IEnumerable<TResult>, ComputationError>.Error(sourceResult.ErrorValue!);
 
-            // Materialize inside the try so selector exceptions become error results
-            var results = sourceResult.Value!.Select(_selector).ToArray();
+            // Unchanged items reuse their previous results without running the selector.
+            // Materialize inside the try so selector exceptions become error results.
+            var results = _memo.Apply(sourceResult.Value!, _selector);
             return Result<IEnumerable<TResult>, ComputationError>.Success(results);
         }
         catch (Exception ex)
@@ -546,6 +551,7 @@ internal sealed class WhereValuesNode<T> : ICollectionComputationNode<T>
     private readonly ICollectionComputationNode<T> _source;
     private readonly Func<T, bool> _predicate;
     private readonly IEqualityComparer<T>? _comparer;
+    private readonly ItemMemo<T, bool> _memo = new();
 
     public WhereValuesNode(ICollectionComputationNode<T> source, Func<T, bool> predicate, IEqualityComparer<T>? comparer)
     {
@@ -575,9 +581,17 @@ internal sealed class WhereValuesNode<T> : ICollectionComputationNode<T>
             if (!sourceResult.IsSuccess)
                 return sourceResult;
 
-            // Materialize inside the try so predicate exceptions become error results
-            var filtered = sourceResult.Value!.Where(_predicate).ToArray();
-            return Result<IEnumerable<T>, ComputationError>.Success(filtered);
+            // Unchanged items reuse their previous verdicts without running the predicate.
+            // Materialize inside the try so predicate exceptions become error results.
+            var items = sourceResult.Value as IReadOnlyList<T> ?? sourceResult.Value!.ToArray();
+            var keep = _memo.Apply(items, _predicate);
+            var filtered = new List<T>(items.Count);
+            for (var i = 0; i < items.Count; i++)
+            {
+                if (keep[i])
+                    filtered.Add(items[i]);
+            }
+            return Result<IEnumerable<T>, ComputationError>.Success(filtered.ToArray());
         }
         catch (Exception ex)
         {

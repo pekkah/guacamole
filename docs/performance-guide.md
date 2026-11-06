@@ -23,7 +23,8 @@ Step 3 is the equality cut-off: when a read provider's value did not change, dow
 Values are cached for the providers that are read. Intermediate stages that are never read are recomputed inline whenever a provider that depends on them is recomputed. Validation looks through such intermediate stages to the inputs behind them, so correctness does not depend on what you read, but caching does.
 
 ```csharp
-// Only `report` is read: a change to Files reruns Parse for every file, then Analyze, then Format.
+// Only `report` is read: a change to Files reruns Parse (for the changed files only, see
+// per-item memoization below), then Analyze, then Format.
 var parsed = context.Files.Select(Parse);
 var analyzed = parsed.Collect().Select(Analyze);
 var report = analyzed.Select(Format);
@@ -35,12 +36,45 @@ context.RegisterOutput(analyzed, (_, _) => { });
 
 Output handlers run in registration order, so register handlers for upstream stages before downstream ones if you rely on their cached values.
 
-### No per-item caching
+### Per-item memoization
 
-Collection operators (`Select`, `Where`, `SelectMany` on `IncrementalValuesProvider<T>`) process the whole collection whenever they are recomputed. Changing one item of a 10,000-item source reruns the lambda for all 10,000 items in every recomputed stage. If a per-item computation is expensive:
+Collection operators (`Select`, `Where`, `SelectMany` on `IncrementalValuesProvider<T>`) remember, for each input item of their previous computation, what their lambda returned. When such a stage is recomputed, the lambda runs only for items that are new or changed; an item equal to one seen last time (by `EqualityComparer<T>.Default`, i.e. the item's own equality) reuses the previous result. Pushing one item to a 10,000-item source runs each recomputed stage's lambda once, not 10,000 times.
 
-- memoize it yourself (for example a dictionary keyed by the item, which works well with records), or
-- split independent data into separate sources so unrelated changes do not reach it.
+- A reused result is the **same instance** as before, so the next stage's memo hits too, even when the result type only has reference equality.
+- The memo holds one entry per distinct item of the latest computation and is replaced when a computation completes; if a lambda throws, the stage returns an error and keeps its previous memo.
+- `null` items are not memoized; the lambda runs for them every time.
+- Items must be immutable (records are ideal): an item mutated in place still equals itself, so its stale result would be reused.
+- The stage still walks the whole collection (and allocates the result array) on recomputation; only the lambda calls are saved. To avoid even that for unrelated data, split it into separate sources.
+- Memoization is per item. A lambda that also depends on a combined value (`values.Combine(value)`) sees a new input for every item when that value changes; see [cross-item lookups](#cross-item-lookups-eg-symbol-tables) for keeping such inputs equal.
+
+## Cross-Item Lookups (e.g. Symbol Tables)
+
+Some per-item computations need data from *other* items: a compiler type-checking one file needs the declarations of every file. Do **not** accumulate that data as a side effect of a per-item lambda (for example a mutable symbol builder that each file adds its declarations to while it is checked). Such a lambda only sees the items processed before it, so its result depends on processing order; it also breaks per-item memoization and lazy evaluation, since lambdas may be skipped, rerun or run concurrently.
+
+Instead, make the per-item computation a pure function of (item, table), and compute the table from all items:
+
+```csharp
+// 1. Per item: extract what other items need (pure, memoized per file)
+var declarations = Parsed.Select(FileDeclarations.Extract);
+
+// 2. All items: merge into one table, in a deterministic order, with structural equality
+IncrementalValueProvider<SymbolTable> symbols = declarations.Collect().Select(SymbolTable.Merge);
+
+// 3. Per item again: pair each file with the table
+var typeChecked = Parsed.Combine(symbols).Select(pair => TypeCheck(pair.Left, pair.Right));
+```
+
+- **Merge in a defined order.** Sources enumerate in insertion order, so `Collect()` is deterministic for a given sequence of pushes, but results should not depend on push order either. Sort inside the merge (for example by path, `StringComparer.Ordinal`) and resolve conflicts explicitly (for example "first declaration wins").
+- **Give the table structural equality** (an immutable sorted dictionary wrapped in a type implementing `IEquatable<T>`, or a record with a custom `Equals`). `Collect()` returns a new `ImmutableArray<T>` (reference equality) on every change, but if the merged table is equal to the previous one (say a file's comments changed but not its declarations), the table keeps its version. Read the table (for example register an output on it before the outputs that depend on it) so its version is tracked.
+- **Narrow the table per item** when one item changing the table should not rerun every other item. `Combine` pairs every item with the new table, so every item's input changes when the table does. Restricting the table to what the item references keeps the input equal for unaffected items, and the next stage's per-item memo skips them:
+
+  ```csharp
+  var typeChecked = Parsed.Combine(symbols)
+      .Select(pair => (File: pair.Left, Symbols: pair.Right.Restrict(pair.Left.ReferencedNames))) // cheap, reruns per file
+      .Select(pair => TypeCheck(pair.File, pair.Symbols));                                    // expensive, memoized
+  ```
+
+With this structure, editing one file reruns its own parse and declaration extraction, one merge, and the type checks of the files whose (narrowed) inputs changed. See [`examples/CrossFileSymbolsExample`](../examples/CrossFileSymbolsExample/) for a runnable version and `tests/Guacamole.Tests/Regressions/Issue25CrossFileSymbolLookupTests.cs` for the order-dependence it avoids.
 
 ## Build Pipelines Once
 
@@ -136,6 +170,8 @@ public class MyContextBenchmarks
 - [ ] Pipelines are built once and the providers are kept
 - [ ] Item and computed value types have value equality (records / `IEquatable<T>`) or explicit comparers
 - [ ] Expensive intermediate stages are read (so they are cached) or memoized
+- [ ] Collection items are immutable, and lambdas are pure (per-item results are reused)
+- [ ] Data shared across items (symbol tables, indexes) is computed with `Collect()` and a deterministic merge into a type with structural equality, not accumulated in a lambda
 - [ ] Output handlers are cheap and thread-safe
 
 ## References

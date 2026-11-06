@@ -236,6 +236,11 @@ public class ComputationGraphTests
         var node = new TestComputationNode("perf-test", typeof(string));
         var graphWithNode = graph.AddNode(node);
 
+        // Warm up so the measurement covers the operations, not JIT compilation (which can take
+        // longer than the budget while other tests run in parallel)
+        new ComputationGraph().AddNode(new TestComputationNode("warm-up", typeof(string)))
+            .CacheValue("warm-up", "value").ValueCache.TryGet("warm-up", out _);
+
         // Act - Measure cache operations
         var stopwatch = System.Diagnostics.Stopwatch.StartNew();
 
