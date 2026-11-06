@@ -23,7 +23,8 @@ Step 3 is the equality cut-off: when a read provider's value did not change, dow
 Values are cached for the providers that are read. Intermediate stages that are never read are recomputed inline whenever a provider that depends on them is recomputed. Validation looks through such intermediate stages to the inputs behind them, so correctness does not depend on what you read, but caching does.
 
 ```csharp
-// Only `report` is read: a change to Files reruns Parse for every file, then Analyze, then Format.
+// Only `report` is read: a change to Files reruns Parse (for the changed files only, see
+// per-item memoization below), then Analyze, then Format.
 var parsed = context.Files.Select(Parse);
 var analyzed = parsed.Collect().Select(Analyze);
 var report = analyzed.Select(Format);
@@ -35,12 +36,16 @@ context.RegisterOutput(analyzed, (_, _) => { });
 
 Output handlers run in registration order, so register handlers for upstream stages before downstream ones if you rely on their cached values.
 
-### No per-item caching
+### Per-item memoization
 
-Collection operators (`Select`, `Where`, `SelectMany` on `IncrementalValuesProvider<T>`) process the whole collection whenever they are recomputed. Changing one item of a 10,000-item source reruns the lambda for all 10,000 items in every recomputed stage. If a per-item computation is expensive:
+Collection operators (`Select`, `Where`, `SelectMany` on `IncrementalValuesProvider<T>`) remember, for each input item of their previous computation, what their lambda returned. When such a stage is recomputed, the lambda runs only for items that are new or changed; an item equal to one seen last time (by `EqualityComparer<T>.Default`, i.e. the item's own equality) reuses the previous result. Pushing one item to a 10,000-item source runs each recomputed stage's lambda once, not 10,000 times.
 
-- memoize it yourself (for example a dictionary keyed by the item, which works well with records), or
-- split independent data into separate sources so unrelated changes do not reach it.
+- A reused result is the **same instance** as before, so the next stage's memo hits too, even when the result type only has reference equality.
+- The memo holds one entry per distinct item of the latest computation and is replaced when a computation completes; if a lambda throws, the stage returns an error and keeps its previous memo.
+- `null` items are not memoized; the lambda runs for them every time.
+- Items must be immutable (records are ideal): an item mutated in place still equals itself, so its stale result would be reused.
+- The stage still walks the whole collection (and allocates the result array) on recomputation; only the lambda calls are saved. To avoid even that for unrelated data, split it into separate sources.
+- Memoization is per item. A lambda that also depends on a combined value (`values.Combine(value)`) sees a new input for every item when that value changes; see [cross-item lookups](#cross-item-lookups-eg-symbol-tables) for keeping such inputs equal.
 
 ## Build Pipelines Once
 
@@ -136,6 +141,7 @@ public class MyContextBenchmarks
 - [ ] Pipelines are built once and the providers are kept
 - [ ] Item and computed value types have value equality (records / `IEquatable<T>`) or explicit comparers
 - [ ] Expensive intermediate stages are read (so they are cached) or memoized
+- [ ] Collection items are immutable, and lambdas are pure (per-item results are reused)
 - [ ] Output handlers are cheap and thread-safe
 
 ## References

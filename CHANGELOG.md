@@ -20,6 +20,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Configurable cache capacity**: override `ComputingContextBase.CacheCapacity` (default `ComputingContextBase.DefaultCacheCapacity`, 10,000) to size a context's value cache; it was hardcoded before.
 - **Computation metrics**: providers record `GuacamoleMetrics.ComputationsTotal`, `ComputationDuration` and `ComputationErrors` whenever they compute a value (cache hits excluded), controlled by `MetricsConfiguration.EnableComputationMetrics`, with optional `tracking.name`/`pipeline.stage` dimensions.
 - `IncrementalValueProvider<T>.TryGetValue(out T)` and the None state of `Result<TValue, TError>` (see Breaking).
+- **Per-item memoization in collection operators**: a recomputed collection `Select`, `SelectMany` or `Where` runs its lambda only for new or changed items; items equal (by `EqualityComparer<T>.Default`) to items of its previous computation reuse the previous result instance, so downstream stages hit as well. Pushing or replacing one item of an N-item source runs each recomputed stage's lambda once instead of N times. Items mutated in place are not detected, so keep items immutable (#25).
 
 ### Changed
 

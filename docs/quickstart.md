@@ -266,7 +266,7 @@ using (var batch = context.SourcesSource.BeginBatch())
 
 Values are cached for the providers you **read** (with `GetValue()`/`GetValues()`, `.Value`/`.Values`, or through an output handler). Intermediate stages that are never read are not cached: they are recomputed inline when a provider that depends on them is recomputed. Cache validation looks through those intermediate stages to the sources behind them, so a change to any of those sources is still detected.
 
-For example, with `Result = Sources.Select(Compile).Collect().Select(Link)` and only `Result` being read, a change to `Sources` reruns `Compile` for **every** file, then `Link`. Collection operators do not cache per item. If `Compile` is expensive, structure your inputs so that unrelated changes do not reach it (for example separate sources), and read intermediate providers you want cached.
+For example, with `Result = Sources.Select(Compile).Collect().Select(Link)` and only `Result` being read, a change to `Sources` reruns `Compile` for the **changed** files only, then `Link`. Collection operators (`Select`, `Where`, `SelectMany`) memoize their lambda per item: items equal to ones seen in their previous computation reuse the previous result, so keep items immutable and lambdas pure. Read intermediate providers you want cached.
 
 ### Equality matters
 

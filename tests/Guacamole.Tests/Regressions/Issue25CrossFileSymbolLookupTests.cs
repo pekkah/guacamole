@@ -287,8 +287,45 @@ public partial class Issue25CrossFileSymbolLookupTests
         Assert.Equal(mergesBefore + 1, pipeline.Merges);
         Assert.Equal(tableVersion, context.Graph.Versions.GetOutputVersion(pipeline.Table.Node.Id));
 
+        // Only std (whose parsed file changed) is type checked again; main hits the per-item memo
+        // because neither its parsed file nor the table changed.
         Assert.Equal(["List:std.fugu", "Option:std.fugu"], pipeline.Results()["main.fugu"].Resolved);
-        Assert.InRange(pipeline.TypeChecks - typeChecksBefore, 1, files.Length);
+        Assert.Equal(typeChecksBefore + 1, pipeline.TypeChecks);
+    }
+
+    [Theory]
+    [InlineData(false, 2)]
+    [InlineData(true, 1)]
+    public void UnrelatedDeclarationChange_WithRestrictedTable_SkipsUnaffectedFiles(bool restrict, int expectedTypeChecks)
+    {
+        using var context = new FuguContext();
+        var typeChecks = 0;
+        var parsed = context.Files.Select(Parse);
+        var table = parsed.Select(ExtractDeclarations).Collect().Select(SymbolTable.Merge);
+        var pairs = parsed.Combine(table);
+        var inputs = restrict
+            // Narrow the table to the names each file references: the pair stays equal when
+            // only unrelated declarations change.
+            ? pairs.Select(pair => (pair.Left, pair.Right.Restrict(pair.Left.Uses)))
+            : pairs;
+        var typeChecked = inputs.Select(pair =>
+        {
+            Interlocked.Increment(ref typeChecks);
+            return TypeCheck(pair.Item1, pair.Item2);
+        });
+
+        var files = Files(stdFirst: true);
+        var std = files.Single(f => f.Path == "std.fugu");
+        context.FilesSource.PushRange(files);
+        _ = typeChecked.Values.ToArray();
+        var before = typeChecks;
+
+        // std gains a declaration that main does not reference.
+        context.FilesSource.Replace(std, std with { Text = StdText + "\ndecl Map" });
+
+        var results = typeChecked.Values.ToDictionary(f => f.Path);
+        Assert.Equal(["List:std.fugu", "Option:std.fugu"], results["main.fugu"].Resolved);
+        Assert.Equal(expectedTypeChecks, typeChecks - before);
     }
 }
 

@@ -80,7 +80,7 @@ public partial class SourceChangeCachingTests
         context.ItemsSource.Push(2);
         Assert.Equal(new[] { 2, 4 }, doubled.Values.ToArray());
         Assert.Equal(new[] { 2, 4 }, doubled.Values.ToArray());
-        Assert.Equal(3, computeCount); // two elements recomputed once
+        Assert.Equal(2, computeCount); // only the new element is computed; 1 reuses its memoized result
     }
 
     [Fact]

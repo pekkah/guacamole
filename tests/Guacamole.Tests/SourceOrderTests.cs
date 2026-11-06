@@ -7,6 +7,7 @@ namespace Guacamole.Tests;
 /// <summary>
 /// Collection sources keep set semantics and enumerate their items in insertion order.
 /// </summary>
+[Collection(ConcurrencyTestCollection.Name)]
 public partial class SourceOrderTests
 {
     [ComputingContext]
