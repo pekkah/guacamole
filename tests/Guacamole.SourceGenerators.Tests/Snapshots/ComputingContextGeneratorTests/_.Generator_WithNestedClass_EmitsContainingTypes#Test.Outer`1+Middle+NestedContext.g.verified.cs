@@ -12,18 +12,14 @@ namespace Test
         {
             partial class NestedContext
             {
-                private global::Guacamole.IncrementalSource<T>? _ItemsSource;
+                private global::Guacamole.IIncrementalSource<T>? _ItemsSource;
 
                 /// <summary>
                 /// Initializes the computing context and its sources.
                 /// </summary>
                 public NestedContext() : base()
                 {
-                    _ItemsSource = new global::Guacamole.IncrementalSource<T>(
-                        "NestedContext.Items",
-                        () => Graph); // Pass graph provider, not direct reference
-                    Graph = Graph.AddNode(_ItemsSource.GetNode()); // Register node
-                    SubscribeToSource(_ItemsSource);
+                    _ItemsSource = CreateSource<T>("NestedContext.Items");
                 }
 
                 /// <summary>

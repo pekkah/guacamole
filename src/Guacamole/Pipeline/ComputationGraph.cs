@@ -9,7 +9,7 @@ namespace Guacamole.Pipeline;
 /// Manages the computation graph, dependency tracking, and cache coordination across all providers.
 /// Immutable with copy-on-write semantics, enforces DAG structure, provides centralized cache management with LRU eviction.
 /// </summary>
-public class ComputationGraph
+internal sealed class ComputationGraph
 {
     /// <summary>
     /// All computation nodes in the graph.
@@ -24,7 +24,7 @@ public class ComputationGraph
     /// <summary>
     /// Shared cache for computed values with LRU eviction.
     /// </summary>
-    public LRUCache<string, object> ValueCache { get; }
+    internal LRUCache<string, object> ValueCache { get; }
 
     /// <summary>
     /// Shared state for runtime-discovered nodes and dependencies.
@@ -177,7 +177,7 @@ public class ComputationGraph
     /// <summary>
     /// Extension method for caching values (used by tests).
     /// </summary>
-    public ComputationGraph WithCachedValue(string nodeId, object value)
+    internal ComputationGraph WithCachedValue(string nodeId, object value)
     {
         ValueCache.Set(nodeId, value);
         return this; // Simplified for tests
@@ -186,7 +186,7 @@ public class ComputationGraph
     /// <summary>
     /// Extension method for replacing nodes (used by tests).
     /// </summary>
-    public ComputationGraph ReplaceNode(IComputationNode node)
+    internal ComputationGraph ReplaceNode(IComputationNode node)
     {
         var newNodes = Nodes.SetItem(node.Id, node);
 

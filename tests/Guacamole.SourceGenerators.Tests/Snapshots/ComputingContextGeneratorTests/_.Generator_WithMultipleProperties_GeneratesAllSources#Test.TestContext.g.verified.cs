@@ -8,24 +8,16 @@ namespace Test
 {
     partial class TestContext
     {
-        private global::Guacamole.IncrementalSource<string>? _ItemsSource;
-        private global::Guacamole.IncrementalValueSource<int>? _CountSource;
+        private global::Guacamole.IIncrementalSource<string>? _ItemsSource;
+        private global::Guacamole.IIncrementalValueSource<int>? _CountSource;
 
         /// <summary>
         /// Initializes the computing context and its sources.
         /// </summary>
         public TestContext() : base()
         {
-            _ItemsSource = new global::Guacamole.IncrementalSource<string>(
-                "TestContext.Items",
-                () => Graph); // Pass graph provider, not direct reference
-            Graph = Graph.AddNode(_ItemsSource.GetNode()); // Register node
-            SubscribeToSource(_ItemsSource);
-            _CountSource = new global::Guacamole.IncrementalValueSource<int>(
-                "TestContext.Count",
-                () => Graph); // Pass graph provider, not direct reference
-            Graph = Graph.AddNode(_CountSource.GetNode()); // Register node
-            SubscribeToSource(_CountSource);
+            _ItemsSource = CreateSource<string>("TestContext.Items");
+            _CountSource = CreateValueSource<int>("TestContext.Count");
         }
 
         /// <summary>

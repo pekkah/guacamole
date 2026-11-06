@@ -17,7 +17,7 @@ namespace Guacamole;
 /// so a null <c>_value</c> always indicates the source has never been initialized.
 /// </summary>
 /// <typeparam name="T">Type of value in the source</typeparam>
-public sealed class IncrementalValueSource<T> : IIncrementalValueSource<T>
+internal sealed class IncrementalValueSource<T> : IIncrementalValueSource<T>
 {
     private readonly ReaderWriterLockSlim _lock = new(LockRecursionPolicy.NoRecursion);
     private T? _value;

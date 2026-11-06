@@ -203,7 +203,7 @@ public sealed class ProviderOptions
 /// <summary>
 /// Factory for creating computation contexts.
 /// </summary>
-public interface IComputationContextFactory
+internal interface IComputationContextFactory
 {
     /// <summary>
     /// Creates a computation context with the specified cached values.
@@ -214,7 +214,7 @@ public interface IComputationContextFactory
 /// <summary>
 /// Factory for creating IncrementalValueProvider instances.
 /// </summary>
-public interface IIncrementalValueProviderFactory
+internal interface IIncrementalValueProviderFactory
 {
     /// <summary>
     /// Creates an IncrementalValueProvider with the specified node and metadata.
@@ -225,7 +225,7 @@ public interface IIncrementalValueProviderFactory
 /// <summary>
 /// Factory for creating IncrementalValuesProvider instances.
 /// </summary>
-public interface IIncrementalValuesProviderFactory
+internal interface IIncrementalValuesProviderFactory
 {
     /// <summary>
     /// Creates an IncrementalValuesProvider with the specified node and metadata.

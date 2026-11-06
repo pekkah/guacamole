@@ -96,11 +96,12 @@ For the context above, the generator emits (simplified; see [Generated Code Refe
 ```csharp
 partial class CompilerContext
 {
-    private global::Guacamole.IncrementalValueSource<string>? _SourceCodeSource;
+    private global::Guacamole.IIncrementalValueSource<string>? _SourceCodeSource;
 
     public CompilerContext() : base()
     {
-        // creates the source, registers its node in Graph and subscribes to its changes
+        // creates the source, registers its node in the context's graph and subscribes to its changes
+        _SourceCodeSource = CreateValueSource<string>("CompilerContext.SourceCode");
     }
 
     public partial global::Guacamole.IncrementalValueProvider<string> SourceCode

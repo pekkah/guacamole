@@ -241,7 +241,7 @@ Immutable pipeline structures that lazily compute values:
 
 For each `[ComputingContext]` class the generator emits one file containing:
 
-- A public parameterless constructor that creates an `IncrementalSource<T>` (for `IncrementalValuesProvider<T>` properties) or an `IncrementalValueSource<T>` (for `IncrementalValueProvider<T>` properties) per input property, registers the source's node in the graph and subscribes the context to the source's changes
+- A public parameterless constructor that creates a collection source (for `IncrementalValuesProvider<T>` properties) or a single-value source (for `IncrementalValueProvider<T>` properties) per input property through the protected `CreateSource<T>`/`CreateValueSource<T>` helpers of `ComputingContextBase`, which register the source's node in the graph and subscribe the context to the source's changes
 - The implementation of each partial provider property (returns the source's provider)
 - A `{Property}Source` accessor typed `IIncrementalSource<T>` or `IIncrementalValueSource<T>`
 
@@ -274,7 +274,7 @@ What is not:
 
 ### Namespaces
 
-Everything a typical application uses (contexts, providers and their operators, sources, `Result`, `ComputationError`, `ProviderMetadata`, the dependency-injection extensions) is in the `Guacamole` namespace, so `using Guacamole;` is all you need. Advanced and infrastructure types live in `Guacamole.Pipeline` (computation graph and nodes), `Guacamole.Caching` (LRU cache) and `Guacamole.Diagnostics` (metrics). See the [Migration Guide](MIGRATION_GUIDE.md#namespace-consolidation) for the old namespaces.
+Everything a typical application uses (contexts, providers and their operators, sources, `Result`, `ComputationError`, `ProviderMetadata`, the dependency-injection extensions) is in the `Guacamole` namespace, so `using Guacamole;` is all you need. The only other public namespace is `Guacamole.Diagnostics` (`MetricsConfiguration` and the `GuacamoleMetrics` instruments). The computation graph, nodes, value cache and concrete source classes are internal implementation details. See the [Migration Guide](MIGRATION_GUIDE.md) for the old namespaces and the members that became internal.
 
 ## Documentation
 

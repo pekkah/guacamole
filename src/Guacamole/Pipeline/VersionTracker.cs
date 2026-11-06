@@ -11,7 +11,7 @@ namespace Guacamole.Pipeline;
 /// value as before, its version doesn't increment, so downstream nodes can
 /// detect their dependencies haven't changed and skip recomputation.
 /// </summary>
-public sealed class VersionTracker
+internal sealed class VersionTracker
 {
     private readonly ConcurrentDictionary<string, long> _outputVersions = new();
 

@@ -28,9 +28,8 @@ public abstract partial class ComputingContextBase : IDisposable
 
     /// <summary>
     /// Shared computation graph for dependency management and incremental recomputation.
-    /// Marked as protected internal to allow generated code to update while preventing external modification.
     /// </summary>
-    protected internal ComputationGraph Graph { get; set; }
+    internal ComputationGraph Graph { get; private set; }
 
     /// <summary>
     /// Thread synchronization lock (multiple readers, single writer model).
@@ -93,27 +92,39 @@ public abstract partial class ComputingContextBase : IDisposable
     }
 
     /// <summary>
-    /// Subscribes to a source's change events to automatically trigger output handlers.
-    /// Called by generated code to wire up source notifications.
+    /// Creates a collection source owned by this context: registers its node in the
+    /// context's graph and subscribes the context to its changes.
+    /// Called by the generated constructor for each <see cref="IncrementalValuesProvider{T}"/> input property.
     /// </summary>
     /// <typeparam name="T">The type of items in the source</typeparam>
-    /// <param name="source">The source to subscribe to</param>
-    protected void SubscribeToSource<T>(IIncrementalSource<T> source)
+    /// <param name="sourceId">Unique identifier of the source within this context</param>
+    /// <returns>The new source</returns>
+    protected IIncrementalSource<T> CreateSource<T>(string sourceId)
     {
-        ArgumentNullException.ThrowIfNull(source);
+        ArgumentException.ThrowIfNullOrWhiteSpace(sourceId);
+
+        var source = new IncrementalSource<T>(sourceId, () => Graph);
+        Graph = Graph.AddNode(source.GetNode());
         AddSourceSubscription(() => source.Changed += OnSourceChanged, () => source.Changed -= OnSourceChanged);
+        return source;
     }
 
     /// <summary>
-    /// Subscribes to a value source's change events to automatically trigger output handlers.
-    /// Called by generated code to wire up source notifications.
+    /// Creates a single-value source owned by this context: registers its node in the
+    /// context's graph and subscribes the context to its changes.
+    /// Called by the generated constructor for each <see cref="IncrementalValueProvider{T}"/> input property.
     /// </summary>
-    /// <typeparam name="T">The type of value in the source</typeparam>
-    /// <param name="source">The source to subscribe to</param>
-    protected void SubscribeToSource<T>(IIncrementalValueSource<T> source)
+    /// <typeparam name="T">The type of the source's value</typeparam>
+    /// <param name="sourceId">Unique identifier of the source within this context</param>
+    /// <returns>The new source</returns>
+    protected IIncrementalValueSource<T> CreateValueSource<T>(string sourceId)
     {
-        ArgumentNullException.ThrowIfNull(source);
+        ArgumentException.ThrowIfNullOrWhiteSpace(sourceId);
+
+        var source = new IncrementalValueSource<T>(sourceId, () => Graph);
+        Graph = Graph.AddNode(source.GetNode());
         AddSourceSubscription(() => source.Changed += OnSourceChanged, () => source.Changed -= OnSourceChanged);
+        return source;
     }
 
     private void AddSourceSubscription(Action subscribe, Action unsubscribe)

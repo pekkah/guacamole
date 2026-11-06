@@ -9,7 +9,7 @@ namespace Guacamole.Caching;
 /// </summary>
 /// <typeparam name="TKey">Type of cache keys</typeparam>
 /// <typeparam name="TValue">Type of cached values</typeparam>
-public class LRUCache<TKey, TValue> : ICache<TKey, TValue>, ICacheStatisticsProvider where TKey : notnull
+internal sealed class LRUCache<TKey, TValue> : ICache<TKey, TValue>, ICacheStatisticsProvider where TKey : notnull
 {
     private readonly ConcurrentDictionary<TKey, LinkedListNode<CacheEntry>> _index;
     private readonly LinkedList<CacheEntry> _accessOrder;
@@ -257,7 +257,7 @@ public class LRUCache<TKey, TValue> : ICache<TKey, TValue>, ICacheStatisticsProv
 /// <param name="MissCount">Total number of cache misses</param>
 /// <param name="EvictionCount">Total number of evictions</param>
 /// <param name="HitRate">Cache hit rate (0.0 to 1.0)</param>
-public readonly record struct CacheStatistics(
+internal readonly record struct CacheStatistics(
     long HitCount,
     long MissCount,
     long EvictionCount,

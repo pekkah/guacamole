@@ -26,25 +26,32 @@ namespace Guacamole;
 /// </para>
 /// </summary>
 /// <typeparam name="T">Type of the value (should implement proper equality for optimal performance)</typeparam>
-public readonly record struct IncrementalValueProvider<T>(
-    IComputationNode<T> Node,
-    ComputationGraph Graph,
-    ProviderMetadata Metadata)
+public readonly record struct IncrementalValueProvider<T>
 {
     /// <summary>
-    /// Internal computation node (implementation detail).
+    /// Creates a provider for a node of the given graph.
     /// </summary>
-    public IComputationNode<T> Node { get; } = Node ?? throw new ArgumentNullException(nameof(Node));
+    internal IncrementalValueProvider(IComputationNode<T> node, ComputationGraph graph, ProviderMetadata metadata)
+    {
+        Node = node ?? throw new ArgumentNullException(nameof(node));
+        Graph = graph ?? throw new ArgumentNullException(nameof(graph));
+        Metadata = metadata;
+    }
 
     /// <summary>
-    /// Shared computation graph for dependency tracking.
+    /// Computation node backing this provider (implementation detail).
     /// </summary>
-    public ComputationGraph Graph { get; } = Graph ?? throw new ArgumentNullException(nameof(Graph));
+    internal IComputationNode<T> Node { get; }
+
+    /// <summary>
+    /// Shared computation graph for dependency tracking (implementation detail).
+    /// </summary>
+    internal ComputationGraph Graph { get; }
 
     /// <summary>
     /// Debugging and tracking information.
     /// </summary>
-    public ProviderMetadata Metadata { get; } = Metadata;
+    public ProviderMetadata Metadata { get; }
 
     /// <summary>
     /// Gets the computed value with automatic caching orchestration and version-based
@@ -176,25 +183,32 @@ public readonly record struct IncrementalValueProvider<T>(
 /// </para>
 /// </summary>
 /// <typeparam name="T">Type of the values (should implement proper equality for optimal performance)</typeparam>
-public readonly record struct IncrementalValuesProvider<T>(
-    ICollectionComputationNode<T> Node,
-    ComputationGraph Graph,
-    ProviderMetadata Metadata)
+public readonly record struct IncrementalValuesProvider<T>
 {
     /// <summary>
-    /// Internal computation node for multiple values.
+    /// Creates a provider for a collection node of the given graph.
     /// </summary>
-    public ICollectionComputationNode<T> Node { get; } = Node ?? throw new ArgumentNullException(nameof(Node));
+    internal IncrementalValuesProvider(ICollectionComputationNode<T> node, ComputationGraph graph, ProviderMetadata metadata)
+    {
+        Node = node ?? throw new ArgumentNullException(nameof(node));
+        Graph = graph ?? throw new ArgumentNullException(nameof(graph));
+        Metadata = metadata;
+    }
 
     /// <summary>
-    /// Shared computation graph for dependency tracking.
+    /// Computation node backing this provider (implementation detail).
     /// </summary>
-    public ComputationGraph Graph { get; } = Graph ?? throw new ArgumentNullException(nameof(Graph));
+    internal ICollectionComputationNode<T> Node { get; }
+
+    /// <summary>
+    /// Shared computation graph for dependency tracking (implementation detail).
+    /// </summary>
+    internal ComputationGraph Graph { get; }
 
     /// <summary>
     /// Debugging and tracking information.
     /// </summary>
-    public ProviderMetadata Metadata { get; } = Metadata;
+    public ProviderMetadata Metadata { get; }
 
     /// <summary>
     /// Gets the computed values with automatic caching orchestration and version-based

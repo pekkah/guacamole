@@ -169,7 +169,7 @@ public static class GuacamoleMetrics
     /// <param name="operationName">Name of the operation being traced</param>
     /// <param name="tags">Additional tags for the activity</param>
     /// <returns>Activity instance for tracing</returns>
-    public static Activity? StartActivity(string operationName, params (string Key, object? Value)[] tags)
+    internal static Activity? StartActivity(string operationName, params (string Key, object? Value)[] tags)
     {
         var activity = ActivitySource.StartActivity(operationName);
 
@@ -192,7 +192,7 @@ public static class GuacamoleMetrics
     /// <param name="trackingName">User-provided tracking name</param>
     /// <param name="durationMs">Duration in milliseconds</param>
     /// <param name="isError">Whether the operation resulted in error</param>
-    public static void RecordComputation(
+    internal static void RecordComputation(
         string providerType,
         string nodeType,
         string? trackingName,
@@ -220,7 +220,7 @@ public static class GuacamoleMetrics
     /// </summary>
     /// <param name="operationType">Type of cache operation (get/set/invalidate)</param>
     /// <param name="result">Result of operation (hit/miss/success)</param>
-    public static void RecordCacheOperation(string operationType, string result)
+    internal static void RecordCacheOperation(string operationType, string result)
     {
         CacheOperationsTotal.Add(1,
             new KeyValuePair<string, object?>("operation.type", operationType),
@@ -233,7 +233,7 @@ public static class GuacamoleMetrics
     /// <param name="providerType">Type of provider created</param>
     /// <param name="trackingName">Tracking name if provided</param>
     /// <param name="transformType">Type of transformation if applicable</param>
-    public static void RecordProviderCreation(
+    internal static void RecordProviderCreation(
         string providerType,
         string? trackingName = null,
         string? transformType = null)
@@ -257,7 +257,7 @@ public static class GuacamoleMetrics
     /// </summary>
     /// <param name="activeNodes">Current number of active nodes</param>
     /// <param name="totalDependencies">Total number of dependency edges</param>
-    public static void UpdateGraphMetrics(int activeNodes, int totalDependencies)
+    internal static void UpdateGraphMetrics(int activeNodes, int totalDependencies)
     {
         GraphNodesActive.Record(activeNodes);
         GraphDependenciesTotal.Record(totalDependencies);
@@ -268,7 +268,7 @@ public static class GuacamoleMetrics
     /// </summary>
     /// <param name="hitRatio">Current hit ratio as percentage (0-100)</param>
     /// <param name="cacheSize">Current number of cached entries</param>
-    public static void UpdateCacheMetrics(double hitRatio, int cacheSize)
+    internal static void UpdateCacheMetrics(double hitRatio, int cacheSize)
     {
         CacheHitRatio.Record(hitRatio);
         CacheSize.Record(cacheSize);

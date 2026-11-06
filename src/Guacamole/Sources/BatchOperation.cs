@@ -39,7 +39,7 @@ public interface IBatchOperation<T> : IDisposable
 /// Implementation of batch operations for IncrementalSource.
 /// </summary>
 /// <typeparam name="T">Type of items in the source</typeparam>
-public sealed class BatchOperation<T> : IBatchOperation<T>
+internal sealed class BatchOperation<T> : IBatchOperation<T>
 {
     private readonly IIncrementalSource<T> _source;
     private readonly List<Action> _operations = new();

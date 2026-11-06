@@ -8,18 +8,14 @@ namespace Test
 {
     partial class GenericContext<TItem>
     {
-        private global::Guacamole.IncrementalSource<TItem>? _ItemsSource;
+        private global::Guacamole.IIncrementalSource<TItem>? _ItemsSource;
 
         /// <summary>
         /// Initializes the computing context and its sources.
         /// </summary>
         public GenericContext() : base()
         {
-            _ItemsSource = new global::Guacamole.IncrementalSource<TItem>(
-                "GenericContext.Items",
-                () => Graph); // Pass graph provider, not direct reference
-            Graph = Graph.AddNode(_ItemsSource.GetNode()); // Register node
-            SubscribeToSource(_ItemsSource);
+            _ItemsSource = CreateSource<TItem>("GenericContext.Items");
         }
 
         /// <summary>

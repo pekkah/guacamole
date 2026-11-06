@@ -6,8 +6,8 @@ This document describes what the `Guacamole.SourceGenerators` package generates 
 
 For each `[ComputingContext]` class the generator emits one file containing:
 
-- a private source field per input property (`IncrementalSource<T>` or `IncrementalValueSource<T>`)
-- the context's **public parameterless constructor**, which creates the sources, registers their nodes in the context's graph and subscribes the context to their changes
+- a private source field per input property (`IIncrementalSource<T>` or `IIncrementalValueSource<T>`)
+- the context's **public parameterless constructor**, which creates each source with the protected `ComputingContextBase.CreateSource<T>` / `CreateValueSource<T>` helpers; they register the source's node in the context's graph and subscribe the context to its changes
 - the implementation of each input property, returning the source's provider
 - a `{Property}Source` accessor per input property for pushing data
 
@@ -54,24 +54,16 @@ namespace Test
 {
     partial class TestContext
     {
-        private global::Guacamole.IncrementalSource<string>? _ItemsSource;
-        private global::Guacamole.IncrementalValueSource<int>? _CountSource;
+        private global::Guacamole.IIncrementalSource<string>? _ItemsSource;
+        private global::Guacamole.IIncrementalValueSource<int>? _CountSource;
 
         /// <summary>
         /// Initializes the computing context and its sources.
         /// </summary>
         public TestContext() : base()
         {
-            _ItemsSource = new global::Guacamole.IncrementalSource<string>(
-                "TestContext.Items",
-                () => Graph); // Pass graph provider, not direct reference
-            Graph = Graph.AddNode(_ItemsSource.GetNode()); // Register node
-            SubscribeToSource(_ItemsSource);
-            _CountSource = new global::Guacamole.IncrementalValueSource<int>(
-                "TestContext.Count",
-                () => Graph); // Pass graph provider, not direct reference
-            Graph = Graph.AddNode(_CountSource.GetNode()); // Register node
-            SubscribeToSource(_CountSource);
+            _ItemsSource = CreateSource<string>("TestContext.Items");
+            _CountSource = CreateValueSource<int>("TestContext.Count");
         }
 
         public partial global::Guacamole.IncrementalValuesProvider<string> Items
@@ -125,7 +117,7 @@ namespace Test
         {
             partial class NestedContext
             {
-                private global::Guacamole.IncrementalSource<T>? _ItemsSource;
+                private global::Guacamole.IIncrementalSource<T>? _ItemsSource;
                 // ...
             }
         }

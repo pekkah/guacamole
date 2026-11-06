@@ -6,7 +6,7 @@ namespace Guacamole.Pipeline;
 /// Base interface for all computation nodes in the graph.
 /// Supports DAG structure with dependency tracking.
 /// </summary>
-public interface IComputationNode
+internal interface IComputationNode
 {
     /// <summary>
     /// Unique identifier within computation graph.
@@ -28,7 +28,7 @@ public interface IComputationNode
 /// Single-value computation node.
 /// </summary>
 /// <typeparam name="T">Type of value produced</typeparam>
-public interface IComputationNode<T> : IComputationNode
+internal interface IComputationNode<T> : IComputationNode
 {
     /// <summary>
     /// Computes the value for this node.
@@ -42,7 +42,7 @@ public interface IComputationNode<T> : IComputationNode
 /// Multiple-values computation node.
 /// </summary>
 /// <typeparam name="T">Type of values produced</typeparam>
-public interface ICollectionComputationNode<T> : IComputationNode
+internal interface ICollectionComputationNode<T> : IComputationNode
 {
     /// <summary>
     /// Computes the values for this node.
@@ -58,7 +58,7 @@ public interface ICollectionComputationNode<T> : IComputationNode
 /// provided comparer to determine if the computed value has changed.
 /// </summary>
 /// <typeparam name="T">Type of value the node produces</typeparam>
-public interface IHasComparer<T>
+internal interface IHasComparer<T>
 {
     /// <summary>
     /// Gets the equality comparer used to compare computed values.
@@ -71,6 +71,6 @@ public interface IHasComparer<T>
 /// <summary>
 /// Computation context providing access to cache and dependencies.
 /// </summary>
-public readonly record struct ComputationContext(
+internal readonly record struct ComputationContext(
     IReadOnlyDictionary<string, object> CachedValues,
     CancellationToken CancellationToken = default);
