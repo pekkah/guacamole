@@ -323,4 +323,4 @@ Everything a typical application uses (contexts, providers and their operators, 
 
 ## License
 
-MIT
+[MIT](https://github.com/pekkah/guacamole/blob/main/LICENSE)
