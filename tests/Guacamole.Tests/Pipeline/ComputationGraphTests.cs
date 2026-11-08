@@ -198,6 +198,74 @@ public class ComputationGraphTests
     }
 
     /// <summary>
+    /// Invalidation follows the edges recorded as stages read their inputs, so it reaches computed
+    /// runtime stages (which are not in <see cref="ComputationGraph.Dependencies"/>), and only them.
+    /// </summary>
+    [Fact]
+    public void InvalidateCacheForNode_RemovesTheValuesOfTheComputedStagesDownstream()
+    {
+        var graph = new ComputationGraph();
+        var source = new IncrementalValueSource<int>("invalidate-source", () => graph);
+        var other = new IncrementalValueSource<int>("invalidate-other", () => graph);
+        graph = graph.AddNode(source.GetNode()).AddNode(other.GetNode());
+        source.Set(1);
+        other.Set(10);
+        var first = source.AsProvider().Select(x => x + 1);
+        var second = first.Select(x => x * 2);
+        var unrelated = other.AsProvider().Select(x => x - 1);
+        Assert.Equal(4, second.Value);
+        Assert.Equal(9, unrelated.Value);
+        Assert.True(graph.ValueCache.ContainsKey(first.Node.Id));
+
+        graph.InvalidateCacheForNode(source.GetNode().Id);
+
+        Assert.False(graph.ValueCache.ContainsKey(first.Node.Id));
+        Assert.False(graph.ValueCache.ContainsKey(second.Node.Id));
+        Assert.True(graph.ValueCache.ContainsKey(unrelated.Node.Id));
+        Assert.Equal(4, second.Value);
+    }
+
+    /// <summary>
+    /// PERFORMANCE (#71): invalidating a node costs the same whether the rest of the graph has 100 or
+    /// 3,200 nodes (it scanned the dependencies of every node, about 32x).
+    /// </summary>
+    [Fact]
+    public void InvalidateCacheForNode_DoesNotScanTheRestOfTheGraph()
+    {
+        const int Operations = 200;
+        ScalingAssert.PerOperationTimeScales(
+            size =>
+            {
+                var graph = new ComputationGraph();
+                var target = new IncrementalValueSource<int>("target", () => graph);
+                var other = new IncrementalValueSource<int>("other", () => graph);
+                graph = graph.AddNode(target.GetNode()).AddNode(other.GetNode());
+                for (var i = 0; i < size; i++)
+                    graph = graph.AddNode(new TestComputationNode($"static-{i}", typeof(int), ["other"]));
+
+                target.Set(1);
+                var stage = target.AsProvider().Select(x => x + 1);
+                var otherProvider = other.AsProvider();
+                for (var i = 0; i < size; i++)
+                {
+                    var offset = i;
+                    _ = otherProvider.Select(x => x + offset);
+                }
+
+                Assert.Equal(2, stage.Value);
+                return (() =>
+                {
+                    for (var i = 0; i < Operations; i++)
+                        graph.InvalidateCacheForNode("target");
+                }, Operations);
+            },
+            smallSize: 100,
+            largeSize: 3_200,
+            maxRatio: 8,
+            "ComputationGraph.InvalidateCacheForNode");
+    }
+
+    /// <summary>
     /// PERFORMANCE: Test that graph operations are efficient: the time per AddNode does not grow
     /// with the size of the graph beyond the logarithmic cost of its immutable maps (compared at 100
     /// and 3,200 nodes; a cycle check or copy that is linear in the graph would be about 32x).

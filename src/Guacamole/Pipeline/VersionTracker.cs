@@ -26,6 +26,14 @@ internal sealed class VersionTracker
         _states.TryGetValue(nodeId, out var state) ? state : _states.GetOrAdd(nodeId, static id => new NodeState(id));
 
     /// <summary>
+    /// Gets the change-tracking state of a node if it has one (without creating it).
+    /// </summary>
+    /// <param name="nodeId">The node's unique identifier</param>
+    /// <param name="state">The node's state, if it exists</param>
+    public bool TryGetState(string nodeId, [System.Diagnostics.CodeAnalysis.NotNullWhen(true)] out NodeState? state) =>
+        _states.TryGetValue(nodeId, out state);
+
+    /// <summary>
     /// Gets the current output version for a node.
     /// Returns 0 if the node has never been computed.
     /// </summary>

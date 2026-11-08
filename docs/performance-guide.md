@@ -6,7 +6,7 @@ This guide explains how Guacamole decides what to recompute, and how to structur
 
 ### Sources and versions
 
-Every node in a context's graph has an output version. Pushing to a source (`Push`, `Remove`, `Replace`, `Clear`, `Set`) that actually changes it increments that source's version and marks the stages downstream of it as possibly changed ("dirty"); no cache is cleared and nothing is recomputed eagerly. Marking walks only the stages that have read the source, directly or through other stages. Operations that do not change the source (pushing an item that is already present, setting an equal value, removing a missing item) raise no notification at all.
+Every node in a context's graph has an output version. Pushing to a source (`Push`, `Remove`, `Replace`, `Clear`, `Set`) that actually changes it increments that source's version and marks the stages downstream of it as possibly changed ("dirty"); no cache is cleared and nothing is recomputed eagerly. Marking walks only the stages that have read the source, directly or through other stages, and stops at stages that an earlier change has already marked since a read last re-verified a value: several changes between two reads (to one source or to sources sharing downstream stages) walk the downstream stages once, and each further change costs a constant. Operations that do not change the source (pushing an item that is already present, setting an equal value, removing a missing item) raise no notification at all.
 
 ### Lazy validation on read
 
@@ -186,6 +186,7 @@ The repository contains BenchmarkDotNet benchmarks in [`benchmarks/Guacamole.Ben
 | `IncrementalUpdateBenchmarks` | Reading a total over N sources (a binary reduction tree) after one source changed, for N = 16, 256, 4,096, against recomputing the total directly |
 | `CollectionChangeBenchmarks` | Replacing K of N items, then reading `Items.Select(work).Collect().Select(Sum)`, against recomputing all N items directly |
 | `MemoryOverheadBenchmarks` | Building a context over N items and reading the total, against computing the results directly (time and allocations) |
+| `SourceFanOutBenchmarks` | 100 changes to a source read by N stages, then a read (time per change), against one change and a read |
 
 ```bash
 cd benchmarks/Guacamole.Benchmarks
@@ -215,6 +216,8 @@ One short run (`--job short --inProcess`, 3 iterations) per benchmark, before an
 | 10,000 | 98 µs vs 1.12 ms | 108 µs vs 1.13 ms | 161 µs vs 1.09 ms |
 
 The incremental variant allocated 17 KB per change and read at 1,000 items and 161 KB at 10,000 items (K = 1; 169 KB at K = 100), with no gen2 collections; the direct one allocates nothing.
+
+**Many changes between two reads** (`SourceFanOutBenchmarks`, one source read by N stages): 100 changes and then a read cost 0.18 µs / 0.44 µs / 3.8 µs per change for N = 100 / 1,000 / 10,000, one walk over the stages for the first change plus a constant for each further one; a single change and a read cost 3.9 µs / 29 µs / 0.36 ms. Before #71 every change walked all N stages: 3.0 µs / 28 µs / 0.38 ms per change.
 
 **Memory overhead** (`MemoryOverheadBenchmarks`): building a context over 1,000 / 10,000 items and reading the total took 0.20 ms / 2.2 ms and allocated 126 KB / 1.2 MB, against 0.11 ms / 1.1 ms and 8 KB / 78 KB for computing the results directly (about 16x the allocations).
 

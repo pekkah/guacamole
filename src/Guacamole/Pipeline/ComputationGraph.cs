@@ -22,6 +22,12 @@ internal sealed class ComputationGraph
     public ImmutableDictionary<string, ImmutableHashSet<string>> Dependencies { get; }
 
     /// <summary>
+    /// The reverse of <see cref="Dependencies"/>: for each node ID, the IDs of the nodes added to
+    /// this graph that declare it as a dependency (whether or not it has been added itself).
+    /// </summary>
+    public ImmutableDictionary<string, ImmutableHashSet<string>> Dependents { get; }
+
+    /// <summary>
     /// Shared cache for computed values with LRU eviction.
     /// </summary>
     internal LRUCache<string, object> ValueCache { get; }
@@ -75,6 +81,7 @@ internal sealed class ComputationGraph
         : this(
             ImmutableDictionary<string, IComputationNode>.Empty,
             ImmutableDictionary<string, ImmutableHashSet<string>>.Empty,
+            ImmutableDictionary<string, ImmutableHashSet<string>>.Empty,
             new LRUCache<string, object>(cacheCapacity),
             new SharedGraphState())
     {
@@ -88,11 +95,13 @@ internal sealed class ComputationGraph
     private ComputationGraph(
         ImmutableDictionary<string, IComputationNode> nodes,
         ImmutableDictionary<string, ImmutableHashSet<string>> dependencies,
+        ImmutableDictionary<string, ImmutableHashSet<string>> dependents,
         LRUCache<string, object> valueCache,
         SharedGraphState sharedState)
     {
         Nodes = nodes;
         Dependencies = dependencies;
+        Dependents = dependents;
         ValueCache = valueCache;
         _sharedState = sharedState ?? throw new ArgumentNullException(nameof(sharedState));
     }
@@ -121,8 +130,16 @@ internal sealed class ComputationGraph
             throw new InvalidOperationException($"Adding node '{node.Id}' would create a circular dependency");
         }
 
+        var newDependents = Dependents;
+        foreach (var dependency in node.Dependencies)
+        {
+            newDependents = newDependents.SetItem(
+                dependency,
+                newDependents.TryGetValue(dependency, out var existing) ? existing.Add(node.Id) : [node.Id]);
+        }
+
         var newNodes = Nodes.SetItem(node.Id, node);
-        var newGraph = new ComputationGraph(newNodes, newDependencies, ValueCache, _sharedState);
+        var newGraph = new ComputationGraph(newNodes, newDependencies, newDependents, ValueCache, _sharedState);
 
         // Record metrics if enabled
         if (MetricsConfiguration.Current.EnableGraphMetrics)
@@ -181,7 +198,7 @@ internal sealed class ComputationGraph
         // Invalidate cache for the updated node and dependents
         InvalidateCacheForNode(node.Id);
 
-        return new ComputationGraph(newNodes, Dependencies, ValueCache, _sharedState);
+        return new ComputationGraph(newNodes, Dependencies, Dependents, ValueCache, _sharedState);
     }
 
     /// <summary>
@@ -268,61 +285,51 @@ internal sealed class ComputationGraph
     /// <summary>
     /// Invalidates cache for a node and all its transitive dependents.
     /// Handles both static and runtime dependencies correctly.
-    /// Public to allow ComputingContextBase to properly invalidate caches.
     /// </summary>
     /// <remarks>
+    /// <para>
     /// NOTE: With version-based caching, prefer using <see cref="MarkSourceChanged"/>
     /// instead of this method. This method is kept for backward compatibility
     /// and for scenarios where forced cache clearing is needed.
+    /// </para>
+    /// <para>
+    /// Follows reverse edges only, so its cost is proportional to the nodes downstream of
+    /// <paramref name="nodeId"/>, not to the graph: the edges recorded as nodes read their inputs
+    /// (<see cref="NodeState"/>; every node with a cached value has recorded the edges to what it read),
+    /// and <see cref="Dependents"/> for nodes added to the graph that have not been computed.
+    /// </para>
     /// </remarks>
     public void InvalidateCacheForNode(string nodeId)
     {
-        // Remove the node itself from cache
-        ValueCache.Remove(nodeId);
+        var visited = new HashSet<string> { nodeId };
+        var pending = new Stack<string>();
+        var dependents = new List<NodeHandle>();
+        pending.Push(nodeId);
 
-        // Find and invalidate all dependent nodes recursively
-        var dependentsToInvalidate = FindAllDependents(nodeId);
-        foreach (var dependent in dependentsToInvalidate)
+        while (pending.TryPop(out var id))
         {
-            ValueCache.Remove(dependent);
-        }
-    }
+            ValueCache.Remove(id);
 
-    /// <summary>
-    /// Finds all nodes that depend on the given node (transitively).
-    /// Searches both static and runtime dependency collections.
-    /// </summary>
-    private HashSet<string> FindAllDependents(string nodeId)
-    {
-        var dependents = new HashSet<string>();
-        var toCheck = new Queue<string>();
-        toCheck.Enqueue(nodeId);
-
-        while (toCheck.Count > 0)
-        {
-            var current = toCheck.Dequeue();
-
-            // Find all nodes that directly depend on current in static dependencies
-            foreach (var kvp in Dependencies)
+            if (Versions.TryGetState(id, out var state))
             {
-                if (kvp.Value.Contains(current) && !dependents.Contains(kvp.Key))
+                state.CopyDependentsTo(dependents);
+                foreach (var dependent in dependents)
                 {
-                    dependents.Add(kvp.Key);
-                    toCheck.Enqueue(kvp.Key);
+                    if (visited.Add(dependent.State.Id))
+                        pending.Push(dependent.State.Id);
                 }
+
+                dependents.Clear();
             }
 
-            // Also search runtime dependencies (shared across graph versions)
-            foreach (var kvp in _sharedState.RuntimeDependencies)
+            if (Dependents.TryGetValue(id, out var declared))
             {
-                if (kvp.Value.Contains(current) && !dependents.Contains(kvp.Key))
+                foreach (var dependent in declared)
                 {
-                    dependents.Add(kvp.Key);
-                    toCheck.Enqueue(kvp.Key);
+                    if (visited.Add(dependent))
+                        pending.Push(dependent);
                 }
             }
         }
-
-        return dependents;
     }
 }

@@ -1,6 +1,7 @@
 using System.Collections.Concurrent;
 using System.Collections.Immutable;
 using System.Runtime.CompilerServices;
+using System.Runtime.InteropServices;
 using Guacamole.Caching;
 
 namespace Guacamole.Pipeline;
@@ -84,12 +85,52 @@ internal sealed class SharedGraphState
     /// </summary>
     public long ChangeState => Volatile.Read(ref _changeState);
 
+    // Starts at 1, so that a node that has never been marked (NodeState.MarkedEpoch 0) is never covered
+    private long _stampEpoch = 1;
+
+    /// <summary>
+    /// The stamp epoch: incremented by every evaluation pass before it first decides whether it may
+    /// record stamps (see <see cref="GraphEvaluator.CanStamp"/>), so it moves on whenever a value may
+    /// have been stamped. Changes use it to stop marking early (see <see cref="MarkSourceChanged"/>).
+    /// </summary>
+    public long StampEpoch => Volatile.Read(ref _stampEpoch);
+
+    /// <summary>
+    /// Increments <see cref="StampEpoch"/>. Called by an evaluation pass before its first stamp decision.
+    /// </summary>
+    public void AdvanceStampEpoch() => Interlocked.Increment(ref _stampEpoch);
+
+    /// <summary>
+    /// Called by every evaluation pass between reading <see cref="ChangeState"/> and
+    /// <see cref="Revision"/> (see <see cref="GraphEvaluator"/>); <c>null</c> except in tests, which
+    /// use it to complete a change between the two reads.
+    /// </summary>
+    internal Action? OnEvaluationSnapshot { get; set; }
+
+    /// <summary>
+    /// Called by a change after it has marked a node downstream of its source (before it walks the
+    /// node's dependents); <c>null</c> except in tests, which use it to interleave other changes and
+    /// reads with a change in progress.
+    /// </summary>
+    internal Action<NodeState>? OnNodeMarked { get; set; }
+
     // Per-thread scratch space for propagations (a propagation runs no user code, so it never nests)
     [ThreadStatic]
-    private static Stack<NodeState>? t_pending;
+    private static List<MarkingFrame>? t_frames;
 
     [ThreadStatic]
     private static List<NodeHandle>? t_dependents;
+
+    /// <summary>
+    /// A node being marked: its dependents are <c>t_dependents[Next..]</c> up to the start of the
+    /// next frame's dependents (the end of the list while it is the innermost frame).
+    /// </summary>
+    private struct MarkingFrame(NodeState state, int start)
+    {
+        public readonly NodeState State = state;
+        public readonly int Start = start;
+        public int Next = start;
+    }
 
     /// <summary>
     /// Records that the source <paramref name="sourceId"/> changed: increments its version, marks
@@ -97,20 +138,84 @@ internal sealed class SharedGraphState
     /// advances <see cref="Revision"/>.
     /// </summary>
     /// <remarks>
+    /// <para>
     /// Marking walks only the nodes downstream of the source, so its cost is proportional to them,
     /// and verifying the graph afterwards only has to look into the marked nodes. Thread-safe;
     /// changes may run concurrently with each other and with evaluation passes.
+    /// </para>
+    /// <para>
+    /// <b>Stopping early (#71).</b> Several changes between two reads would otherwise each walk
+    /// everything downstream of their sources. A change skips the nodes that an earlier change has
+    /// already marked, with everything downstream of them, since a value could last have been
+    /// stamped:
+    /// </para>
+    /// <list type="number">
+    /// <item>Every evaluation pass increments <see cref="StampEpoch"/> before its first stamp decision
+    /// (<see cref="GraphEvaluator.CanStamp"/>). Passes that only return clean values make no stamp
+    /// decision and leave it alone.</item>
+    /// <item>A change reads the epoch E once, right after <see cref="BeginSourceChange"/>. It walks the
+    /// dependents depth first, incrementing the dirty counter of each node it enters, and once it has
+    /// handled all the dependents of a node, records E as that node's
+    /// <see cref="NodeState.MarkedEpoch"/>.</item>
+    /// <item>A change of epoch E does not enter a node whose marked epoch is E (it always marks its
+    /// source, but skips the source's dependents if the source's marked epoch is E).</item>
+    /// </list>
+    /// <para>
+    /// <b>Why this is sound.</b> Only a stamp can make a stale value outlive a change: a value
+    /// verified at a revision was verified after every change that ended before that revision was
+    /// read, and verification itself compares versions. So it suffices that, once a change C has
+    /// ended, no node downstream of its source has a stamp matching its dirty counter that was
+    /// written by a pass that started before C ended. Two facts give that:
+    /// </para>
+    /// <list type="number">
+    /// <item><b>Coverage.</b> A marked epoch E is recorded on a node only after every node reachable
+    /// from it (through the dependents its walk read) has had its counter incremented by a change of
+    /// epoch E: by this walk, or, for a node it skipped, by the change whose walk recorded E there
+    /// (inductively, after the same held for that node; the edges form a DAG, so a node found visited
+    /// in the same walk has been handled completely). So when C skips a node M, every node X
+    /// reachable from M has already been incremented by some change C_x of epoch E.</item>
+    /// <item><b>Lemma.</b> If a pass P records a stamp and started after some change of epoch E had
+    /// ended, every change of epoch E had ended before P started. P incremented the epoch after it
+    /// started, so after that change read E: the increment moved the epoch past E. A change that read
+    /// E therefore read it before P's increment. P increments the epoch and then reads the change
+    /// state, a change increments the change state and then reads the epoch, all with full fences, so
+    /// at least one of them sees the other's write: P saw the change start, and since P's
+    /// <see cref="GraphEvaluator.CanStamp"/> held, the change had started and ended before P started.</item>
+    /// </list>
+    /// <para>
+    /// Now take C (epoch E) skipping M, and X reachable from M. A stamp matching X's counter counts
+    /// C_x's increment, so the pass P that wrote it read the counter after C_x had started; as its
+    /// CanStamp held, C_x had ended before P started, and by the lemma so had C. That holds whenever
+    /// P writes the stamp, also while C is still walking: the reader that is re-verifying X and stamps
+    /// it concurrently with C either started after C ended or records no stamp (C's start changes the
+    /// change state it checks), and a stamp it decided on before C started carries a counter read
+    /// before C_x's increment, which no longer matches. For a node reached through an edge registered
+    /// after the covering walk read the dependents: a value that read through that edge is stamped
+    /// after the edge was registered, while the covering change was in progress or later, so by a pass
+    /// that started after it ended, and by the lemma after C ended. Finally, a pass that started after
+    /// C ended saw C's new source version, and the stamps it relied on were written by passes that
+    /// started after C ended too (induction over passes), so what it stamps reflects C.
+    /// </para>
+    /// <para>
+    /// The epoch is global on purpose. A per-node "verified since marked" flag would not do: a node
+    /// downstream of M can be verified and stamped while M is not (M is served through its revision,
+    /// M's result is an error and not cached, M was evicted, or the node no longer reads M), after
+    /// which a change stopping at M would leave it stale. With the epoch, any stamp decision anywhere
+    /// ends all skipping, which costs nothing in the case it is for: changes with no read between them.
+    /// </para>
     /// </remarks>
     public void MarkSourceChanged(string sourceId)
     {
         BeginSourceChange();
         try
         {
+            // After BeginSourceChange (see the remarks)
+            var epoch = StampEpoch;
             var source = Versions.GetState(sourceId);
 
             // The version first: a pass that sees a dirty mark also sees the new version.
             source.IncrementVersion();
-            MarkDependentsDirty(source);
+            MarkDependentsDirty(source, epoch);
 
             // Advance the revision after the version, so that a value verified at the new revision
             // has seen the new version.
@@ -133,38 +238,60 @@ internal sealed class SharedGraphState
     /// </summary>
     internal void EndSourceChange() => Interlocked.Decrement(ref _changeState);
 
-    private void MarkDependentsDirty(NodeState source)
+    /// <summary>
+    /// Marks <paramref name="source"/> and the nodes downstream of it dirty, depth first, skipping
+    /// nodes covered in <paramref name="epoch"/> and recording <paramref name="epoch"/> on each node
+    /// once everything downstream of it is marked (see <see cref="MarkSourceChanged"/>).
+    /// </summary>
+    private void MarkDependentsDirty(NodeState source, long epoch)
     {
-        var pending = t_pending ??= new Stack<NodeState>();
+        source.MarkDirty();
+        if (source.MarkedEpoch == epoch)
+            return; // everything downstream is marked already
+
+        var frames = t_frames ??= new List<MarkingFrame>();
         var dependents = t_dependents ??= new List<NodeHandle>();
         var propagation = Interlocked.Increment(ref _propagationIds);
 
         try
         {
             source.TryVisit(propagation);
-            source.MarkDirty();
-            pending.Push(source);
+            Enter(source);
 
-            while (pending.TryPop(out var state))
+            while (frames.Count > 0)
             {
-                state.CopyDependentsTo(dependents);
-                foreach (var dependent in dependents)
+                ref var frame = ref CollectionsMarshal.AsSpan(frames)[^1];
+                if (frame.Next < dependents.Count)
                 {
-                    var dependentState = dependent.State;
-                    if (dependentState.TryVisit(propagation))
-                    {
-                        dependentState.MarkDirty();
-                        pending.Push(dependentState);
-                    }
-                }
+                    var state = dependents[frame.Next++].State;
 
-                dependents.Clear();
+                    // Covered by a change of this epoch, or handled by this walk already
+                    if (state.MarkedEpoch == epoch || !state.TryVisit(propagation))
+                        continue;
+
+                    state.MarkDirty();
+                    OnNodeMarked?.Invoke(state);
+                    Enter(state); // invalidates `frame`
+                }
+                else
+                {
+                    // Everything downstream of this node is marked: record it (only now, see the remarks)
+                    frame.State.SetMarkedEpoch(epoch);
+                    dependents.RemoveRange(frame.Start, dependents.Count - frame.Start);
+                    frames.RemoveAt(frames.Count - 1);
+                }
             }
         }
         finally
         {
-            pending.Clear();
+            frames.Clear();
             dependents.Clear();
+        }
+
+        void Enter(NodeState state)
+        {
+            frames.Add(new MarkingFrame(state, dependents.Count));
+            state.CopyDependentsTo(dependents);
         }
     }
 

@@ -48,28 +48,71 @@ internal sealed class GraphEvaluator
     {
         Graph = graph;
         State = graph.SharedState;
-        Revision = State.Revision;
+
+        // The change state before the revision: a pass that sees no change in progress then reads a
+        // revision that every change ended by then has advanced, so a value verified at an older
+        // revision (possibly before such a change had incremented its source's version) is not taken
+        // as verified by this pass. Read the other way round, a change could advance the revision and
+        // end between the two reads; the pass would accept values verified before the change and
+        // still be allowed to stamp what it derives from them.
         _changeState = State.ChangeState;
+        State.OnEvaluationSnapshot?.Invoke();
+        Revision = State.Revision;
         Context = new ComputationContext(NoCachedValues) { Evaluator = this };
     }
 
-    // The source-change state when this pass started (read after Revision)
+    // The source-change state when this pass started (read before Revision)
     private readonly long _changeState;
+
+    // Whether this pass may still record stamps: 0 until the first stamp decision, then 1 (yes, so
+    // far) or -1 (no, for the rest of the pass)
+    private int _stamping;
 
     /// <summary>
     /// Whether this pass may record stamps (<see cref="CachedNodeValue.Stamp"/>): no source change
-    /// was in progress when it started, and none has started since. Read after the verification or
+    /// was in progress when it started, and none has started since. Called after the verification or
     /// computation whose result would be stamped.
     /// </summary>
     /// <remarks>
+    /// <para>
     /// A stamp says that no change has reached the node since its value was verified. That holds only
     /// if every change already counted by the node's dirty counter had finished marking all the nodes
     /// it reaches (after incrementing its source's version) before the verification looked at them:
     /// a change still in progress may have marked this node but not yet the nodes between it and the
     /// source. Passes overlapping a change still verify correctly; they just do not record stamps.
+    /// </para>
+    /// <para>
+    /// The first call of a pass that may stamp increments <see cref="SharedGraphState.StampEpoch"/>
+    /// before it checks the change state, which ends early stopping for the changes that start
+    /// afterwards (see <see cref="SharedGraphState.MarkSourceChanged"/>).
+    /// </para>
     /// </remarks>
-    public bool CanStamp =>
-        (_changeState & SharedGraphState.ActiveChangesMask) == 0 && State.ChangeState == _changeState;
+    public bool CanStamp()
+    {
+        if (_stamping == 0)
+        {
+            if ((_changeState & SharedGraphState.ActiveChangesMask) != 0)
+            {
+                _stamping = -1;
+                return false;
+            }
+
+            // A full fence: the change state read below cannot move before it
+            State.AdvanceStampEpoch();
+            _stamping = 1;
+        }
+
+        if (_stamping < 0)
+            return false;
+
+        if (State.ChangeState != _changeState)
+        {
+            _stamping = -1;
+            return false;
+        }
+
+        return true;
+    }
 
     // Number of node computations in progress on this thread (nested when a computation reads a
     // provider that has to be computed itself)
@@ -379,7 +422,7 @@ internal abstract class NodeHandle<TResult> : NodeHandle
             if (IsUpToDate(entry, evaluator))
             {
                 entry.MarkVerified(evaluator.Revision);
-                if (evaluator.CanStamp)
+                if (evaluator.CanStamp())
                     entry.SetStamp(dirty);
 
                 version = entry.OutputVersion;
@@ -508,7 +551,7 @@ internal abstract class NodeHandle<TResult> : NodeHandle
                     version = unchanged ? current : State.IncrementVersion();
                 }
 
-                var stamp = evaluator.CanStamp ? dirty : CachedNodeValue.NoStamp;
+                var stamp = evaluator.CanStamp() ? dirty : CachedNodeValue.NoStamp;
                 graph.ValueCache.Set(Id, new CachedNodeValue(stored, result.IsNone, version, dependencies, evaluator.Revision, stamp));
             }
         }
