@@ -24,6 +24,7 @@ An architecture review of the public API before 1.0 removed dead members and mad
 | `AddGuacamoleCore`, `GuacamoleCoreOptions` | `AddGuacamole`, `GuacamoleOptions` |
 | `ProviderOptions`, `ProviderOptions.DefaultTags`, `IProviderMetadataFactory` | removed |
 | `SourceChangedEventArgs.Timestamp` (`DateTime`) | `DateTimeOffset` |
+| `ProviderMetadata(string trackingName, [CallerFilePath] ...)` constructor | `ProviderMetadata.Named(trackingName)` |
 
 New: `Merge(other, comparer)`.
 
@@ -66,7 +67,18 @@ if (result.IsSuccess) Use(result.ValueOrDefault);
 | `GuacamoleCoreOptions.ProviderOptions`, `ProviderOptions`, `ProviderOptions.DefaultTags` | removed |
 | `IProviderMetadataFactory` (and its DI registration) | removed |
 
-Nothing in the framework read `DefaultTags` or resolved `IProviderMetadataFactory`: providers get their metadata from operators such as `WithTrackingName`, never from the container. If you used the factory to create metadata, create it directly, for example `new ProviderMetadata("parse").WithTags("app", "x")`. Contexts are still registered like any other service (`services.AddScoped<MyContext>()`).
+Nothing in the framework read `DefaultTags` or resolved `IProviderMetadataFactory`: providers get their metadata from operators such as `WithTrackingName`, never from the container. If you used the factory to create metadata, create it directly, for example `ProviderMetadata.Named("parse").WithTags("app", "x")`. Contexts are still registered like any other service (`services.AddScoped<MyContext>()`).
+
+### `ProviderMetadata.Named` replaces the tracking-name constructor
+
+`ProviderMetadata` had a constructor `(string trackingName, [CallerFilePath] string callerFilePath = "", ...)` next to the record's positional constructor, so `new ProviderMetadata("parse")` did not compile (CS0121, ambiguous call), and a second string argument silently became the caller file path (#90). The caller-info constructor is now a factory:
+
+| Want | Write |
+|------|-------|
+| Tracking name and the caller's location as `CreationLocation` | `ProviderMetadata.Named("parse")` |
+| Tracking name only | `new ProviderMetadata("parse")` or `new ProviderMetadata(TrackingName: "parse")` |
+
+Source providers no longer carry a bogus `CreationLocation` built from a description string: their metadata is `TrackingName = "Source: {sourceId}"` with tags `source` and `value-source` or `collection-source`.
 
 ### `SourceChangedEventArgs.Timestamp` is a `DateTimeOffset`
 

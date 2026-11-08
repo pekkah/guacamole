@@ -88,7 +88,6 @@ Guacamole.ProviderMetadata.Equals(Guacamole.ProviderMetadata other) -> bool
 Guacamole.ProviderMetadata.PipelineStage.get -> string?
 Guacamole.ProviderMetadata.PipelineStage.init -> void
 Guacamole.ProviderMetadata.ProviderMetadata() -> void
-Guacamole.ProviderMetadata.ProviderMetadata(string! trackingName, string! callerFilePath = "", int callerLineNumber = 0, string! callerMemberName = "") -> void
 Guacamole.ProviderMetadata.ProviderMetadata(string? TrackingName = null, Guacamole.SourceLocation? CreationLocation = null, System.Collections.Immutable.ImmutableArray<string!> Tags = default(System.Collections.Immutable.ImmutableArray<string!>), string? PipelineStage = null) -> void
 Guacamole.ProviderMetadata.Tags.get -> System.Collections.Immutable.ImmutableArray<string!>
 Guacamole.ProviderMetadata.Tags.init -> void
@@ -186,6 +185,7 @@ static Guacamole.IncrementalValuesProviderExtensions.SelectMany<TSource, TResult
 static Guacamole.IncrementalValuesProviderExtensions.SelectMany<TSource, TResult>(this Guacamole.IncrementalValuesProvider<TSource> source, System.Func<TSource, System.Collections.Generic.IEnumerable<TResult>!>! selector, System.Collections.Generic.IEqualityComparer<TResult>! comparer, Guacamole.ProviderMetadata metadata = default(Guacamole.ProviderMetadata)) -> Guacamole.IncrementalValuesProvider<TResult>
 static Guacamole.IncrementalValuesProviderExtensions.Where<T>(this Guacamole.IncrementalValuesProvider<T> source, System.Func<T, bool>! predicate, Guacamole.ProviderMetadata metadata = default(Guacamole.ProviderMetadata)) -> Guacamole.IncrementalValuesProvider<T>
 static Guacamole.IncrementalValuesProviderExtensions.Where<T>(this Guacamole.IncrementalValuesProvider<T> source, System.Func<T, bool>! predicate, System.Collections.Generic.IEqualityComparer<T>! comparer, Guacamole.ProviderMetadata metadata = default(Guacamole.ProviderMetadata)) -> Guacamole.IncrementalValuesProvider<T>
+static Guacamole.ProviderMetadata.Named(string! trackingName, string! callerFilePath = "", int callerLineNumber = 0, string! callerMemberName = "") -> Guacamole.ProviderMetadata
 static Guacamole.ProviderMetadata.operator !=(Guacamole.ProviderMetadata left, Guacamole.ProviderMetadata right) -> bool
 static Guacamole.ProviderMetadata.operator ==(Guacamole.ProviderMetadata left, Guacamole.ProviderMetadata right) -> bool
 static Guacamole.Result<TValue, TError>.Error(TError error) -> Guacamole.Result<TValue, TError>

@@ -33,7 +33,7 @@ public class MetadataTests
     public void Operators_WithMetadata_UseIt()
     {
         using var context = new ApiContext();
-        var metadata = new ProviderMetadata(trackingName: "explicit");
+        var metadata = ProviderMetadata.Named("explicit");
 
         Assert.Equal(metadata, context.Number.Select(static x => x, metadata).Metadata);
         Assert.Equal(metadata, context.Number.Select(static x => x, EqualityComparer<int>.Default, metadata).Metadata);
@@ -69,7 +69,7 @@ public class MetadataTests
         Func<int, int> selector = x => calls.Pass(x * 3);
 
         var plain = context.Number.Select(selector);
-        var named = context.Number.Select(selector, new ProviderMetadata(trackingName: "named"));
+        var named = context.Number.Select(selector, ProviderMetadata.Named("named"));
 
         Assert.Equal(6, plain.Value);
         Assert.Equal(6, named.Value);
@@ -92,7 +92,9 @@ public class MetadataTests
     [Fact]
     public void ProviderMetadata_Validation()
     {
-        Assert.Throws<ArgumentException>(() => new ProviderMetadata(trackingName: " "));
+        Assert.Throws<ArgumentException>(() => ProviderMetadata.Named(" "));
+        Assert.Throws<ArgumentException>(() => ProviderMetadata.Named(""));
+        Assert.Throws<ArgumentNullException>(() => ProviderMetadata.Named(null!));
         Assert.Throws<ArgumentException>(() => default(ProviderMetadata).WithTrackingName(""));
         Assert.Throws<ArgumentNullException>(() => default(ProviderMetadata).WithTrackingName(null!));
         Assert.Throws<ArgumentNullException>(() => default(ProviderMetadata).WithTags(null!));

@@ -475,7 +475,7 @@ public partial class CollectionDeltaTests
         using var context = new ItemsContext();
         context.ItemsSource.PushRange([new Item(1, 1), new Item(2, 2)]);
         var copy = new IncrementalValuesProvider<Item>(
-            new CopyNode(context.Items.Node), context.Graph, new ProviderMetadata("copy", "test"));
+            new CopyNode(context.Items.Node), context.Graph, ProviderMetadata.Named("copy"));
         var doubled = copy.Select(Double);
         Assert.Equal([new Doubled(1, 2), new Doubled(2, 4)], doubled.Values);
 

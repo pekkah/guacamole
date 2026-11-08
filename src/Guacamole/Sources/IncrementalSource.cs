@@ -121,7 +121,7 @@ internal sealed class IncrementalSource<T> : IIncrementalSource<T>
         return new IncrementalValuesProvider<T>(
             _node,
             _graphProvider(), // Get current graph from provider
-            new ProviderMetadata($"Source: {SourceId}", "Push-based external source"));
+            new ProviderMetadata(TrackingName: $"Source: {SourceId}", Tags: SourceProviderTags.Collection));
     }
 
     /// <summary>

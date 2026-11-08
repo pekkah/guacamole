@@ -119,7 +119,7 @@ public partial class SourceStructuralEqualityTests
     {
         using var context = new ArrayContext();
         var copy = new IncrementalValueProvider<ImmutableArray<string>>(
-            new TokensCopyNode(context.Tokens.Node), context.Graph, new ProviderMetadata("copy", "test"));
+            new TokensCopyNode(context.Tokens.Node), context.Graph, ProviderMetadata.Named("copy"));
         var runs = 0;
         var joined = copy.Select(t => { runs++; return string.Join("|", t); });
         context.TokensSource.Set(Build("a", "b"));
@@ -139,7 +139,7 @@ public partial class SourceStructuralEqualityTests
     {
         using var context = new ArrayContext();
         var copy = new IncrementalValuesProvider<ImmutableArray<string>>(
-            new RowsCopyNode(context.Rows.Node), context.Graph, new ProviderMetadata("copy", "test"));
+            new RowsCopyNode(context.Rows.Node), context.Graph, ProviderMetadata.Named("copy"));
         var runs = 0;
         var counts = copy.Select(r => { runs++; return r.Length; });
         context.RowsSource.Push(Build("a"));
