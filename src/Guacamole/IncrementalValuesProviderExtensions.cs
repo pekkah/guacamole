@@ -80,6 +80,13 @@ public static class IncrementalValuesProviderExtensions
     /// Collects all values into a single immutable array.
     /// Creates a value provider that depends on all values in the source.
     /// </summary>
+    /// <remarks>
+    /// A recomputed array with the same items in the same order as the previous one (compared with
+    /// <see cref="EqualityComparer{T}.Default"/>) counts as unchanged: the stages downstream of it
+    /// stay cached and output handlers registered on it are not called. Use
+    /// <see cref="Collect{T}(IncrementalValuesProvider{T}, IEqualityComparer{T}, ProviderMetadata)"/>
+    /// to compare the items with another comparer.
+    /// </remarks>
     /// <typeparam name="T">Value type</typeparam>
     /// <param name="source">Source values provider</param>
     /// <param name="metadata">Optional metadata for the new provider</param>
@@ -91,9 +98,48 @@ public static class IncrementalValuesProviderExtensions
         // Reuse the node of an identical earlier call (same inputs, delegates and comparer)
         // so pipelines built repeatedly (e.g. in property getters) share one node and cache.
         var collectNode = source.Graph.GetOrCreateNode(
-            new NodeReuseKey(typeof(CollectValuesNode<T>), [source.Node.Id]),
-            () => new CollectValuesNode<T>(source.Node));
+            new NodeReuseKey(typeof(CollectValuesNode<T>), [source.Node.Id], (object?)null),
+            () => new CollectValuesNode<T>(source.Node, null));
 
+        return CreateCollectProvider(source, collectNode, metadata);
+    }
+
+    /// <summary>
+    /// Collects all values into a single immutable array, comparing the collected items with a
+    /// custom equality comparer.
+    /// Creates a value provider that depends on all values in the source.
+    /// </summary>
+    /// <remarks>
+    /// A recomputed array with as many items as the previous one, each equal by
+    /// <paramref name="comparer"/> to the item at the same position, counts as unchanged: the
+    /// stages downstream of it stay cached and output handlers registered on it are not called.
+    /// </remarks>
+    /// <typeparam name="T">Value type</typeparam>
+    /// <param name="source">Source values provider</param>
+    /// <param name="comparer">Equality comparer for the collected items</param>
+    /// <param name="metadata">Optional metadata for the new provider</param>
+    /// <returns>A value provider with all values collected</returns>
+    public static IncrementalValueProvider<ImmutableArray<T>> Collect<T>(
+        this IncrementalValuesProvider<T> source,
+        IEqualityComparer<T> comparer,
+        ProviderMetadata metadata = default)
+    {
+        ArgumentNullException.ThrowIfNull(comparer);
+
+        // Reuse the node of an identical earlier call (same inputs, delegates and comparer)
+        // so pipelines built repeatedly (e.g. in property getters) share one node and cache.
+        var collectNode = source.Graph.GetOrCreateNode(
+            new NodeReuseKey(typeof(CollectValuesNode<T>), [source.Node.Id], comparer),
+            () => new CollectValuesNode<T>(source.Node, comparer));
+
+        return CreateCollectProvider(source, collectNode, metadata);
+    }
+
+    private static IncrementalValueProvider<ImmutableArray<T>> CreateCollectProvider<T>(
+        IncrementalValuesProvider<T> source,
+        CollectValuesNode<T> collectNode,
+        ProviderMetadata metadata)
+    {
         // Preserve metadata from source if no metadata is explicitly provided
         var finalMetadata = metadata.TrackingName == null && metadata.CreationLocation == null
             ? source.Metadata
@@ -460,13 +506,20 @@ internal sealed class SelectManyValuesNode<TSource, TResult> : ICollectionComput
     }
 }
 
-internal sealed class CollectValuesNode<T> : IComputationNode<ImmutableArray<T>>
+/// <summary>
+/// Collects a collection into an <see cref="ImmutableArray{T}"/>. Arrays are compared element-wise,
+/// in order, with the item comparer, so a re-collect with equal items keeps the stage's version.
+/// </summary>
+internal sealed class CollectValuesNode<T> : IComputationNode<ImmutableArray<T>>, IHasComparer<ImmutableArray<T>>
 {
     private readonly ICollectionComputationNode<T> _source;
 
-    public CollectValuesNode(ICollectionComputationNode<T> source)
+    public CollectValuesNode(ICollectionComputationNode<T> source, IEqualityComparer<T>? itemComparer)
     {
         _source = source ?? throw new ArgumentNullException(nameof(source));
+        Comparer = itemComparer is null
+            ? ImmutableArrayEqualityComparer<T>.Default
+            : new ImmutableArrayEqualityComparer<T>(itemComparer);
         Id = NodeIdGenerator.Generate("Collect");
         Dependencies = ImmutableHashSet.Create(_source.Id);
     }
@@ -474,6 +527,7 @@ internal sealed class CollectValuesNode<T> : IComputationNode<ImmutableArray<T>>
     public string Id { get; }
     public Type OutputType => typeof(ImmutableArray<T>);
     public ImmutableHashSet<string> Dependencies { get; }
+    public IEqualityComparer<ImmutableArray<T>> Comparer { get; }
 
     public Result<ImmutableArray<T>, ComputationError> Compute(ComputationContext context)
     {

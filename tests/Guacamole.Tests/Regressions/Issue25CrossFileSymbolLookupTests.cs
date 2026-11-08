@@ -296,6 +296,69 @@ public partial class Issue25CrossFileSymbolLookupTests
         Assert.Equal(typeChecksBefore + 1, pipeline.TypeChecks);
     }
 
+    [Fact]
+    public void CommentOnlyEdit_AfterDeclarationsWereEvicted_DoesNotMergeAgain()
+    {
+        using var context = new FuguContext();
+        var merges = 0;
+        var typeChecks = 0;
+        var parsed = context.Files.Select(Parse);
+        var declarations = parsed.Select(ExtractDeclarations);
+        var table = declarations.Collect().Select(files =>
+        {
+            Interlocked.Increment(ref merges);
+            return SymbolTable.Merge(files);
+        });
+        var typeChecked = parsed.Combine(table).Select(pair =>
+        {
+            Interlocked.Increment(ref typeChecks);
+            return TypeCheck(pair.Left, pair.Right);
+        });
+
+        var files = Files(stdFirst: true);
+        var std = files.Single(f => f.Path == "std.fugu");
+        context.FilesSource.PushRange(files);
+        _ = typeChecked.Values.ToArray();
+        Assert.Equal(1, merges);
+        var typeChecksBefore = typeChecks;
+
+        // The declarations stage loses its cached value (an LRU eviction under memory pressure), so
+        // after the edit it recomputes with nothing to compare against and gets a new version.
+        // Collect runs again and produces element-wise equal declarations (#51): it keeps its
+        // version, so the table is not merged again.
+        context.Graph.ValueCache.Remove(declarations.Node.Id);
+        context.FilesSource.Replace(std, std with { Text = "// the standard library\n" + StdText });
+
+        var results = typeChecked.Values.ToDictionary(f => f.Path);
+        Assert.Equal(["List:std.fugu", "Option:std.fugu"], results["main.fugu"].Resolved);
+        Assert.Equal(1, merges);
+        Assert.Equal(typeChecksBefore + 1, typeChecks);
+    }
+
+    [Fact]
+    public void FileOpenedAndClosedBetweenReads_CollectedDirectly_DoesNotMergeAgain()
+    {
+        using var context = new FuguContext();
+        var merges = 0;
+        // Collect the files themselves and parse inside the merge
+        var table = context.Files.Collect().Select(files =>
+        {
+            Interlocked.Increment(ref merges);
+            return SymbolTable.Merge([.. files.Select(Parse).Select(ExtractDeclarations)]);
+        });
+
+        context.FilesSource.PushRange(Files(stdFirst: true));
+        Assert.Equal(["List", "Main", "Option"], table.Value.Symbols.Keys);
+
+        // A scratch file is opened and closed again before the next read: the files are the same
+        var scratch = new SourceFile("scratch.fugu", "decl Scratch");
+        context.FilesSource.Push(scratch);
+        context.FilesSource.Remove(scratch);
+
+        Assert.Equal(["List", "Main", "Option"], table.Value.Symbols.Keys);
+        Assert.Equal(1, merges);
+    }
+
     [Theory]
     [InlineData(false, 2)]
     [InlineData(true, 1)]

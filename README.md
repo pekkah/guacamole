@@ -129,7 +129,8 @@ values.SelectMany(x => x.Tags)
 values.SelectMany(x => x.Children, customComparer)
 
 // Collect to immutable array
-values.Collect()  // Returns IncrementalValueProvider<ImmutableArray<T>>
+values.Collect()  // Returns IncrementalValueProvider<ImmutableArray<T>>, compared element-wise
+values.Collect(customComparer)  // Compares the collected items with customComparer
 
 // Combine with single value
 values.Combine(singleValue)  // Pairs each value with the single value
@@ -258,7 +259,7 @@ context.RegisterOutput(provider, (value, ctx) => { /* ... */ });
 ```
 
 - Handlers run synchronously, on the thread that changed a source, after **any** source of the context changes. They are not run at registration time.
-- A handler is invoked only if its provider computes a value (not an error, and not "no value" from a `Where`) and the value differs from the last value delivered to that handler; after a "no value" phase, a reappearing value is delivered again even if it equals the last one (the provider's comparer when it was created with one, e.g. `Select(selector, comparer)`, otherwise `EqualityComparer<T>.Default`; element-wise for collections). `ImmutableArray<T>` (the result of `Collect()`) compares by reference, so a handler on a collected provider runs whenever it is recomputed.
+- A handler is invoked only if its provider computes a value (not an error, and not "no value" from a `Where`) and the value differs from the last value delivered to that handler; after a "no value" phase, a reappearing value is delivered again even if it equals the last one (the provider's comparer when it was created with one, e.g. `Select(selector, comparer)`, otherwise `EqualityComparer<T>.Default`; element-wise for collections). `Collect()` results compare element-wise (in order), so a handler on a collected provider does not run for a re-collect with equal items; other `ImmutableArray<T>`, list or dictionary values returned by a `Select` compare by reference.
 - All handlers run even if one throws; afterwards the exceptions are rethrown as one `AggregateException` from the `Push`/`Set`/... call that triggered them.
 - `Dispose()` unsubscribes the context from its sources and drops its output registrations.
 
