@@ -307,9 +307,9 @@ Note that **disposing a batch that was neither committed nor rolled back commits
 
 `RegisterOutput` is unchanged, but handlers now run after every effective source change instead of after `SaveChanges()`:
 
-- they run synchronously, on the thread that called `Push`/`Set`/...
+- they run synchronously, on the thread that called `Push`/`Set`/..., unless the same handler is already running for an earlier change: then that call returns at once and the running thread calls the handler again with the latest value
 - a handler runs only if its provider computes successfully and its value changed since the handler last ran
-- if handlers throw, all handlers still run and the exceptions are rethrown together as an `AggregateException` from the source call
+- if handlers throw, all handlers still run and the exceptions are rethrown together as one `AggregateException` from the source call on the thread that ran them
 
 #### Derived properties
 

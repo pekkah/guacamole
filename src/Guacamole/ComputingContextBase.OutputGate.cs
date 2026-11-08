@@ -1,6 +1,5 @@
 using System;
 using System.Collections.Generic;
-using System.Runtime.ExceptionServices;
 using System.Threading;
 
 namespace Guacamole;
@@ -23,17 +22,19 @@ public abstract partial class ComputingContextBase
     /// <para>
     /// Hence a handler is never called concurrently with itself or re-entrantly; the comparison with
     /// the last delivered value and its update are never interleaved, so no value is delivered twice
-    /// in a row; and the values are delivered in the order in which they were read. Every trigger is followed by a read of the provider that starts after it
-    /// (by the runner, which a trigger reaches through the state's full fences), so once every
-    /// source operation has returned, the last delivered value is the current value. Nothing waits on
-    /// another thread, so no handler can deadlock with a delivery of the same registration.
+    /// in a row; and the values are delivered in the order in which they were read. Every trigger is
+    /// followed by a read of the provider that starts after it (by the runner, which a trigger reaches
+    /// through the state's full fences), so once every source operation has returned, the last
+    /// delivered value is the current value. Nothing waits on another thread, so no handler can
+    /// deadlock with a delivery of the same registration. The flip side: the runner's source operation
+    /// returns only once no trigger arrived during its last delivery, so while other threads keep
+    /// changing sources it can be held for as long as they do.
     /// </para>
     /// <para>
     /// Exceptions thrown by deliveries made by the runner (its own and those it made for other
-    /// triggers) are thrown by the runner: one is rethrown as is, several as an
-    /// <see cref="AggregateException"/>. Once the registration is disposed (also when the context is
-    /// disposed), deliveries are skipped, and an <see cref="ObjectDisposedException"/> from a provider
-    /// read that raced with the context's disposal is ignored.
+    /// triggers) are added to the runner's list, so that <see cref="TriggerOutputs"/> throws them all
+    /// as the inner exceptions of one <see cref="AggregateException"/> on the runner's thread. Once
+    /// the registration is disposed (also when the context is disposed), deliveries are skipped.
     /// </para>
     /// </remarks>
     private sealed class OutputGate
@@ -44,7 +45,7 @@ public abstract partial class ComputingContextBase
 
         private int _state;
 
-        public void Run(OutputRegistrationBase registration, ComputingContextBase context)
+        public void Run(OutputRegistrationBase registration, ComputingContextBase context, ref List<Exception>? exceptions)
         {
             // Become the runner, or hand the delivery to the current runner
             var state = Volatile.Read(ref _state);
@@ -65,18 +66,12 @@ public abstract partial class ComputingContextBase
                 state = seen;
             }
 
-            List<Exception>? exceptions = null;
             while (true)
             {
                 try
                 {
                     if (!registration.IsDisposed)
                         registration.Deliver(context);
-                }
-                catch (ObjectDisposedException) when (registration.IsDisposed)
-                {
-                    // The context was disposed during the delivery (it marks its registrations
-                    // disposed before its providers start throwing): its handlers no longer run
                 }
                 catch (Exception ex)
                 {
@@ -90,14 +85,6 @@ public abstract partial class ComputingContextBase
                 // changes it from there): deliver again, after the trigger's change
                 Interlocked.Exchange(ref _state, Running);
             }
-
-            if (exceptions is null)
-                return;
-
-            if (exceptions.Count == 1)
-                ExceptionDispatchInfo.Capture(exceptions[0]).Throw();
-
-            throw new AggregateException(exceptions);
         }
     }
 }

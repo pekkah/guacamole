@@ -247,6 +247,63 @@ public partial class OutputRegistrationConcurrencyTests
     }
 
     [Fact]
+    public void SeveralFailedDeliveriesOfOneRunner_AreRethrownAsOneFlatAggregateException()
+    {
+        using var context = new ConcurrencyContext();
+        context.RegisterOutput(context.Number, (value, _) =>
+        {
+            if (value == 1)
+            {
+                context.NumberSource.Set(2); // does not throw: queued for this handler, delivered (and failing) after this call
+                throw new InvalidOperationException("first");
+            }
+
+            throw new InvalidOperationException("second");
+        });
+        var other = 0;
+        context.RegisterOutput(context.Number, (_, _) => other++);
+
+        var ex = Assert.Throws<AggregateException>(() => context.NumberSource.Set(1));
+
+        // One AggregateException holding both handler exceptions, not one nested in another
+        Assert.Equal(["first", "second"], ex.InnerExceptions.Select(static e => e.Message));
+        Assert.All(ex.InnerExceptions, static e => Assert.IsType<InvalidOperationException>(e));
+        Assert.Equal(1, other); // the nested change delivered 2 to it; the outer delivery found nothing new
+    }
+
+    [Fact]
+    public void HandlersOwnObjectDisposedException_SurfacesAfterItDisposedItsRegistration()
+    {
+        using var context = new ConcurrencyContext();
+        IDisposable? registration = null;
+        registration = context.RegisterOutput(context.Number, (_, _) =>
+        {
+            registration!.Dispose();
+            throw new ObjectDisposedException("SomeOtherResource");
+        });
+
+        var ex = Assert.Throws<AggregateException>(() => context.NumberSource.Set(1));
+
+        var inner = Assert.IsType<ObjectDisposedException>(Assert.Single(ex.InnerExceptions));
+        Assert.Equal("SomeOtherResource", inner.ObjectName);
+    }
+
+    [Fact]
+    public void HandlersOwnObjectDisposedException_SurfacesAfterItDisposedTheContext()
+    {
+        var context = new ConcurrencyContext();
+        context.RegisterOutput(context.Number, (_, ctx) =>
+        {
+            ctx.Dispose();
+            throw new ObjectDisposedException("SomeOtherResource");
+        });
+
+        var ex = Assert.Throws<AggregateException>(() => context.NumberSource.Set(1));
+
+        Assert.IsType<ObjectDisposedException>(Assert.Single(ex.InnerExceptions));
+    }
+
+    [Fact]
     public void ReentrantDeliveries_ThatThrow_AreRethrownFromTheOuterChange()
     {
         using var context = new ConcurrencyContext();

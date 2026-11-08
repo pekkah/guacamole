@@ -191,7 +191,7 @@ A batch is all or nothing: if an operation would fail (`Replace` of an item that
 
 - Source operations take the source's own write lock only while updating its contents; notifications and output handlers run afterwards, without a lock.
 - Reads do not lock the pipeline. Two threads reading the same stale provider may both compute it; the cache is updated atomically and the last result wins. Keep lambdas pure and side-effect free.
-- Output handlers run synchronously, usually on the thread that changed a source. Long-running handlers delay the `Push`/`Set` call that triggered them. Each handler's calls are serialized without blocking: a change that arrives while the handler runs returns at once and is delivered by the thread already running it, after it returns.
+- Output handlers run synchronously, usually on the thread that changed a source. Long-running handlers delay the `Push`/`Set` call that triggered them. Each handler's calls are serialized without blocking: a change that arrives while the handler runs returns at once and is delivered by the thread already running it, after it returns. That thread's `Push`/`Set` call therefore keeps delivering as long as other threads keep changing sources; with slow handlers and continuous concurrent writes its latency is unbounded, so keep handlers short (hand slow work to a queue).
 
 ## Benchmarking
 
