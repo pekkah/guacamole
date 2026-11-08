@@ -198,7 +198,7 @@ context.SaveChanges();
 context.SourceFilesSource.PushRange(files);
 ```
 
-`PushRange` and `BeginBatch()` apply operations one at a time; each effective change raises its own notification and runs the output handlers. There is no single coalesced invalidation.
+`PushRange` and a batch's `Commit()` apply their operations in one step with a single change notification (none if nothing changed), so output handlers run once. A batch is all or nothing: if one of its operations would fail, `Commit()` throws and applies none of them.
 
 #### Discarding changes
 

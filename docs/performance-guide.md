@@ -128,7 +128,7 @@ var names = context.People.Select(p => p.Name, StringComparer.OrdinalIgnoreCase)
 ```
 
 - `Collect()` compares its result element by element, in order (with `EqualityComparer<T>.Default`, or the comparer passed to `Collect(comparer)`): a re-collect with the same items in the same order keeps its version, so the stages below it stay cached and its output handlers do not fire. A different order counts as a change.
-- Any stage whose result is an `ImmutableArray<T>` compares it the same way by default, element by element and in order (a single-value `Select` returning one, or collection items that are immutable arrays). Value tuples of two or three components that contain one, such as the `(ImmutableArray<T>, TOther)` produced by `Combine`, are compared component by component. Nesting works too (an immutable array of tuples, a tuple of tuples). A comparer passed to the operator always takes precedence.
+- Any stage whose result is an `ImmutableArray<T>` compares it the same way by default, element by element and in order (a single-value `Select` returning one, or collection items that are immutable arrays). Value tuples of two or three components that contain one, such as the `(ImmutableArray<T>, TOther)` produced by `Combine`, are compared component by component. Nesting works too (an immutable array of tuples, a tuple of tuples). A comparer passed to the operator always takes precedence. The same rules apply to `IIncrementalValueSource<T>.Set` (setting an equal, newly built immutable array is not a change: no notification, no recomputation) and to the per-item memo of collection `Select`/`Where`/`SelectMany` (an item that is an equal, newly built immutable array reuses its previous result). Collection sources themselves still keep their set of items with the item type's default equality, so two separately built immutable arrays with equal items are two distinct items there.
 - Other collection types such as `List<T>`, arrays, `ImmutableList<T>` or dictionaries returned by a `Select` compare **by reference** (or by their own `Equals`), and so do tuples of four or more components. Such a stage counts as changed every time it is recomputed, which disables the cut-off below it and fires its output handlers. Return an `ImmutableArray<T>`, map the result to a type with structural equality, or pass a comparer where that matters:
 
 ```csharp
@@ -152,7 +152,7 @@ using (var batch = context.FilesSource.BeginBatch())
 } // one notification
 ```
 
-If an operation fails (`Replace` of an item that is not present), the operations before it stay applied and are notified, and the exception is rethrown.
+A batch is all or nothing: if an operation would fail (`Replace` of an item that is not present at that point of the batch, or with one that is, or a `null` item), `Commit()` throws without applying any operation and without a notification. Operations that cancel out (a `Push` of a new item and a `Remove` of it) raise no notification. A committed batch cannot be reused: `Push`/`Remove`/`Replace` after `Commit()` throw `InvalidOperationException`; begin a new batch instead.
 
 ## Memory
 
@@ -182,7 +182,7 @@ The repository contains BenchmarkDotNet benchmarks in [`benchmarks/Guacamole.Ben
 | Class | Measures |
 |-------|----------|
 | `SimpleProviderBenchmarks`, `ComplexGraphBenchmarks` | Reading a 5-stage chain / 21-stage tree |
-| `CachingBenchmarks` | Cold read (cache cleared) vs warm read |
+| `CachingBenchmarks` | Cold read (cache cleared) vs warm read, and a warm read of a collection stage's `.Values` |
 | `IncrementalUpdateBenchmarks` | Reading a total over N sources (a binary reduction tree) after one source changed, for N = 16, 256, 4,096, against recomputing the total directly |
 | `CollectionChangeBenchmarks` | Replacing K of N items, then reading `Items.Select(work).Collect().Select(Sum)`, against recomputing all N items directly |
 | `MemoryOverheadBenchmarks` | Building a context over N items and reading the total, against computing the results directly (time and allocations) |

@@ -85,6 +85,13 @@ public interface IIncrementalValueSource<T>
     /// <summary>
     /// Sets the value of the source. Thread-safe, triggers invalidation automatically.
     /// </summary>
+    /// <remarks>
+    /// Setting a value equal to the current one does nothing (no notification, no recomputation).
+    /// Values are compared with their default equality, except that an
+    /// <see cref="System.Collections.Immutable.ImmutableArray{T}"/> is compared element-wise and a
+    /// two- or three-component value tuple holding one is compared component-wise, as in the
+    /// pipeline's operators.
+    /// </remarks>
     /// <param name="value">The new value</param>
     void Set(T value);
 

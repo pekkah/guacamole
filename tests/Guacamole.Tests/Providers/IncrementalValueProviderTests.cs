@@ -1,5 +1,6 @@
 using System.Collections.Immutable;
 using Guacamole.Pipeline;
+using Guacamole.Tests.Common;
 using Xunit;
 
 namespace Guacamole.Tests.Providers;
@@ -164,16 +165,20 @@ public class IncrementalValueProviderTests
         var graph = new ComputationGraph();
         var metadata = new ProviderMetadata(TrackingName: "perf-test");
 
-        // Act - Measure creation time
-        var stopwatch = System.Diagnostics.Stopwatch.StartNew();
-        var provider = new IncrementalValueProvider<long>(node, graph, metadata);
-        stopwatch.Stop();
+        // Act - Measure what creating 1,000 providers allocates (deterministic, unlike wall-clock time)
+        IncrementalValueProvider<long> provider = default;
+        var allocated = ScalingAssert.AllocatedBytes(() =>
+        {
+            for (var i = 0; i < 1_000; i++)
+                provider = new IncrementalValueProvider<long>(node, graph, metadata);
+        });
 
-        // Assert - Should be very fast (< 10ms for struct creation)
-        // Using 10ms to account for CI runner variability
-        Assert.True(stopwatch.ElapsedMilliseconds < 10,
-            $"Provider creation should be fast, but took {stopwatch.ElapsedMilliseconds}ms");
-        // Provider is a value type, no need for null check
+        // Assert - Creation is O(1) and allocation-free: the provider is a struct wrapping the node,
+        // and creating one neither computes nor registers anything
+        Assert.Equal(0, allocated);
+        Assert.Same(node, provider.Node);
+        Assert.True(typeof(IncrementalValueProvider<long>).IsValueType);
+        Assert.Empty(graph.Nodes);
     }
 
     /// <summary>

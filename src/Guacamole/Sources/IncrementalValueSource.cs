@@ -83,8 +83,9 @@ internal sealed class IncrementalValueSource<T> : IIncrementalValueSource<T>
         _lock.EnterWriteLock();
         try
         {
-            // Only update if value actually changed
-            if (!_hasValue || !EqualityComparer<T>.Default.Equals(_value, value))
+            // Only update if value actually changed (structurally for immutable arrays and tuples
+            // of them, as in the pipeline's operators)
+            if (!_hasValue || !DefaultEqualityComparer<T>.Instance.Equals(_value!, value))
             {
                 _value = value;
                 _hasValue = true;

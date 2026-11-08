@@ -490,7 +490,7 @@ internal abstract class NodeHandle<TResult> : NodeHandle
 
 /// <summary>
 /// Handle of a single-value node; compares values with the node's comparer
-/// (<see cref="IHasComparer{T}"/>) or <see cref="EqualityComparer{T}.Default"/>.
+/// (<see cref="IHasComparer{T}"/>) or <see cref="DefaultEqualityComparer{T}.Instance"/>.
 /// </summary>
 internal sealed class ValueNodeHandle<T> : NodeHandle<T>
 {
@@ -501,7 +501,7 @@ internal sealed class ValueNodeHandle<T> : NodeHandle<T>
         : base(node, state)
     {
         _node = node;
-        _comparer = node is IHasComparer<T> withComparer ? withComparer.Comparer : EqualityComparer<T>.Default;
+        _comparer = node is IHasComparer<T> withComparer ? withComparer.Comparer : DefaultEqualityComparer<T>.Instance;
     }
 
     public override IComputationNode Node => _node;
@@ -538,7 +538,7 @@ internal sealed class ValueNodeHandle<T> : NodeHandle<T>
 /// <summary>
 /// Handle of a collection node; caches the values as a materialized array and compares arrays
 /// element-wise with the node's comparer (<see cref="IHasComparer{T}"/>) or
-/// <see cref="EqualityComparer{T}.Default"/>.
+/// <see cref="DefaultEqualityComparer{T}.Instance"/>.
 /// </summary>
 internal sealed class CollectionNodeHandle<T> : NodeHandle<IEnumerable<T>>
 {
@@ -549,7 +549,7 @@ internal sealed class CollectionNodeHandle<T> : NodeHandle<IEnumerable<T>>
         : base(node, state)
     {
         _node = node;
-        _comparer = node is IHasComparer<T> withComparer ? withComparer.Comparer : EqualityComparer<T>.Default;
+        _comparer = node is IHasComparer<T> withComparer ? withComparer.Comparer : DefaultEqualityComparer<T>.Instance;
     }
 
     public override IComputationNode Node => _node;

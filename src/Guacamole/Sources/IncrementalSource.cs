@@ -2,7 +2,6 @@ using System;
 using System.Collections.Generic;
 using System.Collections.Immutable;
 using System.Collections.ObjectModel;
-using System.Runtime.ExceptionServices;
 using System.Threading;
 using Guacamole.Pipeline;
 
@@ -145,50 +144,53 @@ internal sealed class IncrementalSource<T> : IIncrementalSource<T>
 
     /// <summary>
     /// Applies <paramref name="operations"/> in order, with the semantics of <see cref="Push"/>,
-    /// <see cref="Remove"/> and <see cref="Replace"/>, and raises a single change notification if any
-    /// of them changed the source (see <see cref="IBatchOperation{T}.Commit"/>).
+    /// <see cref="Remove"/> and <see cref="Replace"/>, all or nothing, and raises a single change
+    /// notification if the source ends up changed (see <see cref="IBatchOperation{T}.Commit"/>).
     /// </summary>
     /// <remarks>
-    /// If an operation throws, the operations before it stay applied (and are notified) and the
-    /// exception is rethrown after the notification.
+    /// The operations are first checked against the state they would see (without changing the
+    /// source), so an operation that would fail (a <c>null</c> item, <c>Replace</c> of a missing item
+    /// or with an item that is present) throws before any operation is applied. Once checked, the
+    /// operations cannot fail. When every item they touch ends up present or absent as it was
+    /// before (for example a <c>Push</c> of a new item and a <c>Remove</c> of it), the items before
+    /// and after are compared, and no notification is raised if they are the same.
     /// </remarks>
+    /// <exception cref="ArgumentNullException">An item is <c>null</c>; nothing was applied.</exception>
+    /// <exception cref="InvalidOperationException">A <c>Replace</c> would fail; nothing was applied.</exception>
     internal void Apply(ReadOnlySpan<SourceOperation<T>> operations)
     {
-        var changed = false;
-        ExceptionDispatchInfo? failure = null;
-
+        bool changed;
         lock (_lock)
         {
-            try
-            {
-                foreach (var operation in operations)
-                {
-                    switch (operation.Kind)
-                    {
-                        case SourceOperationKind.Push:
-                            ArgumentNullException.ThrowIfNull(operation.Item, "item");
-                            changed |= PushCore(operation.Item);
-                            break;
-                        case SourceOperationKind.Remove:
-                            ArgumentNullException.ThrowIfNull(operation.Item, "item");
-                            changed |= RemoveCore(operation.Item);
-                            break;
-                        default:
-                            ArgumentNullException.ThrowIfNull(operation.Item, "oldItem");
-                            ArgumentNullException.ThrowIfNull(operation.NewItem, "newItem");
-                            if (!EqualityComparer<T>.Default.Equals(operation.Item, operation.NewItem))
-                            {
-                                ReplaceCore(operation.Item, operation.NewItem);
-                                changed = true;
-                            }
+            var (effective, membershipChanged) = Check(operations);
+            if (!effective)
+                return;
 
-                            break;
-                    }
+            // Every touched item ends up present or absent as before: the order may be unchanged too
+            var before = membershipChanged ? null : BuildSnapshot();
+
+            foreach (var operation in operations)
+            {
+                switch (operation.Kind)
+                {
+                    case SourceOperationKind.Push:
+                        PushCore(operation.Item);
+                        break;
+                    case SourceOperationKind.Remove:
+                        RemoveCore(operation.Item);
+                        break;
+                    default:
+                        if (!EqualityComparer<T>.Default.Equals(operation.Item, operation.NewItem))
+                            ReplaceCore(operation.Item, operation.NewItem);
+                        break;
                 }
             }
-            catch (Exception ex)
+
+            changed = true;
+            if (before is not null)
             {
-                failure = ExceptionDispatchInfo.Capture(ex);
+                var after = BuildSnapshot();
+                changed = !before.AsSpan().SequenceEqual(after, EqualityComparer<T>.Default);
             }
         }
 
@@ -196,8 +198,79 @@ internal sealed class IncrementalSource<T> : IIncrementalSource<T>
         {
             NotifyChanged();
         }
+    }
 
-        failure?.Throw();
+    /// <summary>
+    /// Checks that <paramref name="operations"/> can be applied in order, without changing the
+    /// source. Returns whether any of them would change it and whether any item would end up
+    /// present when it was absent before, or the reverse. Lock held.
+    /// </summary>
+    private (bool Effective, bool MembershipChanged) Check(ReadOnlySpan<SourceOperation<T>> operations)
+    {
+        // The presence of each item touched so far, before the batch and after the operations so far
+#pragma warning disable CS8714 // items are checked for null before they are used as keys
+        Dictionary<T, (bool Before, bool Now)>? touched = null;
+#pragma warning restore CS8714
+        var effective = false;
+
+        foreach (var operation in operations)
+        {
+            switch (operation.Kind)
+            {
+                case SourceOperationKind.Push:
+                    ArgumentNullException.ThrowIfNull(operation.Item, "item");
+                    if (!IsPresent(operation.Item))
+                    {
+                        SetPresent(operation.Item, true);
+                        effective = true;
+                    }
+
+                    break;
+                case SourceOperationKind.Remove:
+                    ArgumentNullException.ThrowIfNull(operation.Item, "item");
+                    if (IsPresent(operation.Item))
+                    {
+                        SetPresent(operation.Item, false);
+                        effective = true;
+                    }
+
+                    break;
+                default:
+                    ArgumentNullException.ThrowIfNull(operation.Item, "oldItem");
+                    ArgumentNullException.ThrowIfNull(operation.NewItem, "newItem");
+                    if (EqualityComparer<T>.Default.Equals(operation.Item, operation.NewItem))
+                        break;
+
+                    if (!IsPresent(operation.Item))
+                        throw new InvalidOperationException($"Item to replace not found in source '{SourceId}'");
+                    if (IsPresent(operation.NewItem))
+                        throw new InvalidOperationException($"Replacement item already exists in source '{SourceId}'");
+
+                    SetPresent(operation.Item, false);
+                    SetPresent(operation.NewItem, true);
+                    effective = true;
+                    break;
+            }
+        }
+
+        var membershipChanged = false;
+        if (touched != null)
+        {
+            foreach (var (before, now) in touched.Values)
+                membershipChanged |= before != now;
+        }
+
+        return (effective, membershipChanged);
+
+        bool IsPresent(T item) =>
+            touched != null && touched.TryGetValue(item, out var state) ? state.Now : _slotByItem.ContainsKey(item);
+
+        void SetPresent(T item, bool present)
+        {
+            touched ??= new();
+            var before = touched.TryGetValue(item, out var state) ? state.Before : _slotByItem.ContainsKey(item);
+            touched[item] = (before, present);
+        }
     }
 
     /// <summary>
@@ -278,22 +351,31 @@ internal sealed class IncrementalSource<T> : IIncrementalSource<T>
 
         lock (_lock)
         {
-            snapshot = _snapshot;
-            if (snapshot is null)
-            {
-                snapshot = new T[_slotByItem.Count];
-                var count = 0;
-                for (var i = 0; i < _slotCount; i++)
-                {
-                    if (_slots[i].HasItem)
-                        snapshot[count++] = _slots[i].Item;
-                }
+            return BuildSnapshot();
+        }
+    }
 
-                Volatile.Write(ref _snapshot, snapshot);
+    /// <summary>
+    /// Returns the snapshot of the current items, building and publishing it if the items changed
+    /// since it was last built. Lock held.
+    /// </summary>
+    private T[] BuildSnapshot()
+    {
+        var snapshot = _snapshot;
+        if (snapshot is null)
+        {
+            snapshot = new T[_slotByItem.Count];
+            var count = 0;
+            for (var i = 0; i < _slotCount; i++)
+            {
+                if (_slots[i].HasItem)
+                    snapshot[count++] = _slots[i].Item;
             }
 
-            return snapshot;
+            Volatile.Write(ref _snapshot, snapshot);
         }
+
+        return snapshot;
     }
 
     /// <summary>

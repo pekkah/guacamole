@@ -1,5 +1,6 @@
 using System.Collections.Immutable;
 using Guacamole.Pipeline;
+using Guacamole.Tests.Common;
 using Xunit;
 
 namespace Guacamole.Tests.Pipeline;
@@ -197,71 +198,77 @@ public class ComputationGraphTests
     }
 
     /// <summary>
-    /// PERFORMANCE: Test that graph operations are efficient
+    /// PERFORMANCE: Test that graph operations are efficient: the time per AddNode does not grow
+    /// with the size of the graph beyond the logarithmic cost of its immutable maps (compared at 100
+    /// and 3,200 nodes; a cycle check or copy that is linear in the graph would be about 32x).
     /// </summary>
     [Fact]
     public void ComputationGraph_Operations_ShouldBe_Efficient()
     {
-        // Arrange
-        var graph = new ComputationGraph();
-        var nodes = Enumerable.Range(1, 100)
-            .Select(i => new TestComputationNode($"node-{i}", typeof(int)))
-            .ToArray();
+        ScalingAssert.PerOperationTimeScales(
+            size =>
+            {
+                var nodes = Enumerable.Range(1, size)
+                    .Select(i => new TestComputationNode($"node-{i}", typeof(int)))
+                    .ToArray();
+                return (() =>
+                {
+                    var built = new ComputationGraph();
+                    foreach (var node in nodes)
+                        built = built.AddNode(node);
+                }, nodes.Length);
+            },
+            smallSize: 100,
+            largeSize: 3_200,
+            maxRatio: 8,
+            "ComputationGraph.AddNode");
 
-        // Warm up on a throwaway graph so the measurement excludes one-time costs
-        // (JIT, metrics/activity initialization) that dominate a cold first call on CI runners.
-        var warmup = new ComputationGraph();
-        foreach (var node in Enumerable.Range(1, 10).Select(i => new TestComputationNode($"warmup-{i}", typeof(int))))
-        {
-            warmup = warmup.AddNode(node);
-        }
-
-        // Act - Measure bulk operations
-        var stopwatch = System.Diagnostics.Stopwatch.StartNew();
-
-        var updatedGraph = graph;
-        foreach (var node in nodes)
-        {
+        // And the nodes are added
+        var updatedGraph = new ComputationGraph();
+        foreach (var node in Enumerable.Range(1, 100).Select(i => new TestComputationNode($"node-{i}", typeof(int))))
             updatedGraph = updatedGraph.AddNode(node);
-        }
 
-        stopwatch.Stop();
-
-        // Assert - Should handle 100 nodes quickly. Warm, this is far below the bound, which only
-        // catches pathological (e.g. exponential cycle-check) regressions and leaves room
-        // for noisy shared CI runners.
-        Assert.True(stopwatch.ElapsedMilliseconds < 500,
-            $"Adding 100 nodes took {stopwatch.ElapsedMilliseconds}ms, expected <500ms");
         Assert.Equal(100, updatedGraph.Nodes.Count);
     }
 
     /// <summary>
-    /// PERFORMANCE: Test that cache operations are O(1)
+    /// PERFORMANCE: Test that cache operations are O(1): caching and reading a value costs the same
+    /// whether the cache holds 1,000 or 32,000 values (O(n) would be about 32x).
     /// </summary>
     [Fact]
     public void ComputationGraph_CacheOperations_ShouldBe_O1()
     {
-        // Arrange
+        const int Operations = 1_000;
+        ScalingAssert.PerOperationTimeScales(
+            size =>
+            {
+                var cacheGraph = new ComputationGraph(cacheCapacity: size);
+                var keys = Enumerable.Range(0, size).Select(i => $"node-{i}").ToArray();
+                foreach (var key in keys)
+                    cacheGraph.CacheValue(key, key);
+
+                // Overwrite and read back values spread over the whole cache
+                var touched = Enumerable.Range(0, Operations).Select(i => keys[(int)((long)i * size / Operations)]).ToArray();
+                return (() =>
+                {
+                    foreach (var key in touched)
+                    {
+                        cacheGraph.CacheValue(key, key);
+                        cacheGraph.ValueCache.TryGet(key, out _);
+                    }
+                }, Operations);
+            },
+            smallSize: 1_000,
+            largeSize: 32_000,
+            maxRatio: 8,
+            "ComputationGraph cache set and get");
+
+        // And the value is cached
         var graph = new ComputationGraph();
-        var node = new TestComputationNode("perf-test", typeof(string));
-        var graphWithNode = graph.AddNode(node);
-
-        // Warm up so the measurement covers the operations, not JIT compilation (which can take
-        // longer than the budget while other tests run in parallel)
-        new ComputationGraph().AddNode(new TestComputationNode("warm-up", typeof(string)))
-            .CacheValue("warm-up", "value").ValueCache.TryGet("warm-up", out _);
-
-        // Act - Measure cache operations
-        var stopwatch = System.Diagnostics.Stopwatch.StartNew();
-
+        var graphWithNode = graph.AddNode(new TestComputationNode("perf-test", typeof(string)));
         var cachedGraph = graphWithNode.CacheValue("perf-test", "cached-value");
         var hasValue = cachedGraph.ValueCache.TryGet("perf-test", out var value);
 
-        stopwatch.Stop();
-
-        // Assert - Should be very fast (allowing CI overhead)
-        Assert.True(stopwatch.ElapsedMilliseconds < 10,
-            "Cache operations should be fast (< 10ms)");
         Assert.True(hasValue);
         Assert.Equal("cached-value", value);
     }

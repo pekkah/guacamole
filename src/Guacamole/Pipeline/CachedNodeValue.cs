@@ -33,6 +33,7 @@ internal sealed class CachedNodeValue
 
     private long _verifiedAtRevision;
     private long _stamp;
+    private object? _view;
 
     public CachedNodeValue(
         object? value,
@@ -92,6 +93,18 @@ internal sealed class CachedNodeValue
     /// stamp counts had finished marking the nodes it reaches before the value was verified.
     /// </remarks>
     public long Stamp => Volatile.Read(ref _stamp);
+
+    /// <summary>
+    /// A read-only view of <see cref="Value"/> handed to public callers (see
+    /// <see cref="IncrementalValuesProvider{T}.GetValues"/>), created on first use and kept with
+    /// the value so that reading an unchanged value does not allocate. Racing readers may each
+    /// create one; any of them is a valid view.
+    /// </summary>
+    public object? View
+    {
+        get => Volatile.Read(ref _view);
+        set => Volatile.Write(ref _view, value);
+    }
 
     /// <summary>
     /// Records that the value was verified to be up to date at <paramref name="revision"/>.

@@ -1,5 +1,6 @@
 using System.Collections.Generic;
 using System.Collections.Immutable;
+using System.Collections.ObjectModel;
 using System.Diagnostics;
 using System.Diagnostics.CodeAnalysis;
 using Guacamole.Diagnostics;
@@ -204,8 +205,17 @@ public readonly record struct IncrementalValuesProvider<T>
     /// cache validation. This is the main entry point for retrieving values.
     /// </summary>
     /// <remarks>
+    /// <para>
     /// Uses the same version-based lazy validation as <see cref="IncrementalValueProvider{T}.GetValue"/>;
     /// collections are compared element-wise (in order) with the node's comparer.
+    /// </para>
+    /// <para>
+    /// The values are a read-only view (an <see cref="IReadOnlyList{T}"/>; its <see cref="IList{T}"/>
+    /// mutators throw <see cref="NotSupportedException"/>) of the cached result, which the pipeline
+    /// shares with downstream stages, <c>Collect()</c> results and source snapshots. It cannot be cast
+    /// to an array or modified, stays valid (and unchanged) after later source changes, and reading an
+    /// unchanged provider again returns the same view without allocating.
+    /// </para>
     /// </remarks>
     /// <returns>Result containing the computed values or error</returns>
     public Result<IEnumerable<T>, ComputationError> GetValues()
@@ -220,14 +230,28 @@ public readonly record struct IncrementalValuesProvider<T>
             if (entry.IsNone)
                 return Result<IEnumerable<T>, ComputationError>.None;
             if (entry.Value is T[] values)
-                return Result<IEnumerable<T>, ComputationError>.Success(values);
+                return Result<IEnumerable<T>, ComputationError>.Success(View(entry, values));
         }
 
-        return CollectionNodeHandle<T>.For(Node, graph).Evaluate(new GraphEvaluator(graph), out _, Metadata);
+        var result = CollectionNodeHandle<T>.For(Node, graph).Evaluate(new GraphEvaluator(graph), out _, Metadata);
+        if (!result.IsSuccess || result.Value is null)
+            return result;
+
+        // The handle returns the cached array: hand out the view kept with it
+        var array = result.Value as T[] ?? result.Value.ToArray();
+        if (graph.ValueCache.TryGet(Node.Id, out cached)
+            && cached is CachedNodeValue computed
+            && ReferenceEquals(computed.Value, array))
+        {
+            return Result<IEnumerable<T>, ComputationError>.Success(View(computed, array));
+        }
+
+        return Result<IEnumerable<T>, ComputationError>.Success(Wrap(array));
     }
 
     /// <summary>
-    /// Convenience property to get the computed values directly.
+    /// Convenience property to get the computed values directly, as a read-only view (see
+    /// <see cref="GetValues"/>).
     /// Throws if computation fails. Use GetValues() for Result-based error handling.
     /// </summary>
     public IEnumerable<T> Values
@@ -242,6 +266,20 @@ public readonly record struct IncrementalValuesProvider<T>
                 $"Failed to compute values: {result.ErrorValue?.Message ?? "Unknown error"}");
         }
     }
+
+    // The read-only view of a cached array, created once per cached value
+    private static IEnumerable<T> View(CachedNodeValue entry, T[] values)
+    {
+        if (entry.View is ReadOnlyCollection<T> view)
+            return view;
+
+        view = Wrap(values);
+        entry.View = view;
+        return view;
+    }
+
+    private static ReadOnlyCollection<T> Wrap(T[] values) =>
+        values.Length == 0 ? ReadOnlyCollection<T>.Empty : new ReadOnlyCollection<T>(values);
 }
 
 /// <summary>
