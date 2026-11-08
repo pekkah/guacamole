@@ -6,17 +6,18 @@ This guide explains how Guacamole decides what to recompute, and how to structur
 
 ### Sources and versions
 
-Every node in a context's graph has an output version. Pushing to a source (`Push`, `Remove`, `Replace`, `Clear`, `Set`) that actually changes it increments that source's version and nothing else: no cache is cleared and no dependent node is touched eagerly. Operations that do not change the source (pushing an item that is already present, setting an equal value, removing a missing item) raise no notification at all.
+Every node in a context's graph has an output version. Pushing to a source (`Push`, `Remove`, `Replace`, `Clear`, `Set`) that actually changes it increments that source's version and marks the stages downstream of it as possibly changed ("dirty"); no cache is cleared and nothing is recomputed eagerly. Marking walks only the stages that have read the source, directly or through other stages. Operations that do not change the source (pushing an item that is already present, setting an equal value, removing a missing item) raise no notification at all.
 
 ### Lazy validation on read
 
 When you read a provider (`GetValue()`/`GetValues()`, `.Value`/`.Values`, or an output handler reading it), the provider:
 
 1. Returns its cached value right away if no source has changed since that value was last verified.
-2. Otherwise verifies it: each input the value was computed from (in the order it was read) is first brought up to date itself, recursively, using the input's own cached value if that is still valid and recomputing the input if not. If every input still has the version recorded when the value was computed, the cached value is valid and is returned. No lambda of this stage runs.
-3. Otherwise recomputes, records the versions of the inputs it read, and stores the result. Its own version is incremented **only if the new value is not equal** to the previous one (using the stage's comparer).
+2. Returns it right away, too, if none of the sources it depends on has changed since it was last verified (the stage is not marked dirty).
+3. Otherwise verifies it: each input the value was computed from (in the order it was read) is first brought up to date itself, recursively, using the input's own cached value if that is still valid and recomputing the input if not. If every input still has the version recorded when the value was computed, the cached value is valid and is returned. No lambda of this stage runs.
+4. Otherwise recomputes, records the versions of the inputs it read, and stores the result. Its own version is incremented **only if the new value is not equal** to the previous one (using the stage's comparer).
 
-Step 3 is the equality cut-off: when a stage's recomputed value did not change, the stages downstream of it remain valid and are not recomputed.
+Step 2 keeps verification proportional to what changed: after one source change, only the stages on the paths from that source to the provider are verified input by input, and every other input costs a single check. Step 4 is the equality cut-off: when a stage's recomputed value did not change, the stages downstream of it remain valid and are not recomputed.
 
 ### Every stage is cached
 
@@ -39,10 +40,10 @@ Each stage occupies one entry in the context's value cache (see [Memory](#memory
 Collection operators (`Select`, `Where`, `SelectMany` on `IncrementalValuesProvider<T>`) remember, for each input item of their previous computation, what their lambda returned. When such a stage is recomputed, the lambda runs only for items that are new or changed; an item equal to one seen last time (by `EqualityComparer<T>.Default`, i.e. the item's own equality) reuses the previous result. Pushing one item to a 10,000-item source runs each recomputed stage's lambda once, not 10,000 times.
 
 - A reused result is the **same instance** as before, so the next stage's memo hits too, even when the result type only has reference equality.
-- The memo holds one entry per distinct item of the latest computation and is replaced when a computation completes; if a lambda throws, the stage returns an error and keeps its previous memo.
+- The memo holds one entry per distinct item of the latest computation and is updated in place when a computation completes; if a lambda throws, the stage returns an error and keeps its previous memo.
 - `null` items are not memoized; the lambda runs for them every time.
 - Items must be immutable (records are ideal): an item mutated in place still equals itself, so its stale result would be reused.
-- The stage still walks the whole collection (and allocates the result array) on recomputation; only the lambda calls are saved. To avoid even that for unrelated data, split it into separate sources.
+- The stage still walks the whole collection on recomputation (one comparison per unchanged item, and a new result array unless every result is unchanged); only the lambda calls and the memo bookkeeping for unchanged items are saved. To avoid even that for unrelated data, split it into separate sources.
 - Memoization is per item. A lambda that also depends on a combined value (`values.Combine(value)`) sees a new input for every item when that value changes; see [cross-item lookups](#cross-item-lookups-eg-symbol-tables) for keeping such inputs equal.
 
 ## Cross-Item Lookups (e.g. Symbol Tables)
@@ -138,7 +139,20 @@ var lookup = context.Settings.Select(
 
 ## Batching
 
-`BeginBatch()` buffers operations, but `Commit()` still applies them one at a time, and each effective change raises its own notification, which runs all output handlers. `PushRange` behaves the same way. When loading many items with output handlers registered, consider registering the handlers after the initial load, or keeping handlers cheap.
+`PushRange` adds all its items in one step and raises a single change notification (none if every item was already present), so output handlers run once per range and downstream stages recompute once. Use it to load many items.
+
+`BeginBatch()` buffers `Push`/`Remove`/`Replace` operations, and `Commit()` (or disposing the batch) applies them in order in one step with a single change notification, so the source's version changes once and output handlers run once for the whole batch. Group related changes (for example all the files touched by one save) into a batch.
+
+```csharp
+using (var batch = context.FilesSource.BeginBatch())
+{
+    batch.Replace(oldMain, newMain);
+    batch.Remove(deletedFile);
+    batch.Push(addedFile);
+} // one notification
+```
+
+If an operation fails (`Replace` of an item that is not present), the operations before it stay applied and are notified, and the exception is rethrown.
 
 ## Memory
 
@@ -183,33 +197,36 @@ Reports go to `BenchmarkDotNet.Artifacts/results/` in the current directory (HTM
 
 ### Benchmark results
 
-One short run (`--job short --inProcess`, 3 iterations) on a 4-core Intel Xeon 2.1 GHz VM, Linux, .NET 11 RC3. The error margins are wide, so read these as orders of magnitude, not exact figures. The per-item/per-leaf work (`Work.Mix`) takes about 0.11 µs.
+One short run (`--job short --inProcess`, 3 iterations) per benchmark, before and after back to back, on a 4-core Intel Xeon 2.1 GHz VM, Linux, .NET 11 RC3. The error margins are wide, so read these as orders of magnitude, not exact figures. The per-item/per-leaf work (`Work.Mix`) takes about 0.11 µs.
 
 **One change in a graph of N sources** (`IncrementalUpdateBenchmarks`):
 
 | Sources | Stages | Cached read | One source changed | Direct recompute |
 |--------:|-------:|------------:|-------------------:|-----------------:|
-| 16 | 62 | 81 ns | 12 µs | 1.8 µs |
-| 256 | 1,022 | 82 ns | 97 µs | 28 µs |
-| 4,096 | 16,382 | 81 ns | 2.6 ms | 0.44 ms |
+| 16 | 62 | 82 ns | 7.0 µs | 1.8 µs |
+| 256 | 1,022 | 85 ns | 13 µs | 28 µs |
+| 4,096 | 16,382 | 83 ns | 23 µs | 0.45 ms |
 
 **K changed items out of N** (`CollectionChangeBenchmarks`, incremental vs direct):
 
 | Items | K = 1 | K = 10 | K = 100 |
 |------:|------:|-------:|--------:|
-| 1,000 | 78 µs vs 111 µs | 96 µs vs 109 µs | 281 µs vs 113 µs |
-| 10,000 | 0.98 ms vs 1.12 ms | 1.03 ms vs 1.09 ms | 1.37 ms vs 1.13 ms |
+| 1,000 | 13 µs vs 110 µs | 18 µs vs 111 µs | 60 µs vs 112 µs |
+| 10,000 | 98 µs vs 1.12 ms | 108 µs vs 1.13 ms | 161 µs vs 1.09 ms |
 
-The incremental variant allocated 66 KB per change and read at 1,000 items and 607 KB at 10,000 items (K = 1); the direct one allocates nothing.
+The incremental variant allocated 17 KB per change and read at 1,000 items and 161 KB at 10,000 items (K = 1; 169 KB at K = 100), with no gen2 collections; the direct one allocates nothing.
 
-**Memory overhead** (`MemoryOverheadBenchmarks`): building a context over 1,000 / 10,000 items and reading the total took 1.1 ms / 17 ms and allocated 1.5 MB / 18.6 MB, against 0.11 ms / 1.1 ms and 8 KB / 78 KB for computing the results directly (about 190-240x the allocations). Measured separately with `GC.GetTotalMemory`, the built context retained about 150 B per item, against 8 B per item for the direct results array (the items themselves are shared by both and not counted).
+**Memory overhead** (`MemoryOverheadBenchmarks`): building a context over 1,000 / 10,000 items and reading the total took 0.20 ms / 2.2 ms and allocated 126 KB / 1.2 MB, against 0.11 ms / 1.1 ms and 8 KB / 78 KB for computing the results directly (about 16x the allocations).
+
+For comparison, the same run of the engine before the changes in #57, #60, #61 and #62: one source changed 11 µs / 96 µs / 2.5 ms (16 / 256 / 4,096 sources); K changed items 75 / 93 / 275 µs at 1,000 items and 1.04 / 1.02 / 1.37 ms at 10,000 (607-870 KB per read at 10,000, with gen2 collections); building 1.2 ms / 16 ms and 1.5 MB / 18.6 MB.
 
 What this shows:
 
 - **Cached reads are constant-time.** A read with no change since the last one costs about 80 ns, whatever the graph size.
-- **Recomputation is proportional to the changes.** After one source changes, only the changed leaf's lambda and the stages on its path to the root rerun; after K item replacements, the per-item lambda runs K times. The tests in `tests/Guacamole.Benchmarks.Tests/IncrementalScenarioTests.cs` assert these call counts.
-- **Wall time after a change is not.** Verifying that the unchanged stages are still valid visits every stage the read depends on, about 0.15-0.2 µs per stage in this run, and collection stages still walk (and allocate for) all N items. With work as cheap as 0.1 µs per stage this bookkeeping costs more than recomputing directly, and many changes per read (K = 100) are slower than a direct recompute. Incremental evaluation pays off when the work per stage or item is clearly more expensive than that (parsing, type checking, anything allocating or doing I/O), or when most reads hit the cache.
-- **Setup is allocation-heavy.** `PushRange` applies items one at a time, and each item gets a memo entry, so building a context allocates far more than the data it holds. Build once and apply changes incrementally.
+- **Recomputation and verification are proportional to the changes.** After one source changes, only the changed leaf's lambda and the stages on its path to the root rerun, and only the stages on that path are verified input by input; every other stage costs one check. The time grows with the depth of the tree (log N here), not its size. After K item replacements, the per-item lambda runs K times. The tests in `tests/Guacamole.Benchmarks.Tests/IncrementalScenarioTests.cs` assert these call counts.
+- **Collection stages are still O(N) per recompute**, but cheaply: a recomputed `Select` compares each unchanged item with its previous position (a reference comparison for unchanged items), allocates one result array, and the stages after it (`Collect`, the sum, the change checks) walk all N items. That is about 10 ns per item here, so with per-item work of 0.1 µs the incremental read beats the direct recompute even at K = 100.
+- **Each change has a fixed cost** of a few µs: the source update, marking the stages downstream of the source, and recomputing the changed path (about 0.5 µs per recomputed stage here). With work as cheap as 0.1 µs per stage, small graphs (16 sources) are still faster to recompute directly. Incremental evaluation pays off when the graph is large or the work per stage or item is clearly more expensive than that (parsing, type checking, anything allocating or doing I/O).
+- **Setup costs about twice a direct computation.** `PushRange` adds all items in one step; the remaining allocations are the source's storage and snapshot, one memo entry per item and the result arrays.
 
 To benchmark your own context, measure the three things that matter: a cached read (should run no lambdas), a read after a small change (should run only the affected stages), and the cost of a source operation with your output handlers registered.
 
