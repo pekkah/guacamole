@@ -24,6 +24,10 @@ An architecture review of the public API before 1.0 removed dead members and mad
 
 Code that assigns the values to `IEnumerable<T>` keeps compiling. Explicitly typed lambdas (`(IEnumerable<T> items, ComputingContextBase ctx) => ...`) and variables of type `Result<IEnumerable<T>, ComputationError>` need the new type.
 
+### `RegisterOutput` returns `IDisposable`
+
+Both `RegisterOutput` overloads return an `IDisposable` registration (they returned `void`). Disposing it unregisters just that handler; disposing it twice, or after the context was disposed, does nothing. Existing calls that ignore the return value keep compiling. Code that passed a method group of `RegisterOutput` to an `Action<...>` delegate needs a `Func<..., IDisposable>` or a lambda.
+
 ## Namespace Consolidation
 
 All public types used to be spread over `Guacamole`, `Guacamole.Sources`, `Guacamole.Exceptions` and several `Guacamole.Core.*` namespaces. They now live in `Guacamole`, plus `Guacamole.Diagnostics` for metrics, and the `Core` segment is gone. Infrastructure types moved to `Guacamole.Pipeline` and `Guacamole.Caching` and are now internal (see [Internal types and members](#internal-types-and-members)). A typical application needs only:

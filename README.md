@@ -256,13 +256,16 @@ The generator also reports diagnostics (GUAC0003-GUAC0009) for invalid declarati
 ### Output Handlers
 
 ```csharp
-context.RegisterOutput(provider, (value, ctx) => { /* ... */ });
+IDisposable registration = context.RegisterOutput(provider, (value, ctx) => { /* ... */ });
+// later: stop just this handler
+registration.Dispose();
 ```
 
 - Handlers run synchronously, on the thread that changed a source, after **any** source of the context changes. They are not run at registration time.
 - A handler is invoked only if its provider computes a value (not an error, and not "no value" from a `Where`; a `null` value is delivered) and the value differs from the last value delivered to that handler; after a "no value" phase, a reappearing value is delivered again even if it equals the last one (the provider's comparer when it was created with one, e.g. `Select(selector, comparer)`, otherwise `EqualityComparer<T>.Default`; element-wise for collections). `Collect()` results compare element-wise (in order), so a handler on a collected provider does not run for a re-collect with equal items; other `ImmutableArray<T>`, list or dictionary values returned by a `Select` compare by reference.
 - All handlers run even if one throws; afterwards the exceptions are rethrown as one `AggregateException` from the `Push`/`Set`/... call that triggered them.
-- `Dispose()` unsubscribes the context from its sources and drops its output registrations. Its providers are no longer invalidated by source changes afterwards (they may return stale values), so do not read them.
+- `RegisterOutput` returns an `IDisposable`; disposing it unregisters that handler only (thread-safe, idempotent; no new call of the handler starts once `Dispose` returns). Collection handlers receive an `IReadOnlyList<T>`.
+- `Dispose()` on the context unsubscribes it from its sources and drops all of its output registrations. Its providers are no longer invalidated by source changes afterwards (they may return stale values), so do not read them.
 
 ### Thread Safety
 

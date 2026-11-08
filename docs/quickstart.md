@@ -302,9 +302,9 @@ Change detection uses equality everywhere (source contents, computed values, out
 ```csharp
 var context = new BuildContext(new Compiler());
 
-context.RegisterOutput(context.Compiled, (units, ctx) =>
+using var registration = context.RegisterOutput(context.Compiled, (units, ctx) =>
 {
-    Console.WriteLine($"Compiled {units.Count()} files");
+    Console.WriteLine($"Compiled {units.Count} files");
 });
 
 context.SourcesSource.Push(new SourceFile("Main.cs", "a b"));
@@ -316,7 +316,8 @@ Handler behavior:
 - A handler is called only if its provider computes a value (not an error, and not "no value" from a `Where`) and the value differs from the last value delivered to that handler.
 - Handlers run synchronously on the thread that changed the source.
 - If handlers throw, the remaining handlers still run and the exceptions are rethrown together as an `AggregateException` from the `Push`/`Set`/... call.
-- After `Dispose()`, the context no longer listens to its sources and its handlers are dropped.
+- `RegisterOutput` returns an `IDisposable`: disposing it unregisters that handler only (disposing twice is a no-op).
+- After `Dispose()`, the context no longer listens to its sources and all of its handlers are dropped.
 
 ## Troubleshooting
 
