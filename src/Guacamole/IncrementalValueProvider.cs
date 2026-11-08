@@ -96,8 +96,12 @@ public readonly record struct IncrementalValueProvider<T>
         {
             if (entry.IsNone)
                 return Result<T, ComputationError>.None;
+            if (entry.Error is { } error)
+                return Result<T, ComputationError>.Error(error);
             if (entry.Value is T value)
                 return Result<T, ComputationError>.Success(value);
+            if (entry.Value is null && default(T) is null)
+                return Result<T, ComputationError>.Success(default!);
         }
 
         return ValueNodeHandle<T>.For(Node, graph).Evaluate(new GraphEvaluator(graph), out _, Metadata);
@@ -240,6 +244,8 @@ public readonly record struct IncrementalValuesProvider<T>
         {
             if (entry.IsNone)
                 return Result<IReadOnlyList<T>, ComputationError>.None;
+            if (entry.Error is { } error)
+                return Result<IReadOnlyList<T>, ComputationError>.Error(error);
             if (entry.Value is T[] values)
                 return Result<IReadOnlyList<T>, ComputationError>.Success(View(entry, values));
         }

@@ -35,7 +35,9 @@ context.RegisterOutput(report, (r, _) => Publish(r));
 
 Each stage occupies one entry in the context's value cache (see [Memory](#memory)). An evicted entry is recomputed when it is next needed, and counts as a change for the stages downstream of it.
 
-Failed results and `null` values are the exception: they are not cached. A stage whose lambda throws (or returns `null`) runs again each time it is read, including by output handlers after every source change, and counts as changed for the stages downstream of it. Keep expensive lambdas from failing routinely; return a value that represents the failure (for example a record with a diagnostics list) when a failure is an expected outcome.
+Failed results and `null` values are cached the same way. A stage whose lambda throws runs again only when one of the inputs it read changes, not on every read (or every unrelated source change that runs the output handlers), and every read in between returns the same error. When it fails again, the new error is compared with the cached one: errors are equal when their `ComputationError`s are equal by value (message, chain of inner errors, source location and diagnostic ID; for an exception, the messages of the exception and its inner exceptions, not the exception types, which the error does not record). An equal error keeps the stages downstream of it cached, like an equal value; a different error, or the switch between a value and an error, counts as a change. A `null` value equals only `null`. The cache keeps only the `ComputationError`, not the exception, so a cached error holds no stack trace or exception state.
+
+Because a failure is cached until an input changes, a lambda that fails for a transient reason (a file being written, a lock held elsewhere) is not retried by reading again; change an input (for example a source holding a retry counter or timestamp) to retry it. Lambdas should be functions of their inputs in any case.
 
 ### Per-item memoization
 

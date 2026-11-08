@@ -152,10 +152,10 @@ public class ErrorSurfacingTests
     }
 
     [Fact]
-    public void ErrorResult_IsNotCached_TheFailingLambdaRunsOnEveryRead()
+    public void ErrorResult_IsCached_TheFailingLambdaRunsOncePerInputChange()
     {
-        // README "Errors are values": failed results are not cached, so a failing stage reruns when
-        // it is read again (and counts as changed for the stages downstream of it)
+        // README "Errors are values": failed results are cached like values (#89), so a failing
+        // stage runs again only when its inputs change, and every read surfaces the same error
         using var context = new ApiContext();
         var calls = new CallCounter();
         var failing = context.Number.Select(x =>
@@ -165,11 +165,17 @@ public class ErrorSurfacingTests
         });
         context.NumberSource.Set(-1);
 
-        Assert.True(failing.GetValue().IsError);
+        Assert.Equal("negative input", ResultAssert.Error(failing.GetValue()).Message);
+        Assert.Equal("negative input", ResultAssert.Error(failing.GetValue()).Message);
+        Assert.Throws<InvalidOperationException>(() => failing.Value);
+        Assert.Throws<InvalidOperationException>(() => failing.TryGetValue(out _));
+        Assert.Equal(1, calls.Count);
+
+        context.NumberSource.Set(-2);
         Assert.True(failing.GetValue().IsError);
         Assert.Equal(2, calls.Count);
 
-        // Once it succeeds, its value is cached again
+        // Once it succeeds, its value is cached
         context.NumberSource.Set(1);
         Assert.Equal(1, failing.Value);
         Assert.Equal(1, failing.Value);

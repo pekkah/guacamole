@@ -274,6 +274,19 @@ public partial class DirtyMarkingTests
         var everything = bucketSum.Combine(diamond).Select(p => p.Item1 * 1000 + p.Item2);
         var lengths = context.Items.Select(i => i.ToString()).Select(s => s.Length).Collect();
 
+        // Cached errors whose message depends on the input (equal errors cut off, #89), and cached nulls
+        var failsWithA = context.B.Combine(context.A)
+            .Select(p => p.Item1 == 0 ? throw new InvalidOperationException($"a%3={p.Item2 % 3}") : p.Item2)
+            .Select(x => x + 1);
+        var maybeNull = context.C.Select(c => c % 3 == 0 ? null : c.ToString());
+        var nullLength = maybeNull.Combine(context.B).Select(p => p.Item1 is null ? -p.Item2 : p.Item1.Length);
+
+        static object? ReadMessage<T>(IncrementalValueProvider<T> provider)
+        {
+            var result = provider.GetValue();
+            return result.IsError ? result.ErrorValue!.Message : result.ValueOrDefault;
+        }
+
         static int Diamond(Model m) => (m.A % 3 * 100 + m.B) - (m.A + m.C);
         static int BucketSum(Model m) => m.Items.Select(i => i % 5).Where(b => b > 1).Sum();
 
@@ -292,6 +305,9 @@ public partial class DirtyMarkingTests
             new("everything", () => Read(everything), m => BucketSum(m) * 1000 + Diamond(m)),
             new("lengths", () => Read(lengths) is ImmutableArray<int> arr ? string.Join(",", arr) : "?",
                 m => string.Join(",", m.Items.Select(i => i.ToString().Length))),
+            new("failsWithA", () => ReadMessage(failsWithA), m => m.B == 0 ? $"a%3={m.A % 3}" : m.A + 1),
+            new("maybeNull", () => Read(maybeNull) ?? "null", m => m.C % 3 == 0 ? "null" : m.C.ToString()),
+            new("nullLength", () => Read(nullLength), m => m.C % 3 == 0 ? -m.B : m.C.ToString().Length),
         ];
     }
 

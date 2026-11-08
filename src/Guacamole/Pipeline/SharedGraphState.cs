@@ -219,7 +219,7 @@ internal sealed class SharedGraphState
     /// <para>
     /// The epoch is global on purpose. A per-node "verified since marked" flag would not do: a node
     /// downstream of M can be verified and stamped while M is not (M is served through its revision,
-    /// M's result is an error and not cached, M was evicted, or the node no longer reads M), after
+    /// M's result was not cached because a read failed, M was evicted, or the node no longer reads M), after
     /// which a change stopping at M would leave it stale. With the epoch, any stamp decision anywhere
     /// ends all skipping, which costs nothing in the case it is for: changes with no read between them.
     /// </para>
