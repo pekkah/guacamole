@@ -12,8 +12,10 @@ namespace Guacamole.Tests;
 /// <summary>
 /// Issue #61: collection stages derive their output from their previous output and their input's
 /// item-level delta (see Pipeline/ArrayDelta.cs), falling back to a full recompute when no delta is
-/// available. These tests compare every stage with a direct computation over many random operation
-/// sequences, check the recorded deltas, and cover the fallbacks and concurrent reads.
+/// available. Issue #80: nodes keep a short history of deltas, composed for readers that lag behind,
+/// and Merge and single-value SelectMany record deltas too. These tests compare every stage with a
+/// direct computation over many random operation sequences (with pipelines read at different rates),
+/// check the recorded deltas, and cover the fallbacks and concurrent reads.
 /// </summary>
 [Collection(ConcurrencyTestCollection.Name)]
 public partial class CollectionDeltaTests
@@ -26,6 +28,7 @@ public partial class CollectionDeltaTests
     private partial class ItemsContext : ComputingContextBase
     {
         public partial IncrementalValuesProvider<Item> Items { get; }
+        public partial IncrementalValuesProvider<Item> Others { get; }
         public partial IncrementalValueProvider<int> Offset { get; }
     }
 
@@ -48,7 +51,7 @@ public partial class CollectionDeltaTests
     /// <summary>The pipelines under test, and the direct computation of each from the source's items.</summary>
     private sealed class Pipelines
     {
-        public Pipelines(IncrementalValuesProvider<Item> items, IncrementalValueProvider<int> offset)
+        public Pipelines(IncrementalValuesProvider<Item> items, IncrementalValuesProvider<Item> others, IncrementalValueProvider<int> offset)
         {
             Doubled = items.Select(Double);
             Kept = Doubled.Where(Keep);
@@ -61,6 +64,12 @@ public partial class CollectionDeltaTests
             Combined = Pairs.Select(t => t.Left.Value + t.Right);
             CombinedCollected = Combined.Collect();
             Fanned = items.SelectMany(i => Enumerable.Range(0, i.Value % 3).Select(k => new Doubled(i.Key, k)));
+            MergedStages = Kept.Merge(Fanned);
+            MergedStagesKeys = MergedStages.Select(d => d.Key * 100 + d.Value);
+            MergedSources = items.Merge(others);
+            MergedSourcesCollected = MergedSources.Where(i => i.Value % 4 != 1).Collect();
+            Reflattened = Collected.SelectMany(values => values);
+            ReflattenedDoubled = Reflattened.Select(v => v * 2);
         }
 
         public IncrementalValuesProvider<Doubled> Doubled { get; }
@@ -74,6 +83,12 @@ public partial class CollectionDeltaTests
         public IncrementalValuesProvider<int> Combined { get; }
         public IncrementalValueProvider<ImmutableArray<int>> CombinedCollected { get; }
         public IncrementalValuesProvider<Doubled> Fanned { get; }
+        public IncrementalValuesProvider<Doubled> MergedStages { get; }
+        public IncrementalValuesProvider<int> MergedStagesKeys { get; }
+        public IncrementalValuesProvider<Item> MergedSources { get; }
+        public IncrementalValueProvider<ImmutableArray<Item>> MergedSourcesCollected { get; }
+        public IncrementalValuesProvider<int> Reflattened { get; }
+        public IncrementalValuesProvider<int> ReflattenedDoubled { get; }
 
         public int DeltaComputations =>
             ((SelectValuesNode<Item, Doubled>)Doubled.Node).DeltaComputations
@@ -84,11 +99,27 @@ public partial class CollectionDeltaTests
             + ((SelectValuesNode<string?, int>)LabelLengths.Node).DeltaComputations
             + ((CombineValuesWithValueNode<Item, int>)Pairs.Node).DeltaComputations
             + ((SelectValuesNode<(Item, int), int>)Combined.Node).DeltaComputations
-            + ((SelectManyValuesNode<Item, Doubled>)Fanned.Node).DeltaComputations;
+            + ((SelectManyValuesNode<Item, Doubled>)Fanned.Node).DeltaComputations
+            + ((MergeValuesNode<Doubled>)MergedStages.Node).DeltaComputations
+            + ((SelectValuesNode<Doubled, int>)MergedStagesKeys.Node).DeltaComputations
+            + ((MergeValuesNode<Item>)MergedSources.Node).DeltaComputations
+            + ((SelectManyFromValueNode<ImmutableArray<int>, int>)Reflattened.Node).DeltaComputations
+            + ((SelectValuesNode<int, int>)ReflattenedDoubled.Node).DeltaComputations;
 
-        /// <summary>Reads the given pipeline (0-9) and compares it with the direct computation.</summary>
-        public void Check(int pipeline, IReadOnlyList<Item> items, int offset)
+        /// <summary>The delta computations of the operators added for #80 (Merge, single-value SelectMany, and the stages after them).</summary>
+        public int MergeAndFlattenDeltaComputations =>
+            ((MergeValuesNode<Doubled>)MergedStages.Node).DeltaComputations
+            + ((SelectValuesNode<Doubled, int>)MergedStagesKeys.Node).DeltaComputations
+            + ((MergeValuesNode<Item>)MergedSources.Node).DeltaComputations
+            + ((SelectManyFromValueNode<ImmutableArray<int>, int>)Reflattened.Node).DeltaComputations
+            + ((SelectValuesNode<int, int>)ReflattenedDoubled.Node).DeltaComputations;
+
+        /// <summary>Reads the given pipeline and compares it with the direct computation.</summary>
+        public void Check(int pipeline, IReadOnlyList<Item> items, IReadOnlyList<Item> others, int offset)
         {
+            IEnumerable<int> ExpectedExpanded() => items.Select(Double).Where(Keep).SelectMany(Expand);
+            IEnumerable<Doubled> ExpectedFanned() => items.SelectMany(i => Enumerable.Range(0, i.Value % 3).Select(k => new Doubled(i.Key, k)));
+
             switch (pipeline)
             {
                 case 0:
@@ -118,13 +149,31 @@ public partial class CollectionDeltaTests
                 case 8:
                     Assert.Equal(items.Select(i => i.Value + offset), CombinedCollected.Value);
                     break;
+                case 9:
+                    Assert.Equal(ExpectedFanned(), Fanned.Values);
+                    break;
+                case 10:
+                    Assert.Equal(items.Select(Double).Where(Keep).Concat(ExpectedFanned()), MergedStages.Values);
+                    break;
+                case 11:
+                    Assert.Equal(items.Select(Double).Where(Keep).Concat(ExpectedFanned()).Select(d => d.Key * 100 + d.Value), MergedStagesKeys.Values);
+                    break;
+                case 12:
+                    Assert.Equal(items.Concat(others), MergedSources.Values);
+                    break;
+                case 13:
+                    Assert.Equal(items.Concat(others).Where(i => i.Value % 4 != 1), MergedSourcesCollected.Value);
+                    break;
+                case 14:
+                    Assert.Equal(ExpectedExpanded(), Reflattened.Values);
+                    break;
                 default:
-                    Assert.Equal(items.SelectMany(i => Enumerable.Range(0, i.Value % 3).Select(k => new Doubled(i.Key, k))), Fanned.Values);
+                    Assert.Equal(ExpectedExpanded().Select(v => v * 2), ReflattenedDoubled.Values);
                     break;
             }
         }
 
-        public const int Count = 10;
+        public const int Count = 16;
     }
 
     /// <summary>
@@ -179,34 +228,65 @@ public partial class CollectionDeltaTests
     public void RandomOperations_EveryStageMatchesTheDirectComputation()
     {
         var deltaComputations = 0;
+        var mergeAndFlatten = 0;
         for (var seed = 0; seed < 150; seed++)
-            deltaComputations += RunRandomScenario(seed, steps: 120);
+        {
+            var (all, added) = RunRandomScenario(seed, steps: 120);
+            deltaComputations += all;
+            mergeAndFlatten += added;
+        }
 
-        // The delta paths were taken (and, through lagging readers, batches and logs dropped, so
-        // were the fallbacks: the checks above cover both)
+        // The delta paths were taken (and, through rarely read pipelines, batches and logs dropped,
+        // so were the fallbacks: the checks above cover both)
         Assert.True(deltaComputations > 10_000, $"{deltaComputations} delta computations");
+        Assert.True(mergeAndFlatten > 2_000, $"{mergeAndFlatten} delta computations after Merge and single-value SelectMany");
     }
 
-    private static int RunRandomScenario(int seed, int steps)
+    private static (int All, int MergeAndFlatten) RunRandomScenario(int seed, int steps)
     {
         var random = new Random(seed);
         using var context = new ItemsContext();
-        var pipelines = new Pipelines(context.Items, context.Offset);
+        var pipelines = new Pipelines(context.Items, context.Others, context.Offset);
         var model = new List<Item>();
+        var others = new List<Item>();
         var offset = 0;
         context.OffsetSource.Set(offset);
+
+        // Each pipeline is read after a random share of the steps: always, often, or rarely (so that
+        // it lags behind its input by up to more than a delta history's capacity)
+        int[] rates = [1, 1, 2, 3, 6, 12];
+        var readEvery = Enumerable.Range(0, Pipelines.Count).Select(_ => rates[random.Next(rates.Length)]).ToArray();
 
         // Remembers the latest cached output of each collection stage, to check the recorded deltas
         var outputs = new Dictionary<string, object>();
 
         for (var step = 0; step < steps; step++)
         {
-            switch (random.Next(20))
+            switch (random.Next(22))
             {
                 case 0:
                     context.ItemsSource.Clear();
                     model.Clear();
                     break;
+                case 20 or 21:
+                    {
+                        // The other source of the merge: a push or a removal
+                        var item = random.Next(2) == 0 || others.Count == 0
+                            ? new Item(random.Next(40), random.Next(12))
+                            : others[random.Next(others.Count)];
+                        if (random.Next(3) == 0)
+                        {
+                            context.OthersSource.Remove(item);
+                            others.Remove(item);
+                        }
+                        else
+                        {
+                            context.OthersSource.Push(item);
+                            ApplyToModel(others, (0, item, item));
+                        }
+
+                        break;
+                    }
                 case 1:
                     offset = random.Next(3);
                     context.OffsetSource.Set(offset);
@@ -292,8 +372,8 @@ public partial class CollectionDeltaTests
             // Read a random subset of the pipelines, so that some stages lag behind their input
             for (var pipeline = 0; pipeline < Pipelines.Count; pipeline++)
             {
-                if (random.Next(3) != 0)
-                    pipelines.Check(pipeline, model, offset);
+                if (random.Next(readEvery[pipeline]) == 0)
+                    pipelines.Check(pipeline, model, others, offset);
             }
 
             Assert.Equal(model, context.ItemsSource.GetSnapshot());
@@ -301,9 +381,9 @@ public partial class CollectionDeltaTests
         }
 
         for (var pipeline = 0; pipeline < Pipelines.Count; pipeline++)
-            pipelines.Check(pipeline, model, offset);
+            pipelines.Check(pipeline, model, others, offset);
 
-        return pipelines.DeltaComputations;
+        return (pipelines.DeltaComputations, pipelines.MergeAndFlattenDeltaComputations);
     }
 
     /// <summary>
@@ -321,6 +401,11 @@ public partial class CollectionDeltaTests
         Check(pipelines.Fanned);
         Check(pipelines.Pairs);
         Check(pipelines.Combined);
+        Check(pipelines.MergedStages);
+        Check(pipelines.MergedStagesKeys);
+        Check(pipelines.MergedSources);
+        Check(pipelines.Reflattened);
+        Check(pipelines.ReflattenedDoubled);
 
         void Check<T>(IncrementalValuesProvider<T> provider)
         {
@@ -446,7 +531,7 @@ public partial class CollectionDeltaTests
     }
 
     [Fact]
-    public void LaggingStage_FallsBackToAFullRecompute()
+    public void LaggingStage_ComposesTheDeltasItMissed()
     {
         using var context = new ItemsContext();
         var items = Enumerable.Range(0, 50).Select(i => new Item(i, i)).ToArray();
@@ -454,21 +539,207 @@ public partial class CollectionDeltaTests
         var first = context.Items.Select(i => i.Value);
         var second = context.Items.Select(i => -i.Value);
         var firstNode = (SelectValuesNode<Item, int>)first.Node;
+        var calls = 0;
+        var counted = context.Items.Select(i => { calls++; return i.Value; });
+        Assert.Equal(items.Select(i => i.Value), first.Values);
+        Assert.Equal(items.Select(i => -i.Value), second.Values);
+        Assert.Equal(50, counted.Values.Count());
+
+        // `first` misses the snapshots in between: it gets the composition of their deltas, and
+        // the lambda of a lagging stage runs for the changed items only
+        context.ItemsSource.Replace(items[1], new Item(1, 100));
+        Assert.Equal(-100, second.Values.ElementAt(1));
+        context.ItemsSource.Push(new Item(60, 60));
+        Assert.Equal(-60, second.Values.Last());
+        context.ItemsSource.Remove(items[2]);
+        Assert.Equal(-3, second.Values.ElementAt(2));
+        context.ItemsSource.Replace(new Item(1, 100), new Item(1, 1));
+        Assert.Equal(-1, second.Values.ElementAt(1));
+
+        Assert.Equal([0, 1, 3, 4], first.Values.Take(4));
+        Assert.Equal(60, first.Values.Last());
+        Assert.Equal(1, firstNode.DeltaComputations);
+        calls = 0;
+        Assert.Equal(50, counted.Values.Count());
+        Assert.Equal(1, calls); // the pushed item; the item replaced back is equal to the one before (a memo hit)
+    }
+
+    [Fact]
+    public void StageLaggingBeyondTheHistory_FallsBackToAFullRecompute()
+    {
+        using var context = new ItemsContext();
+        var items = Enumerable.Range(0, 100).Select(i => new Item(i, i)).ToArray();
+        context.ItemsSource.PushRange(items);
+        var first = context.Items.Select(i => i.Value);
+        var second = context.Items.Select(i => -i.Value);
+        var firstNode = (SelectValuesNode<Item, int>)first.Node;
         Assert.Equal(items.Select(i => i.Value), first.Values);
         Assert.Equal(items.Select(i => -i.Value), second.Values);
 
-        // `first` misses the snapshot in between: no delta from what it last read
-        context.ItemsSource.Replace(items[1], new Item(1, 100));
-        Assert.Equal(-100, second.Values.ElementAt(1));
-        context.ItemsSource.Replace(items[2], new Item(2, 200));
-        Assert.Equal(-200, second.Values.ElementAt(2));
+        // One more snapshot than the history holds
+        for (var k = 0; k <= DeltaHistory<Item>.Capacity; k++)
+        {
+            context.ItemsSource.Replace(items[k], items[k] with { Value = -1 });
+            items[k] = items[k] with { Value = -1 };
+            Assert.Equal(items.Select(i => -i.Value), second.Values);
+        }
 
-        Assert.Equal([0, 100, 200], first.Values.Take(3));
+        Assert.Equal(items.Select(i => i.Value), first.Values);
         Assert.Equal(0, firstNode.DeltaComputations);
 
-        context.ItemsSource.Replace(items[3], new Item(3, 300));
-        Assert.Equal([0, 100, 200, 300], first.Values.Take(4));
+        // Exactly as many snapshots as the history holds
+        for (var k = 20; k < 20 + DeltaHistory<Item>.Capacity; k++)
+        {
+            context.ItemsSource.Replace(items[k], items[k] with { Value = -1 });
+            items[k] = items[k] with { Value = -1 };
+            Assert.Equal(items.Select(i => -i.Value), second.Values);
+        }
+
+        Assert.Equal(items.Select(i => i.Value), first.Values);
         Assert.Equal(1, firstNode.DeltaComputations);
+    }
+
+    [Fact]
+    public void Compose_RandomDeltaChains_GiveValidDeltas()
+    {
+        var random = new Random(80);
+        var next = 0;
+        for (var round = 0; round < 300; round++)
+        {
+            // A chain of arrays, each derived from the one before by random edits
+            var arrays = new List<object[]> { Enumerable.Range(0, random.Next(0, 30)).Select(_ => new object()).ToArray() };
+            var history = new DeltaHistory<object>();
+            for (var step = random.Next(1, DeltaHistory<object>.Capacity + 1); step > 0; step--)
+            {
+                var (array, edits) = RandomEdit(random, arrays[^1], () => new object { });
+                var delta = new ArrayDelta<object>(arrays[^1], array, edits);
+                DeltaAssert.Valid(delta, arrays[^1], array);
+                history.Record(delta);
+                arrays.Add(array);
+            }
+
+            // Every pair (from, to) along the chain composes to a valid delta, also when an item is
+            // replaced and then replaced back
+            for (var from = 0; from < arrays.Count - 1; from++)
+            {
+                for (var to = from + 1; to < arrays.Count; to++)
+                {
+                    var composed = history.Get(arrays[from], arrays[to]);
+                    Assert.NotNull(composed);
+                    DeltaAssert.Valid(composed, arrays[from], arrays[to]);
+                    next++;
+                }
+            }
+
+            Assert.Null(history.Get(arrays[^1], arrays[0]));
+        }
+
+        Assert.True(next > 1_000);
+    }
+
+    /// <summary>
+    /// A random edit of <paramref name="from"/> (insertions, removals, replacements, and replacements
+    /// by an item of the array before, i.e. replaced back) and its edits.
+    /// </summary>
+    private static (object[] Array, ItemEdit[] Edits) RandomEdit(Random random, object[] from, Func<object> create)
+    {
+        var to = new List<object>();
+        var edits = new List<ItemEdit>();
+        for (var i = 0; i <= from.Length; i++)
+        {
+            while (random.Next(8) == 0)
+            {
+                edits.Add(new ItemEdit(-1, to.Count));
+                to.Add(create());
+            }
+
+            if (i == from.Length)
+                break;
+
+            switch (random.Next(10))
+            {
+                case 0:
+                    edits.Add(new ItemEdit(i, -1));
+                    break;
+                case 1:
+                    edits.Add(new ItemEdit(i, to.Count));
+                    to.Add(create());
+                    break;
+                case 2:
+                    edits.Add(new ItemEdit(i, to.Count)); // a replacement by the identical item
+                    to.Add(from[i]);
+                    break;
+                default:
+                    to.Add(from[i]);
+                    break;
+            }
+        }
+
+        return (to.ToArray(), edits.ToArray());
+    }
+
+    [Fact]
+    public void Diff_FindsTheChangedMiddle()
+    {
+        object[] a = [.. Enumerable.Range(0, 10).Select(_ => new object())];
+        object[] b = [a[0], a[1], new object(), new object(), new object(), a[7], a[8], a[9]];
+        var delta = ArrayDelta.Diff(a, b, maxEdits: 10);
+        Assert.NotNull(delta);
+        DeltaAssert.Valid(delta, a, b);
+        Assert.Equal(5, delta.Edits.Length); // 3 replaced, 2 removed
+        Assert.Null(ArrayDelta.Diff(a, b, maxEdits: 4));
+        Assert.Null(ArrayDelta.Diff(a, a, maxEdits: 4));
+
+        object[] c = [.. a, new object()];
+        var appended = ArrayDelta.Diff(a, c, maxEdits: 1);
+        Assert.NotNull(appended);
+        DeltaAssert.Valid(appended, a, c);
+        Assert.Equal([new ItemEdit(-1, 10)], appended.Edits);
+    }
+
+    [Fact]
+    public void Merge_PassesOnTheDeltasOfItsInputs()
+    {
+        using var context = new ItemsContext();
+        var items = Enumerable.Range(0, 50).Select(i => new Item(i, i)).ToArray();
+        var others = Enumerable.Range(100, 50).Select(i => new Item(i, i)).ToArray();
+        context.ItemsSource.PushRange(items);
+        context.OthersSource.PushRange(others);
+        var merged = context.Items.Merge(context.Others);
+        var calls = 0;
+        var doubled = merged.Select(i => { calls++; return Double(i); });
+        var mergeNode = (MergeValuesNode<Item>)merged.Node;
+        Assert.Equal(items.Concat(others).Select(Double), doubled.Values);
+        calls = 0;
+
+        context.ItemsSource.Replace(items[3], items[3] with { Value = -3 });
+        items[3] = items[3] with { Value = -3 };
+        context.OthersSource.Push(new Item(200, 200));
+        others = [.. others, new Item(200, 200)];
+        context.OthersSource.Remove(others[0]);
+        others = others[1..];
+
+        Assert.Equal(items.Concat(others).Select(Double), doubled.Values);
+        Assert.Equal(2, calls);
+        Assert.Equal(1, mergeNode.DeltaComputations);
+        Assert.Equal(1, ((SelectValuesNode<Item, Doubled>)doubled.Node).DeltaComputations);
+    }
+
+    [Fact]
+    public void Merge_InputErrors_Propagate_AndRecover()
+    {
+        using var context = new ItemsContext();
+        context.ItemsSource.PushRange([new Item(1, 1), new Item(2, 2)]);
+        context.OthersSource.Push(new Item(3, 3));
+        var inverse = context.Others.Select(i => new Item(i.Key, 12 / i.Value));
+        var merged = context.Items.Merge(inverse);
+        Assert.Equal([new Item(1, 1), new Item(2, 2), new Item(3, 4)], merged.Values);
+
+        context.OthersSource.Replace(new Item(3, 3), new Item(3, 0));
+        Assert.True(merged.Collect().GetValue().IsError);
+
+        context.OthersSource.Replace(new Item(3, 0), new Item(3, 6));
+        Assert.Equal([new Item(1, 1), new Item(2, 2), new Item(3, 2)], merged.Values);
     }
 
     [Fact]

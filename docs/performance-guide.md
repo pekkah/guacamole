@@ -66,15 +66,17 @@ var lengths = docs.Select(d => d.Text.Length); // a new Doc with the same Id as 
 
 ### Item-level deltas
 
-Collection sources record which items each change inserted, removed or replaced, and the collection stages `Select`, `Where`, `SelectMany` and `values.Combine(value)` pass that on: each derives its new output from its previous output and the edits of its input (copying the unchanged items in bulk and running its lambda only for the edited ones), and records the edits of its output for the next stage. The change check of a stage (is the new output equal to the cached one, so that the stages after it stay cached?) and of `Collect()` then compares only the replaced items. After K item changes in an N-item source, the per-item work of such a pipeline is O(K).
+Collection sources record which items each change inserted, removed or replaced, and the collection stages `Select`, `Where`, `SelectMany`, `values.Combine(value)` and `Merge` pass that on: each derives its new output from its previous output and the edits of its input (copying the unchanged items in bulk and running its lambda only for the edited ones), and records the edits of its output for the next stage. The change check of a stage (is the new output equal to the cached one, so that the stages after it stay cached?) and of `Collect()` then compares only the replaced items. After K item changes in an N-item source, the per-item work of such a pipeline is O(K).
 
 What is still O(N) per read: each stage allocates a new output array and copies the unchanged items into it (a memory copy, about 1 ns per item), the source copies its snapshot the same way, and whatever consumes a `Collect()`ed array (a sum, building a dictionary) walks all of it. `Collect()` itself wraps its input's array without copying.
 
+Each source and stage keeps the deltas of its last 8 outputs (holding the arrays they describe only weakly, so they keep no extra arrays alive). A stage whose input moved on several times since the stage last computed, for example a provider read rarely while another pipeline on the same source is read after every change, gets the composition of the deltas in between, at a cost proportional to their edits. `Merge` concatenates the deltas of its two inputs. A single-value `SelectMany` (and `Flatten()` of a single value) reruns its lambda on the whole value, so it compares its new output with the previous one, trimming the common prefix and suffix of identical items (one reference comparison per item), and passes on a delta when the changed part is small: the stages after it then update only the changed items.
+
 A stage falls back to walking its whole input (the behaviour described above) when no delta from the input it last read is available:
 
-- the first computation, or the input recomputed more than once since the stage last read it (only the latest delta is kept; for example a provider read rarely while another pipeline on the same source is read after every change);
+- the first computation, or the input recomputed more than 8 times since the stage last read it;
 - more changes between two reads than about half the source's items, `Clear()`, and occasionally after many removals (when the source compacts its storage);
-- an input that does not record deltas: custom nodes, single-value operators, `Merge`, or a stage reading an error;
+- an input that does not record deltas: custom nodes, single-value operators other than `SelectMany`, a single-value `SelectMany` whose output changed in more than about half its items (or whose lambda creates new instances for unchanged items), or a stage reading an error;
 - concurrent recomputations of the same stage (one of them walks).
 
 The results are the same either way; only the cost differs.
@@ -220,6 +222,7 @@ The repository contains BenchmarkDotNet benchmarks in [`benchmarks/Guacamole.Ben
 | `IncrementalUpdateBenchmarks` | Reading a total over N sources (a binary reduction tree) after one source changed, for N = 16, 256, 4,096, against recomputing the total directly |
 | `CollectionChangeBenchmarks` | Replacing K of N items, then reading `Items.Select(work).Collect().Select(Sum)`, against recomputing all N items directly |
 | `CollectionPipelineBenchmarks` | Replacing K of 10,000 items, then reading a longer pipeline (`Combine` with a value, `Select`, `Where`, `SelectMany`, `Collect`, sum), against recomputing directly |
+| `DeltaPropagationBenchmarks` | Item-level deltas for a stage that lags behind its input (4 changes, each read by another pipeline, before it reads) and through `Merge` (10,000 items, one replaced per read) |
 | `MemoryOverheadBenchmarks` | Building a context over N items and reading the total, against computing the results directly (time and allocations) |
 | `SourceFanOutBenchmarks` | 100 changes to a source read by N stages, then a read (time per change), against one change and a read |
 | `GraphConstructionBenchmarks` | Building a chain of N nodes with `ComputationGraph.AddNode` |
@@ -262,6 +265,15 @@ The incremental variant allocated 17 KB per change and read at 1,000 items and 1
 | 100 | 309 µs | 507 µs | 1.42 ms |
 
 It allocates about 420 KB per change and read (each stage's output array; the `Combine` tuples go to the large object heap), the same as before.
+
+**Stages that do not read after every change** (`DeltaPropagationBenchmarks`, 10,000 items, one item replaced per change; before #80 in parentheses):
+
+| Scenario | Time | Allocated |
+|----------|-----:|----------:|
+| 4 changes, each read by a cheap pipeline, then a read of `Select(work).Collect().Select(Sum)` | 106 µs (171 µs) | 553 KB (551 KB) |
+| `first.Merge(second).Select(work).Collect().Select(Sum)`, one change in `first` | 39 µs (104 µs) | 197 KB (197 KB) |
+
+Before #80 a stage kept only its latest delta, so the lagging `Select` walked all 10,000 items, and `Merge` recorded no delta, so the `Select` after it did too. `CollectionChangeBenchmarks` and `CollectionPipelineBenchmarks` were unchanged by #80 within the error margins.
 
 **Many changes between two reads** (`SourceFanOutBenchmarks`, one source read by N stages): 100 changes and then a read cost 0.18 µs / 0.44 µs / 3.8 µs per change for N = 100 / 1,000 / 10,000, one walk over the stages for the first change plus a constant for each further one; a single change and a read cost 3.9 µs / 29 µs / 0.36 ms. Before #71 every change walked all N stages: 3.0 µs / 28 µs / 0.38 ms per change.
 

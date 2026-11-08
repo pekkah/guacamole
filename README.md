@@ -144,7 +144,7 @@ arrays.Flatten()   // IncrementalValuesProvider<ImmutableArray<T>> -> Incrementa
 nested.Flatten()   // IncrementalValueProvider<ImmutableArray<ImmutableArray<T>>> -> IncrementalValuesProvider<T>
 ```
 
-`Flatten()` is shorthand for `SelectMany(array => array)`: on a collection of arrays it is as incremental as `SelectMany` (only new or changed arrays are flattened again); on a single nested array it flattens the whole value whenever it changes. `Merge` collects both inputs, so any change to either re-concatenates both; prefer a single source with `Where` when the inputs are large and change often.
+`Flatten()` is shorthand for `SelectMany(array => array)`: on a collection of arrays it is as incremental as `SelectMany` (only new or changed arrays are flattened again); on a single nested array it flattens the whole value whenever it changes. `Merge` concatenates both inputs into a new array whenever either changes (a memory copy), and passes on their item-level deltas, so the stages after it only rerun for the changed items.
 
 How these behave:
 
