@@ -12,8 +12,9 @@ namespace Guacamole.SourceGenerators;
 
 /// <summary>
 /// Reports the warnings about [ComputingContext] classes that users may want to suppress:
-/// GUAC0004 (provider value type without value equality) and GUAC0009 (constructor that does not
-/// chain to <c>: this()</c>).
+/// GUAC0004 (provider value type without value equality), GUAC0009 (constructor that does not
+/// chain to <c>: this()</c>) and GUAC0010 (collection members compared by reference by
+/// compiler-generated equality).
 /// </summary>
 /// <remarks>
 /// These used to be reported by <see cref="ComputingContextGenerator"/>, but Roslyn does not apply
@@ -24,11 +25,17 @@ namespace Guacamole.SourceGenerators;
 [DiagnosticAnalyzer(LanguageNames.CSharp)]
 public sealed class ComputingContextAnalyzer : DiagnosticAnalyzer
 {
+    private static readonly SymbolDisplayFormat MemberTypeFormat = SymbolDisplayFormat.CSharpShortErrorMessageFormat;
+
+    /// <summary>At most this many members are named in one GUAC0010 message.</summary>
+    private const int MaxNamedMembers = 5;
+
     /// <inheritdoc />
     public override ImmutableArray<DiagnosticDescriptor> SupportedDiagnostics { get; } =
     [
         DiagnosticDescriptors.MissingEqualityImplementation,
         DiagnosticDescriptors.ConstructorMustChainToGeneratedConstructor,
+        DiagnosticDescriptors.CollectionMemberComparedByReference,
     ];
 
     /// <inheritdoc />
@@ -48,9 +55,7 @@ public sealed class ComputingContextAnalyzer : DiagnosticAnalyzer
                 compilation.GetTypeByMetadataName(ContextAnalyzer.ComputingContextBaseName),
                 compilation.GetTypeByMetadataName(ContextAnalyzer.ValueProviderName),
                 compilation.GetTypeByMetadataName(ContextAnalyzer.ValuesProviderName),
-                compilation.GetTypeByMetadataName("System.IEquatable`1"),
-                compilation.GetTypeByMetadataName("System.Collections.Immutable.ImmutableDictionary`2"),
-                compilation.GetTypeByMetadataName("System.Collections.Immutable.ImmutableSortedDictionary`2"));
+                new EqualityAnalysis(compilation));
 
             compilationContext.RegisterSymbolStartAction(symbolContext => AnalyzeContext(symbolContext, types), SymbolKind.NamedType);
         });
@@ -61,9 +66,7 @@ public sealed class ComputingContextAnalyzer : DiagnosticAnalyzer
         INamedTypeSymbol? ContextBase,
         INamedTypeSymbol? ValueProvider,
         INamedTypeSymbol? ValuesProvider,
-        INamedTypeSymbol? Equatable,
-        INamedTypeSymbol? ImmutableDictionary,
-        INamedTypeSymbol? ImmutableSortedDictionary);
+        EqualityAnalysis Equality);
 
     private static void AnalyzeContext(SymbolStartAnalysisContext context, WellKnownTypes types)
     {
@@ -110,77 +113,39 @@ public sealed class ComputingContextAnalyzer : DiagnosticAnalyzer
             if (property.IsPartialDefinition ? hasSetter : !hasSetter)
                 continue;
 
-            // Both input and user-managed providers benefit from item types with value equality.
-            // Immutable dictionaries are compared entry by entry by the runtime's default comparer,
-            // so they have value equality when their value type has it; the type reported is the
-            // one lacking it (the value type of a dictionary).
-            var typeWithoutEquality = FindTypeWithoutEquality(itemType!, types);
-            if (typeWithoutEquality is not null)
+            var location = property.Locations.FirstOrDefault() ?? Location.None;
+            var result = types.Equality.Analyze(itemType!);
+
+            if (result.TypeWithoutEquality is { } typeWithoutEquality)
             {
                 context.ReportDiagnostic(Diagnostic.Create(
                     DiagnosticDescriptors.MissingEqualityImplementation,
-                    property.Locations.FirstOrDefault() ?? Location.None,
+                    location,
                     typeWithoutEquality.ToDisplayString(),
                     property.Name));
+            }
+
+            if (result.ReferenceMembers.Count > 0)
+            {
+                context.ReportDiagnostic(Diagnostic.Create(
+                    DiagnosticDescriptors.CollectionMemberComparedByReference,
+                    location,
+                    property.Name,
+                    itemType!.ToDisplayString(),
+                    DescribeMembers(result.ReferenceMembers)));
             }
         }
     }
 
-    /// <summary>
-    /// Returns the type that makes <paramref name="type"/> lack value equality, or null when it has
-    /// value equality. <c>ImmutableDictionary&lt;TKey, TValue&gt;</c> and
-    /// <c>ImmutableSortedDictionary&lt;TKey, TValue&gt;</c> are compared entry by entry by the
-    /// runtime's default comparer (keys with the dictionary's key comparer, values with the value
-    /// type's default comparer), so they have value equality exactly when <c>TValue</c> has it;
-    /// for them the result is the offending (possibly nested) value type.
-    /// </summary>
-    private static ITypeSymbol? FindTypeWithoutEquality(ITypeSymbol type, WellKnownTypes types)
+    private static string DescribeMembers(IReadOnlyList<EqualityAnalysis.ReferenceMember> members)
     {
-        if (type is INamedTypeSymbol { IsGenericType: true, TypeArguments.Length: 2 } named
-            && (SymbolEqualityComparer.Default.Equals(named.OriginalDefinition, types.ImmutableDictionary)
-                || SymbolEqualityComparer.Default.Equals(named.OriginalDefinition, types.ImmutableSortedDictionary)))
-        {
-            return FindTypeWithoutEquality(named.TypeArguments[1], types);
-        }
-
-        return RequiresEqualityCheck(type) && !HasProperEquality(type, types.Equatable) ? type : null;
-    }
-
-    /// <summary>
-    /// Primitive types (int, bool, char, ...) have built-in equality; string is checked (and passes).
-    /// Type parameters are skipped because their equality depends on the type argument.
-    /// Everything else needs checking.
-    /// </summary>
-    private static bool RequiresEqualityCheck(ITypeSymbol type)
-    {
-        if (type.TypeKind == TypeKind.TypeParameter)
-            return false;
-
-        if (type.SpecialType != SpecialType.None)
-            return type.SpecialType == SpecialType.System_String;
-
-        return true;
-    }
-
-    /// <summary>
-    /// Records, IEquatable&lt;T&gt; implementations, primitives and enums have proper equality.
-    /// </summary>
-    private static bool HasProperEquality(ITypeSymbol type, INamedTypeSymbol? equatableType)
-    {
-        if (type.IsRecord)
-            return true;
-
-        if (equatableType is not null && type.AllInterfaces.Any(i =>
-                SymbolEqualityComparer.Default.Equals(i.ConstructedFrom, equatableType) &&
-                SymbolEqualityComparer.Default.Equals(i.TypeArguments[0], type)))
-        {
-            return true;
-        }
-
-        if (type.SpecialType != SpecialType.None)
-            return true;
-
-        return type.TypeKind == TypeKind.Enum;
+        var named = members
+            .Take(MaxNamedMembers)
+            .Select(m => $"'{m.Path}' ({m.Type.ToDisplayString(MemberTypeFormat)})");
+        var text = string.Join(", ", named);
+        return members.Count > MaxNamedMembers
+            ? $"{text} and {members.Count - MaxNamedMembers} more"
+            : text;
     }
 
     /// <summary>

@@ -3,7 +3,7 @@
   <PropertyGroup>
     <TargetFramework>netstandard2.0</TargetFramework>
     <PackageId>Guacamole.SourceGenerators</PackageId>
-    <Description>Source generator and analyzer (diagnostics GUAC0003-GUAC0009) for Guacamole [ComputingContext] classes; use it together with the Guacamole package. Guacamole: $(GuacamoleSummary)</Description>
+    <Description>Source generator and analyzer (diagnostics GUAC0003-GUAC0010) for Guacamole [ComputingContext] classes; use it together with the Guacamole package. Guacamole: $(GuacamoleSummary)</Description>
     <PackageTags>$(PackageTags);source-generators;roslyn;analyzers</PackageTags>
     <!-- Compile-time only: consumers get PrivateAssets="all", so it does not flow to their dependents -->
     <DevelopmentDependency>true</DevelopmentDependency>

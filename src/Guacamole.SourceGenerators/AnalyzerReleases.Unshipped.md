@@ -13,3 +13,4 @@ GUAC0006 | Guacamole.SourceGenerator | Error | Computing context and its contain
 GUAC0007 | Guacamole.SourceGenerator | Error | Computing context must derive from ComputingContextBase
 GUAC0008 | Guacamole.SourceGenerator | Error | Computing context must not declare a parameterless constructor
 GUAC0009 | Guacamole.SourceGenerator | Warning | Computing context constructor must chain to ': this()'
+GUAC0010 | Guacamole.Performance | Warning | Compiler-generated equality compares collection members by reference

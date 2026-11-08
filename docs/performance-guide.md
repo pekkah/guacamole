@@ -170,7 +170,34 @@ public partial class QueryContext : ComputingContextBase
 
 Equality is used to detect changes at every level: source contents, computed values (equality cut-off) and output handlers.
 
-- Use records or types implementing `IEquatable<T>` for items and computed values. The generator reports GUAC0004 for input and user-managed provider properties whose item type lacks value equality.
+- Use records or types implementing `IEquatable<T>` for items and computed values. The analyzer reports GUAC0004 for input and user-managed provider properties whose item type lacks value equality.
+- **A record is only value-equal if all its members are.** Its compiler-generated `Equals` compares each member with `EqualityComparer<T>.Default`, which compares `ImmutableArray<T>`, arrays, `List<T>`, `Dictionary<TKey, TValue>`, `HashSet<T>`, `ImmutableDictionary<TKey, TValue>` and `IEnumerable<T>` members **by reference**. A stage returning `new Module(name, [.. members])` therefore never produces a value equal to its previous one, even with the same members, so the cut-off never fires below it and its output handlers run on every recomputation. The structural comparison of immutable arrays and dictionaries described below applies to a stage's *result*, not to members of a record inside it. The analyzer reports GUAC0010 for such provider types (including nested records and tuples) and names the members. Use `EquatableArray<T>` for array members: a `readonly struct` wrapping an `ImmutableArray<T>` that compares element by element, in order (with the same default comparer as a stage, so nested immutable arrays work too), implements `IReadOnlyList<T>`, converts implicitly from `ImmutableArray<T>`, supports collection expressions, and treats `default` as empty:
+
+```csharp
+public sealed record Module(string Name, EquatableArray<Symbol> Symbols);   // value-equal
+
+var modules = files.Select(f => new Module(f.Name, [.. Parse(f)]));         // collection expression
+var module = new Module("m", symbols.ToImmutableArray());                    // implicit conversion
+ImmutableArray<Symbol> raw = module.Symbols.AsImmutableArray();              // no copy
+```
+
+  For other collections (dictionaries, sets), write `Equals` and `GetHashCode` yourself; a user-written `Equals(T)` replaces the compiler-generated one and the analyzer no longer reports the record:
+
+```csharp
+public sealed record Scope(string Name, ImmutableDictionary<string, Symbol> Symbols)
+{
+    public bool Equals(Scope? other) =>
+        other is not null
+        && Name == other.Name
+        && Symbols.Count == other.Symbols.Count
+        && Symbols.All(e => other.Symbols.TryGetValue(e.Key, out var value) && e.Value.Equals(value));
+
+    // Order-independent and consistent with Equals; count + name is enough when that is cheap.
+    public override int GetHashCode() => HashCode.Combine(Name, Symbols.Count);
+}
+```
+
+  Members of class types without value equality (a `Compilation`, a syntax node) are not reported: they may be compared by identity on purpose. When identity comparison of a collection member is intended, suppress GUAC0010 for that property (`#pragma warning disable GUAC0010` or `[SuppressMessage("Guacamole", "GUAC0010")]`).
 - Pass a comparer to `Select`/`Where`/`SelectMany`/`Collect` when the default equality is too strict or does not exist. The comparer decides whether that stage's recomputed result counts as a change (for collections, element by element), both for the cache cut-off (at that stage, whether or not it is read itself) and for output handlers registered on it:
 
 ```csharp
@@ -368,7 +395,7 @@ public class MyContextBenchmarks
 ## Checklist
 
 - [ ] Pipelines are built once and the providers are kept
-- [ ] Item and computed value types have value equality (records / `IEquatable<T>`) or explicit comparers
+- [ ] Item and computed value types have value equality (records whose members all have it, using `EquatableArray<T>` for collections, or `IEquatable<T>`) or explicit comparers; no GUAC0004/GUAC0010 warnings
 - [ ] Stages whose results are often equal after a change have value equality or a comparer, so the cut-off stops recomputation there
 - [ ] Collection items are immutable, and lambdas are pure (per-item results are reused)
 - [ ] Data shared across items (symbol tables, indexes) is computed with `Collect()` and a deterministic merge into a type with structural equality, not accumulated in a lambda

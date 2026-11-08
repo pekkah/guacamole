@@ -223,3 +223,24 @@ virtual Guacamole.ComputingContextBase.Dispose() -> void
 ~override Guacamole.ProviderMetadata.Equals(object obj) -> bool
 ~override Guacamole.ProviderMetadata.ToString() -> string
 ~override Guacamole.SourceLocation.Equals(object obj) -> bool
+Guacamole.EquatableArray
+Guacamole.EquatableArray<T>
+Guacamole.EquatableArray<T>.AsImmutableArray() -> System.Collections.Immutable.ImmutableArray<T>
+Guacamole.EquatableArray<T>.AsSpan() -> System.ReadOnlySpan<T>
+Guacamole.EquatableArray<T>.Count.get -> int
+Guacamole.EquatableArray<T>.Equals(Guacamole.EquatableArray<T> other) -> bool
+Guacamole.EquatableArray<T>.EquatableArray() -> void
+Guacamole.EquatableArray<T>.EquatableArray(System.Collections.Immutable.ImmutableArray<T> array) -> void
+Guacamole.EquatableArray<T>.GetEnumerator() -> System.Collections.Immutable.ImmutableArray<T>.Enumerator
+Guacamole.EquatableArray<T>.IsEmpty.get -> bool
+Guacamole.EquatableArray<T>.this[int index].get -> T
+override Guacamole.EquatableArray<T>.Equals(object? obj) -> bool
+override Guacamole.EquatableArray<T>.GetHashCode() -> int
+override Guacamole.EquatableArray<T>.ToString() -> string!
+static Guacamole.EquatableArray.AsEquatableArray<T>(this System.Collections.Immutable.ImmutableArray<T> array) -> Guacamole.EquatableArray<T>
+static Guacamole.EquatableArray.Create<T>(params System.ReadOnlySpan<T> items) -> Guacamole.EquatableArray<T>
+static Guacamole.EquatableArray.ToEquatableArray<T>(this System.Collections.Generic.IEnumerable<T>! items) -> Guacamole.EquatableArray<T>
+static Guacamole.EquatableArray<T>.Empty.get -> Guacamole.EquatableArray<T>
+static Guacamole.EquatableArray<T>.implicit operator Guacamole.EquatableArray<T>(System.Collections.Immutable.ImmutableArray<T> array) -> Guacamole.EquatableArray<T>
+static Guacamole.EquatableArray<T>.operator !=(Guacamole.EquatableArray<T> left, Guacamole.EquatableArray<T> right) -> bool
+static Guacamole.EquatableArray<T>.operator ==(Guacamole.EquatableArray<T> left, Guacamole.EquatableArray<T> right) -> bool
