@@ -312,10 +312,12 @@ public partial class BulkSourceOperationsTests
                     default:
                         var replacement = random.Next(8);
                         batch.Replace(item, replacement);
-                        if (item == replacement)
-                            break;
                         var index = expected.IndexOf(item);
-                        if (index < 0 || expected.Contains(replacement))
+                        if (index < 0)
+                            fails = true; // missing, even when the replacement is equal (#90)
+                        else if (item == replacement)
+                            break;
+                        else if (expected.Contains(replacement))
                             fails = true;
                         else
                             expected[index] = replacement;

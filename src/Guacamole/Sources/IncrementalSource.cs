@@ -285,11 +285,13 @@ internal sealed class IncrementalSource<T> : IIncrementalSource<T>
                 default:
                     ArgumentNullException.ThrowIfNull(operation.Item, "oldItem");
                     ArgumentNullException.ThrowIfNull(operation.NewItem, "newItem");
-                    if (ItemEquals(operation.Item, operation.NewItem))
-                        break;
 
+                    // Present first: replacing a missing item fails even with an equal replacement
                     if (!IsPresent(operation.Item))
                         throw new InvalidOperationException($"Item to replace not found in source '{SourceId}'");
+                    if (ItemEquals(operation.Item, operation.NewItem))
+                        break; // no change
+
                     if (IsPresent(operation.NewItem))
                         throw new InvalidOperationException($"Replacement item already exists in source '{SourceId}'");
 
@@ -349,11 +351,15 @@ internal sealed class IncrementalSource<T> : IIncrementalSource<T>
         ArgumentNullException.ThrowIfNull(oldItem);
         ArgumentNullException.ThrowIfNull(newItem);
 
-        if (ItemEquals(oldItem, newItem))
-            return; // No change
-
         lock (_lock)
         {
+            // Present first: replacing a missing item fails even with an equal replacement
+            if (!_slotByItem.ContainsKey(oldItem))
+                throw new InvalidOperationException($"Item to replace not found in source '{SourceId}'");
+
+            if (ItemEquals(oldItem, newItem))
+                return; // no change
+
             ReplaceCore(oldItem, newItem);
         }
 

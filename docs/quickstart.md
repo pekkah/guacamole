@@ -228,7 +228,7 @@ context.SourcesSource.Push(new SourceFile("Main.cs", "a b"));   // pushing an eq
 context.SourcesSource.PushRange(new[] { new SourceFile("Utils.cs", "c") });
 context.SourcesSource.Replace(
     new SourceFile("Utils.cs", "c"),
-    new SourceFile("Utils.cs", "c d"));                          // keeps the old item's position; throws if the old item is missing or the new one exists (an equal new item is a no-op)
+    new SourceFile("Utils.cs", "c d"));                          // keeps the old item's position; throws if the old item is missing (even if the new one equals it) or the new one exists; an equal new item for a present old one is a no-op
 context.SourcesSource.Remove(new SourceFile("Utils.cs", "c d")); // removing a missing item is a no-op
 IReadOnlyCollection<SourceFile> current = context.SourcesSource.GetSnapshot();
 
@@ -252,7 +252,7 @@ using (var batch = context.SourcesSource.BeginBatch())
 ```
 
 - `Commit()` applies the operations in order in one step, with a single change notification (none if the source ends up unchanged, for example after a `Push` and a `Remove` of the same new item).
-- It is all or nothing: if an operation would fail (`Replace` of a missing item, or with an item that is present, at that point of the batch), `Commit()` throws and nothing is applied.
+- It is all or nothing: if an operation would fail (`Replace` of a missing item, even with an equal replacement, or with an item that is present, at that point of the batch), `Commit()` throws and nothing is applied.
 - After `Commit()` the batch is done: adding operations throws `InvalidOperationException`.
 - `Rollback()` discards the buffered operations.
 - Disposing a batch that was neither committed nor rolled back **commits** it.

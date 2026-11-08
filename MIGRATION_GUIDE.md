@@ -93,6 +93,10 @@ These changes keep the API but make misuse fail loudly instead of silently.
 
 After `Dispose()`, a context's sources used to accept changes that the context ignored, so its providers kept returning values computed before them. Now reading a disposed context's providers (`GetValue`, `Value`, `TryGetValue`, `GetValues`, `Values`) and changing its sources (`Set`, `Push`, `PushRange`, `Remove`, `Replace`, `Clear`, batch `Commit`) throw `ObjectDisposedException`. A source's own `GetValue()`/`GetSnapshot()` still work. Stop using a context (and the providers and sources you obtained from it) once you dispose it, or create a new one.
 
+### `Replace` of a missing item always throws (#90)
+
+`Replace(x, y)` with `y` equal to `x` (alone or in a batch) returned without checking that `x` is present. It now throws `InvalidOperationException` when `x` is missing, like any other `Replace` of a missing item (a batch then applies nothing). Replacing a present item with an equal one is still a no-op. Check `GetSnapshot()` or use `Push` if the item may be missing.
+
 ## Namespace Consolidation
 
 All public types used to be spread over `Guacamole`, `Guacamole.Sources`, `Guacamole.Exceptions` and several `Guacamole.Core.*` namespaces. They now live in `Guacamole`, plus `Guacamole.Diagnostics` for metrics, and the `Core` segment is gone. Infrastructure types moved to `Guacamole.Pipeline` and `Guacamole.Caching` and are now internal (see [Internal types and members](#internal-types-and-members)). A typical application needs only:
@@ -215,7 +219,7 @@ See the [Generated Code Reference](docs/generated-code-reference.md).
 |---------------------------------------|----------------------------------------------|
 | `Push(T item)` - no-op if an equal item exists | `Set(T value)` - no-op if equal to the current value; `null` throws |
 | `Remove(T item)` - no-op if missing | `GetValue()` - current value, or `default` before the first `Set` (the provider reports an error instead) |
-| `Replace(T oldItem, T newItem)` - throws if `oldItem` is missing or `newItem` already present; no-op if they are equal | |
+| `Replace(T oldItem, T newItem)` - throws if `oldItem` is missing (even if `newItem` equals it) or `newItem` already present; no-op if `oldItem` is present and they are equal | |
 | `Clear()` | |
 | `GetSnapshot()` | |
 | `PushRange(items)`, `BeginBatch()` (extension methods in `Guacamole`) | |
@@ -267,7 +271,7 @@ context.SourceFilesSource.Replace(a, b);
 Behavior differences:
 - `Push` of an item that is already present is silently ignored (the old `Add` threw `ContextOperationException`).
 - `Remove` of a missing item is a no-op.
-- `Replace` throws `InvalidOperationException` if the old item is missing or the new item already exists.
+- `Replace` throws `InvalidOperationException` if the old item is missing (also when the new item equals it) or the new item already exists. Replacing a present item with an equal one is a no-op.
 
 #### Batch updates
 

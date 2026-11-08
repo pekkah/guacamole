@@ -57,8 +57,8 @@ public interface IIncrementalSource<T>
     /// Thread-safe, triggers invalidation automatically.
     /// </summary>
     /// <remarks>
-    /// Replacing an item with an equal one is a no-op, without a notification; it does not check that
-    /// <paramref name="oldItem"/> is present.
+    /// Replacing a present item with an equal one is a no-op, without a notification. Replacing an
+    /// item that is not present throws, also when <paramref name="newItem"/> equals it.
     /// </remarks>
     /// <param name="oldItem">The item to replace</param>
     /// <param name="newItem">The new item</param>
