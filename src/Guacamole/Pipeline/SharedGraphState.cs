@@ -219,7 +219,7 @@ internal sealed class SharedGraphState
     /// <para>
     /// The epoch is global on purpose. A per-node "verified since marked" flag would not do: a node
     /// downstream of M can be verified and stamped while M is not (M is served through its revision,
-    /// M's result is an error and not cached, M was evicted, or the node no longer reads M), after
+    /// M's result was not cached because a read failed, M was evicted, or the node no longer reads M), after
     /// which a change stopping at M would leave it stale. With the epoch, any stamp decision anywhere
     /// ends all skipping, which costs nothing in the case it is for: changes with no read between them.
     /// </para>
@@ -399,20 +399,40 @@ internal sealed class SharedGraphState
     private int _nodesAddedSinceTrim;
     private int _autoTrimThreshold;
 
+    // GC.CollectionCount(GC.MaxGeneration) when the previous trim started
+    private int _fullCollectionsAtTrim;
+
     /// <summary>
     /// Makes this state trim unused nodes automatically, after every <paramref name="interval"/>
-    /// runtime nodes added to <see cref="RuntimeNodes"/>, or after as many nodes as half the size of
-    /// the registry after the previous trim if that is more (so that the cost of a trim, which
-    /// scans the registry, stays proportional to the number of nodes added since the previous one).
+    /// runtime nodes added to <see cref="RuntimeNodes"/>, or after as many nodes as half the number
+    /// of nodes that survived the previous trim if that is more (so that the cost of a trim, which
+    /// scans the registry, stays proportional to the number of nodes added or removed). After a
+    /// full garbage collection, the next trim runs after <paramref name="interval"/> nodes.
     /// </summary>
     /// <remarks>
     /// <para>
-    /// The check costs one interlocked increment per added node; nothing is done on reads or for
-    /// nodes that are already registered. A trim is never started inside a node computation (it is
-    /// started by the next node added outside one instead), and never waits: when another trim or
-    /// a node creation holds the lock, the next added node tries again. Because a trim only removes
-    /// nodes that have already been collected and releases the others, nodes released by one
-    /// automatic trim are removed by a later one, once the garbage collector has collected them.
+    /// The check costs one interlocked increment per added node (and, between
+    /// <paramref name="interval"/> nodes and the threshold, a read of the collection count); nothing
+    /// is done on reads or for nodes that are already registered. A trim is never started inside a
+    /// node computation (it is started by the next node added outside one instead), and never waits:
+    /// when another trim or a node creation holds the lock, the next added node tries again. Because
+    /// a trim only removes nodes that have already been collected and releases the others, nodes
+    /// released by one automatic trim are removed by a later one, once the garbage collector has
+    /// collected them.
+    /// </para>
+    /// <para>
+    /// The threshold (issue #86). A trim costs one step per registry entry. The entries it removes
+    /// pay for themselves (each node is removed once), and so do the nodes added since the previous
+    /// trim (each is added once); only the entries that survived the previous trim as well must be
+    /// paid for by new nodes, so the next trim waits for half as many new nodes as there are such
+    /// survivors. The nodes added since the previous trim are not counted, as right after a trim they
+    /// are mostly nodes that only the released reuse cache kept alive and that are about to be
+    /// collected. That is still too many after a burst of nodes that were all alive at once: the trims
+    /// during the burst found them alive and spaced the next ones by half of them. A full collection
+    /// therefore lets the next trim run after <paramref name="interval"/> new nodes: what the collection
+    /// found dead pays for its removal, and the live entries scanned are fewer than the objects the
+    /// collection itself traced, so at most one such early trim per full collection costs no more
+    /// than the collections do.
     /// </para>
     /// <para>
     /// Must be called before the state is used (by the <see cref="ComputationGraph"/> constructor).
@@ -433,7 +453,8 @@ internal sealed class SharedGraphState
 
     private void OnRuntimeNodeAdded()
     {
-        if (Interlocked.Increment(ref _nodesAddedSinceTrim) < Volatile.Read(ref _autoTrimThreshold))
+        var added = Interlocked.Increment(ref _nodesAddedSinceTrim);
+        if (added < _autoTrimInterval || (added < Volatile.Read(ref _autoTrimThreshold) && !FullCollectionSinceTrim()))
             return;
 
         // Not from inside a node computation (a node may be created while one is running, for
@@ -449,7 +470,9 @@ internal sealed class SharedGraphState
         try
         {
             // Another thread may have trimmed between the increment and the lock
-            if (Volatile.Read(ref _nodesAddedSinceTrim) >= _autoTrimThreshold)
+            var addedSinceTrim = Volatile.Read(ref _nodesAddedSinceTrim);
+            if (addedSinceTrim >= _autoTrimInterval
+                && (addedSinceTrim >= Volatile.Read(ref _autoTrimThreshold) || FullCollectionSinceTrim()))
             {
                 TrimUnusedNodesCore(_autoTrimValueCache!);
                 Interlocked.Increment(ref _autoTrimCount);
@@ -460,6 +483,10 @@ internal sealed class SharedGraphState
             Monitor.Exit(_reuseLock);
         }
     }
+
+    // Whether a full (highest-generation) garbage collection has run since the previous trim started
+    private bool FullCollectionSinceTrim() =>
+        GC.CollectionCount(GC.MaxGeneration) != Volatile.Read(ref _fullCollectionsAtTrim);
 
     /// <summary>
     /// The number of automatic trims run so far (for diagnostics and tests).
@@ -499,7 +526,8 @@ internal sealed class SharedGraphState
     private int TrimUnusedNodesCore(LRUCache<string, object> valueCache)
     {
         // Nodes added from here on count towards the next automatic trim
-        Interlocked.Exchange(ref _nodesAddedSinceTrim, 0);
+        var addedSinceTrim = Interlocked.Exchange(ref _nodesAddedSinceTrim, 0);
+        Volatile.Write(ref _fullCollectionsAtTrim, GC.CollectionCount(GC.MaxGeneration));
 
         var removed = 0;
         foreach (var (id, weakNode) in RuntimeNodes)
@@ -523,9 +551,10 @@ internal sealed class SharedGraphState
 
         if (_autoTrimInterval > 0)
         {
-            // Wait for at least half as many new nodes as remain registered, so that trimming a
-            // large registry stays amortized over the nodes added in between
-            Volatile.Write(ref _autoTrimThreshold, Math.Max(_autoTrimInterval, RuntimeNodes.Count / 2));
+            // Wait for at least half as many new nodes as there are nodes that survived the previous
+            // trim too, so that trimming a large registry stays amortized (see EnableAutoTrim)
+            var survivors = Math.Max(0, RuntimeNodes.Count - addedSinceTrim);
+            Volatile.Write(ref _autoTrimThreshold, Math.Max(_autoTrimInterval, survivors / 2));
         }
 
         return removed;

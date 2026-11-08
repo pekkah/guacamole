@@ -35,7 +35,9 @@ context.RegisterOutput(report, (r, _) => Publish(r));
 
 Each stage occupies one entry in the context's value cache (see [Memory](#memory)). An evicted entry is recomputed when it is next needed, and counts as a change for the stages downstream of it.
 
-Failed results and `null` values are the exception: they are not cached. A stage whose lambda throws (or returns `null`) runs again each time it is read, including by output handlers after every source change, and counts as changed for the stages downstream of it. Keep expensive lambdas from failing routinely; return a value that represents the failure (for example a record with a diagnostics list) when a failure is an expected outcome.
+Failed results and `null` values are cached the same way. A stage whose lambda throws runs again only when one of the inputs it read changes, not on every read (or every unrelated source change that runs the output handlers), and every read in between returns the same error. When it fails again, the new error is compared with the cached one: errors are equal when their `ComputationError`s are equal by value (message, chain of inner errors, source location and diagnostic ID; for an exception, the messages of the exception and its inner exceptions, not the exception types, which the error does not record). An equal error keeps the stages downstream of it cached, like an equal value; a different error, or the switch between a value and an error, counts as a change. A `null` value equals only `null`. The cache keeps only the `ComputationError`, not the exception, so a cached error holds no stack trace or exception state.
+
+Because a failure is cached until an input changes, a lambda that fails for a transient reason (a file being written, a lock held elsewhere) is not retried by reading again; change an input (for example a source holding a retry counter or timestamp) to retry it. Lambdas should be functions of their inputs in any case.
 
 ### Per-item memoization
 
@@ -45,6 +47,20 @@ Collection operators (`Select`, `Where`, `SelectMany` on `IncrementalValuesProvi
 - The memo holds one entry per distinct item of the latest computation and is updated in place when a computation completes; if a lambda throws, the stage returns an error and keeps its previous memo.
 - `null` items are not memoized; the lambda runs for them whenever the stage walks its items (see below).
 - Items must be immutable (records are ideal): an item mutated in place still equals itself, so its stale result would be reused.
+- Items are matched by **their own equality**, not by a comparer passed to the operator (that one only decides whether the stage's results changed). An item equal to any item of the previous computation reuses that item's result without running the lambda. With loose equality, for example an `Equals` that compares only an `Id`, an item that differs from a previous one only in the members its equality ignores gets the result computed for the previous one, even when the lambda reads those members:
+
+```csharp
+record Doc(int Id, string Text)
+{
+    public virtual bool Equals(Doc? other) => other is not null && Id == other.Id; // ignores Text
+    public override int GetHashCode() => Id;
+}
+
+var lengths = docs.Select(d => d.Text.Length); // a new Doc with the same Id as one of the
+                                               // previous computation reuses that Doc's length
+```
+
+  Make the item's equality cover everything the lambda reads (the default record equality does), or project the items to such a type in an earlier stage (`docs.Select(d => (d.Id, d.Text))`). The same equality is what collection sources use for their set semantics, so a loosely equal item is a duplicate there as well (`Push` ignores it, `Replace(a, b)` with `b` equal to `a` is not a change).
 - After a few item changes, a stage does not even walk the collection: it applies its input's item-level delta to its previous output (see [Item-level deltas](#item-level-deltas)). When no delta is available it walks the whole collection (one comparison per unchanged item, and a new result array unless every result is unchanged), saving only the lambda calls and the memo bookkeeping for unchanged items.
 - Memoization is per item. A lambda that also depends on a combined value (`values.Combine(value)`) sees a new input for every item when that value changes; see [cross-item lookups](#cross-item-lookups-eg-symbol-tables) for keeping such inputs equal.
 
@@ -127,7 +143,7 @@ public partial class QueryContext : ComputingContextBase
 ```
 
 - Only nodes newly added to the graph count. Reading existing pipelines and identical operator calls that reuse a node cost nothing, and a context that builds its pipelines once never trims.
-- Each trim scans the registry, so when many nodes remain registered, the next trim waits for at least half as many new nodes as remained. The cost of trimming stays proportional to the number of nodes added.
+- Each trim scans the registry, so when many nodes stay registered, the next trim waits for at least half as many new nodes as there are nodes that survived the previous trim as well (the nodes added since are not counted: right after a trim they are mostly nodes about to be collected). After a full garbage collection the next trim runs after one interval of new nodes, so after a burst of pipelines that were alive at the same time, the graph is back to its working set within a few intervals once the burst has been collected. The cost of trimming stays proportional to the number of nodes added or removed (an early trim after a collection scans fewer entries than the collection traced).
 - A trim runs on the thread that added the node, but never inside a node computation (it waits for the next node added outside one) and never waits for another trim: if one is running, the next new node tries again. While a trim runs, other threads creating new nodes wait for it (reads do not).
 - Trimming is still two-phase: nodes released by one trim are removed by a later one, after the garbage collector has collected them. As long as new nodes keep being added, the graph stays bounded (roughly the live nodes plus a few intervals' worth) without explicit calls; when no new nodes are added, no trims run, but the graph does not grow either.
 - Like explicit trimming, it never affects results, but a node kept alive only by the context (for example an identical operator call in a property getter whose provider is not stored) may be collected after a trim and recreated with an empty cache. Choose an interval well above the number of nodes such calls create between reads, or store the providers.

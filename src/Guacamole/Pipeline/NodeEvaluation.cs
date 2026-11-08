@@ -40,9 +40,38 @@ internal sealed class GraphEvaluator
     // starts where it began (see BeginFrame / EndFrame).
     private readonly List<DependencyVersion> _reads = new();
 
-    // Results that are not cached (errors, null values), so that a node is computed at most once
-    // per pass even when it is both verified and read.
+    // Results that are not cached (see FailedReads), so that a node is computed at most once per pass
+    // even when it is both verified and read.
     private Dictionary<string, (object Result, long Version)>? _uncachedResults;
+
+    // Number of dependency reads in this pass that ended with an exception (see FailedReads)
+    private int _failedReads;
+
+    /// <summary>
+    /// The number of dependency reads in this pass that threw instead of returning a result.
+    /// </summary>
+    /// <remarks>
+    /// A read that throws records no dependency, so a result computed while one was in progress (the
+    /// node's operator usually turns the exception into an error) does not list everything it depends
+    /// on, and the exception may not be a function of the versions it did record. Such a result is
+    /// therefore not cached (see <c>NodeHandle&lt;TResult&gt;.Commit</c>). Reads only throw for
+    /// failures of the framework itself; exceptions of user lambdas are caught by the operator of the
+    /// node that runs them and become that node's error result.
+    /// </remarks>
+    internal int FailedReads => _failedReads;
+
+    // An exception filter: counts the failed read without catching the exception
+    private bool NoteFailedRead()
+    {
+        _failedReads++;
+        return false;
+    }
+
+    /// <summary>
+    /// Counts a read of a result kept only for this pass (see <see cref="TryGetUncachedResult{TResult}"/>)
+    /// as a failed read, so that the reading node's result is not cached either.
+    /// </summary>
+    internal void NoteUncachedRead() => _failedReads++;
 
     public GraphEvaluator(ComputationGraph graph)
     {
@@ -148,6 +177,33 @@ internal sealed class GraphEvaluator
     /// </summary>
     public Result<T, ComputationError> Read<T>(IComputationNode<T> node)
     {
+        try
+        {
+            return ReadCore(node);
+        }
+        catch (Exception) when (NoteFailedRead())
+        {
+            throw; // Not reached: the filter never catches
+        }
+    }
+
+    /// <summary>
+    /// Reads a collection dependency of the node being computed.
+    /// </summary>
+    public Result<IEnumerable<T>, ComputationError> Read<T>(ICollectionComputationNode<T> node)
+    {
+        try
+        {
+            return ReadCore(node);
+        }
+        catch (Exception) when (NoteFailedRead())
+        {
+            throw; // Not reached: the filter never catches
+        }
+    }
+
+    private Result<T, ComputationError> ReadCore<T>(IComputationNode<T> node)
+    {
         Result<T, ComputationError> result;
         long version;
         NodeState state;
@@ -172,10 +228,7 @@ internal sealed class GraphEvaluator
         return result;
     }
 
-    /// <summary>
-    /// Reads a collection dependency of the node being computed.
-    /// </summary>
-    public Result<IEnumerable<T>, ComputationError> Read<T>(ICollectionComputationNode<T> node)
+    private Result<IEnumerable<T>, ComputationError> ReadCore<T>(ICollectionComputationNode<T> node)
     {
         Result<IEnumerable<T>, ComputationError> result;
         long version;
@@ -403,7 +456,13 @@ internal abstract class NodeHandle<TResult> : NodeHandle
     public Result<TResult, ComputationError> Evaluate(GraphEvaluator evaluator, out long version, ProviderMetadata? metadata = null)
     {
         if (evaluator.TryGetUncachedResult(Id, out Result<TResult, ComputationError> uncached, out version))
+        {
+            // This result was not cached because it depends on a failed read. A node reading it
+            // depends on that failure too, so it must not be cached either: count the hit as a
+            // failed read of the reader.
+            evaluator.NoteUncachedRead();
             return uncached;
+        }
 
         // Read before verifying: a change that marks the node after this point makes the stamp
         // recorded below stale, so the value is verified again.
@@ -469,6 +528,7 @@ internal abstract class NodeHandle<TResult> : NodeHandle
         var versionBefore = _isRoot ? State.Version : 0;
 
         var frame = evaluator.BeginFrame();
+        var failedReadsBefore = evaluator.FailedReads;
         Result<TResult, ComputationError> result;
         DependencyVersion[] dependencies;
         GraphEvaluator.EnterComputation();
@@ -490,19 +550,35 @@ internal abstract class NodeHandle<TResult> : NodeHandle
             dependencies = evaluator.EndFrame(frame);
         }
 
-        return Commit(evaluator, result, dependencies, versionBefore, dirty, previous, out version);
+        var cacheable = evaluator.FailedReads == failedReadsBefore;
+        return Commit(evaluator, result, dependencies, versionBefore, dirty, previous, cacheable, out version);
     }
 
     /// <summary>
-    /// Stores a computed result with its version information. A computed node's version is
-    /// incremented only if the result differs from the cached one; errors and <c>null</c> values
-    /// are not cached and always count as a change. A root keeps the version it had before it was
-    /// read (root versions are advanced by <see cref="ComputationGraph.MarkSourceChanged"/>).
+    /// Stores a computed result with its version information. Values (including <c>null</c>),
+    /// "no value" and errors are all cached. A computed node's version is incremented only if the
+    /// result differs from the cached one: values by the node's comparer, errors by
+    /// <see cref="CachedNodeValue.ErrorsEqual"/>, <c>null</c> equal only to <c>null</c>. A root keeps
+    /// the version it had before it was read (root versions are advanced by
+    /// <see cref="ComputationGraph.MarkSourceChanged"/>).
     /// </summary>
     /// <remarks>
+    /// <para>
     /// The node is added to the dependents of what it read before the stamp is decided: a change
     /// whose marking missed the new edge started before that point, so
     /// <see cref="GraphEvaluator.CanStamp"/> is false and the value is stored without a stamp.
+    /// </para>
+    /// <para>
+    /// An error is cached on the same terms as a value: with the versions of the dependencies its
+    /// computation read before it failed, and validated by the same dirty marking, stamps and
+    /// revisions. That is sound because a computation is a function of what it reads: run again with
+    /// the same versions of the same dependencies it reads the same values in the same order and
+    /// fails at the same point, and the dependencies it did not get to read cannot affect it. The one
+    /// exception is a dependency read that throws (a framework failure, not a lambda's): it records
+    /// no dependency, so such a result is not cached (<paramref name="cacheable"/> is
+    /// <see langword="false"/>, see <see cref="GraphEvaluator.FailedReads"/>). It then always counts
+    /// as a change and is kept for the rest of the pass only.
+    /// </para>
     /// </remarks>
     private Result<TResult, ComputationError> Commit(
         GraphEvaluator evaluator,
@@ -511,15 +587,16 @@ internal abstract class NodeHandle<TResult> : NodeHandle
         long versionBefore,
         long dirty,
         CachedNodeValue? previous,
+        bool cacheable,
         out long version)
     {
         var graph = evaluator.Graph;
         var state = evaluator.State;
-        var hasValue = result.IsSuccess && result.ValueOrDefault is not null;
-        var cacheable = hasValue || result.IsNone;
+        var kind = result.IsSuccess ? CachedResultKind.Value : result.IsNone ? CachedResultKind.None : CachedResultKind.Error;
+        var error = result.ErrorValue;
 
-        // Materialize outside the lock
-        var stored = hasValue ? Store(result.ValueOrDefault!) : null;
+        // Materialize outside the lock (a null value is cached as null)
+        var stored = result.IsSuccess && result.ValueOrDefault is { } value ? Store(value) : null;
 
         lock (state.CommitLock)
         {
@@ -545,14 +622,21 @@ internal abstract class NodeHandle<TResult> : NodeHandle
                     var current = State.Version;
                     var unchanged = previous is not null
                         && previous.OutputVersion == current
-                        && previous.IsNone == result.IsNone
-                        && (result.IsNone || StoredEquals(previous.Value!, stored!));
+                        && previous.Kind == kind
+                        && kind switch
+                        {
+                            CachedResultKind.None => true,
+                            CachedResultKind.Error => CachedNodeValue.ErrorsEqual(previous.Error!, error!),
+                            _ => previous.Value is null
+                                ? stored is null
+                                : stored is not null && StoredEquals(previous.Value, stored),
+                        };
 
                     version = unchanged ? current : State.IncrementVersion();
                 }
 
                 var stamp = evaluator.CanStamp() ? dirty : CachedNodeValue.NoStamp;
-                graph.ValueCache.Set(Id, new CachedNodeValue(stored, result.IsNone, version, dependencies, evaluator.Revision, stamp));
+                graph.ValueCache.Set(Id, new CachedNodeValue(kind, stored, error, version, dependencies, evaluator.Revision, stamp));
             }
         }
 
@@ -586,7 +670,7 @@ internal abstract class NodeHandle<TResult> : NodeHandle
     {
         if (graph.ValueCache.TryGet(Id, out var cached)
             && cached is CachedNodeValue typed
-            && (typed.IsNone || IsStoredValue(typed.Value)))
+            && (!typed.HasValue || (typed.Value is null ? default(TResult) is null : IsStoredValue(typed.Value))))
         {
             entry = typed;
             return true;
@@ -596,9 +680,12 @@ internal abstract class NodeHandle<TResult> : NodeHandle
         return false;
     }
 
-    private Result<TResult, ComputationError> ToResult(CachedNodeValue entry) => entry.IsNone
-        ? Result<TResult, ComputationError>.None
-        : Result<TResult, ComputationError>.Success(Load(entry.Value!));
+    private Result<TResult, ComputationError> ToResult(CachedNodeValue entry) => entry.Kind switch
+    {
+        CachedResultKind.None => Result<TResult, ComputationError>.None,
+        CachedResultKind.Error => Result<TResult, ComputationError>.Error(entry.Error!),
+        _ => Result<TResult, ComputationError>.Success(entry.Value is null ? default! : Load(entry.Value)),
+    };
 }
 
 /// <summary>

@@ -70,11 +70,13 @@ public abstract partial class ComputingContextBase : IDisposable
     /// Only nodes newly added to the graph by operator calls (or first read) count; reads of
     /// existing pipelines and repeated identical operator calls that reuse a node cost nothing. When
     /// many nodes remain registered, a trim waits for at least half as many new nodes as remained
-    /// after the previous trim, so the cost of trimming stays proportional to the number of nodes
-    /// added. A trim runs on the thread that added the node, never inside a node computation (it is
-    /// deferred to the next node added outside one) and never waits for another trim: if one is
-    /// running, the next added node tries again. While a trim runs, other threads creating new
-    /// nodes wait for it; reads do not.
+    /// after the previous trim, not counting the nodes added just before it, so the cost of trimming
+    /// stays proportional to the number of nodes added or removed. After a full garbage collection,
+    /// the next trim runs after <see cref="AutoTrimInterval"/> new nodes, so the graph shrinks back to
+    /// its working set within a few intervals after a burst. A trim runs on the thread that added the
+    /// node, never inside a node computation (it is deferred to the next node added outside one) and
+    /// never waits for another trim: if one is running, the next added node tries again. While a trim
+    /// runs, other threads creating new nodes wait for it; reads do not.
     /// </para>
     /// <para>
     /// As with explicit calls, a trim removes the nodes that have been garbage-collected and
