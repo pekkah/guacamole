@@ -143,10 +143,12 @@ public partial class CollectionDeltaTests
                 items.Remove(operation.Item);
                 return true;
             default:
+                var index = items.IndexOf(operation.Item);
+                if (index < 0)
+                    return false; // missing, even when the new item is equal (#90)
                 if (operation.Item == operation.NewItem)
                     return true;
-                var index = items.IndexOf(operation.Item);
-                if (index < 0 || items.Contains(operation.NewItem))
+                if (items.Contains(operation.NewItem))
                     return false;
                 items[index] = operation.NewItem;
                 return true;

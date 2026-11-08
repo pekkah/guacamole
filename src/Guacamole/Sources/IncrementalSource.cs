@@ -129,6 +129,7 @@ internal sealed class IncrementalSource<T> : IIncrementalSource<T>
     /// </summary>
     public void Push(T item)
     {
+        ThrowIfContextDisposed();
         ArgumentNullException.ThrowIfNull(item);
 
         bool changed;
@@ -150,6 +151,7 @@ internal sealed class IncrementalSource<T> : IIncrementalSource<T>
     /// <exception cref="ArgumentNullException"><paramref name="items"/> or one of its items is <c>null</c>.</exception>
     internal void PushRange(IEnumerable<T> items)
     {
+        ThrowIfContextDisposed();
         ArgumentNullException.ThrowIfNull(items);
 
         // Enumerate (user code) outside the lock
@@ -192,6 +194,7 @@ internal sealed class IncrementalSource<T> : IIncrementalSource<T>
     /// <exception cref="InvalidOperationException">A <c>Replace</c> would fail; nothing was applied.</exception>
     internal void Apply(ReadOnlySpan<SourceOperation<T>> operations)
     {
+        ThrowIfContextDisposed();
         bool changed;
         lock (_lock)
         {
@@ -282,11 +285,13 @@ internal sealed class IncrementalSource<T> : IIncrementalSource<T>
                 default:
                     ArgumentNullException.ThrowIfNull(operation.Item, "oldItem");
                     ArgumentNullException.ThrowIfNull(operation.NewItem, "newItem");
-                    if (ItemEquals(operation.Item, operation.NewItem))
-                        break;
 
+                    // Present first: replacing a missing item fails even with an equal replacement
                     if (!IsPresent(operation.Item))
                         throw new InvalidOperationException($"Item to replace not found in source '{SourceId}'");
+                    if (ItemEquals(operation.Item, operation.NewItem))
+                        break; // no change
+
                     if (IsPresent(operation.NewItem))
                         throw new InvalidOperationException($"Replacement item already exists in source '{SourceId}'");
 
@@ -322,6 +327,7 @@ internal sealed class IncrementalSource<T> : IIncrementalSource<T>
     /// </summary>
     public void Remove(T item)
     {
+        ThrowIfContextDisposed();
         ArgumentNullException.ThrowIfNull(item);
 
         bool changed;
@@ -341,14 +347,19 @@ internal sealed class IncrementalSource<T> : IIncrementalSource<T>
     /// </summary>
     public void Replace(T oldItem, T newItem)
     {
+        ThrowIfContextDisposed();
         ArgumentNullException.ThrowIfNull(oldItem);
         ArgumentNullException.ThrowIfNull(newItem);
 
-        if (ItemEquals(oldItem, newItem))
-            return; // No change
-
         lock (_lock)
         {
+            // Present first: replacing a missing item fails even with an equal replacement
+            if (!_slotByItem.ContainsKey(oldItem))
+                throw new InvalidOperationException($"Item to replace not found in source '{SourceId}'");
+
+            if (ItemEquals(oldItem, newItem))
+                return; // no change
+
             ReplaceCore(oldItem, newItem);
         }
 
@@ -360,6 +371,7 @@ internal sealed class IncrementalSource<T> : IIncrementalSource<T>
     /// </summary>
     public void Clear()
     {
+        ThrowIfContextDisposed();
         lock (_lock)
         {
             if (_slotByItem.Count == 0)
@@ -679,6 +691,16 @@ internal sealed class IncrementalSource<T> : IIncrementalSource<T>
         }
 
         return true;
+    }
+
+    /// <summary>
+    /// Throws <see cref="ObjectDisposedException"/> once the context owning this source has been
+    /// disposed: it no longer tracks changes, so a change would leave its providers stale.
+    /// </summary>
+    private void ThrowIfContextDisposed()
+    {
+        if (_graphProvider().SharedState.IsDisposed)
+            SharedGraphState.ThrowDisposed(SourceId);
     }
 
     /// <summary>

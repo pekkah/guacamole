@@ -394,10 +394,12 @@ public partial class SourceStructuralEqualityTests
                         var replacement = random.Next(10, 18);
                         var replacementKey = string.Join("|", Row(replacement));
                         batch.Replace(Row(item), Row(replacement));
-                        if (item == replacement)
-                            break;
                         var index = expected.IndexOf(key);
-                        if (index < 0 || expected.Contains(replacementKey))
+                        if (index < 0)
+                            fails = true; // missing, even when the replacement is equal (#90)
+                        else if (item == replacement)
+                            break;
+                        else if (expected.Contains(replacementKey))
                             fails = true;
                         else
                             expected[index] = replacementKey;

@@ -3,6 +3,7 @@
 This guide covers the breaking API changes made before 1.0:
 
 - [API review cleanup (#83)](#api-review-cleanup-83)
+- [Source and lifecycle behaviour](#source-and-lifecycle-behaviour)
 - [Namespace consolidation](#namespace-consolidation)
 - [Internal types and members](#internal-types-and-members)
 - [Single-value `Where` produces "no value"](#single-value-where-produces-no-value)
@@ -83,6 +84,18 @@ Source providers no longer carry a bogus `CreationLocation` built from a descrip
 ### `SourceChangedEventArgs.Timestamp` is a `DateTimeOffset`
 
 `SourceChangedEventArgs.Timestamp` and the constructor's `timestamp` parameter are `DateTimeOffset` (were `DateTime`). Sources still record UTC (`Offset` is zero). Use `Timestamp.UtcDateTime` where a `DateTime` is needed.
+
+## Source and Lifecycle Behaviour
+
+These changes keep the API but make misuse fail loudly instead of silently.
+
+### A disposed context throws (#88)
+
+After `Dispose()`, a context's sources used to accept changes that the context ignored, so its providers kept returning values computed before them. Now reading a disposed context's providers (`GetValue`, `Value`, `TryGetValue`, `GetValues`, `Values`) and changing its sources (`Set`, `Push`, `PushRange`, `Remove`, `Replace`, `Clear`, batch `Commit`) throw `ObjectDisposedException`. A source's own `GetValue()`/`GetSnapshot()` still work. Stop using a context (and the providers and sources you obtained from it) once you dispose it, or create a new one.
+
+### `Replace` of a missing item always throws (#90)
+
+`Replace(x, y)` with `y` equal to `x` (alone or in a batch) returned without checking that `x` is present. It now throws `InvalidOperationException` when `x` is missing, like any other `Replace` of a missing item (a batch then applies nothing). Replacing a present item with an equal one is still a no-op. Check `GetSnapshot()` or use `Push` if the item may be missing.
 
 ## Namespace Consolidation
 
@@ -206,7 +219,7 @@ See the [Generated Code Reference](docs/generated-code-reference.md).
 |---------------------------------------|----------------------------------------------|
 | `Push(T item)` - no-op if an equal item exists | `Set(T value)` - no-op if equal to the current value; `null` throws |
 | `Remove(T item)` - no-op if missing | `GetValue()` - current value, or `default` before the first `Set` (the provider reports an error instead) |
-| `Replace(T oldItem, T newItem)` - throws if `oldItem` is missing or `newItem` already present; no-op if they are equal | |
+| `Replace(T oldItem, T newItem)` - throws if `oldItem` is missing (even if `newItem` equals it) or `newItem` already present; no-op if `oldItem` is present and they are equal | |
 | `Clear()` | |
 | `GetSnapshot()` | |
 | `PushRange(items)`, `BeginBatch()` (extension methods in `Guacamole`) | |
@@ -258,7 +271,7 @@ context.SourceFilesSource.Replace(a, b);
 Behavior differences:
 - `Push` of an item that is already present is silently ignored (the old `Add` threw `ContextOperationException`).
 - `Remove` of a missing item is a no-op.
-- `Replace` throws `InvalidOperationException` if the old item is missing or the new item already exists.
+- `Replace` throws `InvalidOperationException` if the old item is missing (also when the new item equals it) or the new item already exists. Replacing a present item with an equal one is a no-op.
 
 #### Batch updates
 
@@ -294,9 +307,9 @@ Note that **disposing a batch that was neither committed nor rolled back commits
 
 `RegisterOutput` is unchanged, but handlers now run after every effective source change instead of after `SaveChanges()`:
 
-- they run synchronously, on the thread that called `Push`/`Set`/...
+- they run synchronously, on the thread that called `Push`/`Set`/..., unless the same handler is already running for an earlier change: then that call returns at once and the running thread calls the handler again with the latest value
 - a handler runs only if its provider computes successfully and its value changed since the handler last ran
-- if handlers throw, all handlers still run and the exceptions are rethrown together as an `AggregateException` from the source call
+- if handlers throw, all handlers still run and the exceptions are rethrown together as one `AggregateException` from the source call on the thread that ran them
 
 #### Derived properties
 

@@ -56,33 +56,67 @@ public partial class ContextLifecycleTests
     }
 
     [Fact]
-    public void AfterDispose_SourceChangesNoLongerRunOutputHandlers()
+    public void AfterDispose_SourceChanges_ThrowObjectDisposedException_AndRunNoOutputHandlers()
     {
+        // Documented (Dispose XML docs, README): a disposed context no longer tracks its sources, so
+        // changing them throws rather than leave its providers stale
         var context = new ApiContext();
         var calls = 0;
         context.RegisterOutput(context.Number, (_, _) => calls++);
         context.RegisterOutput(context.Items, (_, _) => calls++);
+        var batch = context.ItemsSource.BeginBatch();
+        batch.Push(new Item("b", 2));
 
         context.Dispose();
-        context.NumberSource.Set(1);
-        context.ItemsSource.Push(new Item("a", 1));
 
+        Assert.Throws<ObjectDisposedException>(() => context.NumberSource.Set(1));
+        Assert.Throws<ObjectDisposedException>(() => context.ItemsSource.Push(new Item("a", 1)));
+        Assert.Throws<ObjectDisposedException>(() => context.ItemsSource.PushRange([new Item("a", 1)]));
+        Assert.Throws<ObjectDisposedException>(() => context.ItemsSource.Remove(new Item("a", 1)));
+        Assert.Throws<ObjectDisposedException>(() => context.ItemsSource.Replace(new Item("a", 1), new Item("c", 3)));
+        Assert.Throws<ObjectDisposedException>(() => context.ItemsSource.Clear());
+        Assert.Throws<ObjectDisposedException>(() => batch.Commit());
         Assert.Equal(0, calls);
     }
 
     [Fact]
-    public void AfterDispose_SourcesStillAcceptChanges()
+    public void AfterDispose_SourcesKeepTheirValues_AndCanStillBeRead()
     {
-        // Documented (Dispose XML docs): sources keep working, but the disposed context no longer
-        // tracks their changes, so its providers are not invalidated (they are not read here).
         var context = new ApiContext();
-        context.Dispose();
-
         context.NumberSource.Set(2);
         context.ItemsSource.Push(new Item("a", 1));
 
+        context.Dispose();
+
         Assert.Equal(2, context.NumberSource.GetValue());
         Assert.Equal([new Item("a", 1)], context.ItemsSource.GetSnapshot());
+    }
+
+    [Fact]
+    public void AfterDispose_ReadingProviders_ThrowsObjectDisposedException()
+    {
+        // Documented (Dispose XML docs, README): reads would otherwise return values cached before
+        // the context stopped tracking its sources
+        var context = new ApiContext();
+        context.NumberSource.Set(2);
+        context.ItemsSource.Push(new Item("a", 1));
+        var doubled = context.Number.Select(static x => x * 2);
+        var names = context.Items.Select(static i => i.Name);
+        Assert.Equal(4, doubled.Value); // cached before Dispose
+        Assert.Equal(["a"], names.Values);
+
+        context.Dispose();
+
+        Assert.Throws<ObjectDisposedException>(() => context.Number.GetValue());
+        Assert.Throws<ObjectDisposedException>(() => doubled.GetValue());
+        Assert.Throws<ObjectDisposedException>(() => doubled.Value);
+        Assert.Throws<ObjectDisposedException>(() => doubled.TryGetValue(out _));
+        Assert.Throws<ObjectDisposedException>(() => context.Items.GetValues());
+        Assert.Throws<ObjectDisposedException>(() => names.GetValues());
+        Assert.Throws<ObjectDisposedException>(() => names.Values);
+
+        // Pipelines built after Dispose read the same graph
+        Assert.Throws<ObjectDisposedException>(() => context.Number.Select(static x => x + 1).Value);
     }
 
     [Fact]
@@ -104,7 +138,22 @@ public partial class ContextLifecycleTests
 
         context.Dispose();
 
-        context.NumberSource.Set(1); // does not throw: the registration was dropped
+        // The change is refused (the registration was dropped too): the handler never runs
+        Assert.Throws<ObjectDisposedException>(() => context.NumberSource.Set(1));
+    }
+
+    [Fact]
+    public void DisposeFromAnOutputHandler_SkipsTheRemainingHandlers_WithoutThrowing()
+    {
+        var context = new ApiContext();
+        var later = 0;
+        context.RegisterOutput(context.Number, (_, ctx) => ctx.Dispose());
+        context.RegisterOutput(context.Number.Select(static x => x + 1), (_, _) => later++);
+
+        context.NumberSource.Set(1); // the second handler's provider would throw: skipped
+
+        Assert.True(context.IsDisposed);
+        Assert.Equal(0, later);
     }
 
     [Fact]

@@ -97,21 +97,24 @@ public class SourceTests
     }
 
     [Fact]
-    public void Replace_WithAnEqualItem_IsANoOp_EvenWhenTheItemIsMissing()
+    public void Replace_OfAMissingItem_WithAnEqualItem_Throws()
     {
-        // Documented exception to "throws if oldItem is missing" (IIncrementalSource.Replace XML docs):
-        // replacing an item with an equal one changes nothing and is not checked.
+        // Documented (IIncrementalSource.Replace XML docs): the old item must be present, also when the
+        // replacement equals it (#90)
         using var context = new ApiContext();
         context.ItemsSource.Push(new Item("a", 1));
         var changes = RecordChanges(context);
 
-        context.ItemsSource.Replace(new Item("missing", 0), new Item("missing", 0));
+        Assert.Throws<InvalidOperationException>(
+            () => context.ItemsSource.Replace(new Item("missing", 0), new Item("missing", 0)));
         using (var batch = context.ItemsSource.BeginBatch())
         {
+            batch.Push(new Item("b", 2));
             batch.Replace(new Item("missing", 0), new Item("missing", 0));
-            batch.Commit();
+            Assert.Throws<InvalidOperationException>(batch.Commit);
         }
 
+        // All or nothing: the batch's Push was not applied either
         Assert.Equal([new Item("a", 1)], context.ItemsSource.GetSnapshot());
         Assert.Empty(changes);
     }
@@ -124,6 +127,11 @@ public class SourceTests
         var changes = RecordChanges(context);
 
         context.ItemsSource.Replace(new Item("a", 1), new Item("a", 1));
+        using (var batch = context.ItemsSource.BeginBatch())
+        {
+            batch.Replace(new Item("a", 1), new Item("a", 1));
+            batch.Commit();
+        }
 
         Assert.Equal([new Item("a", 1)], context.ItemsSource.GetSnapshot());
         Assert.Empty(changes);

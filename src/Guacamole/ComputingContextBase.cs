@@ -151,11 +151,27 @@ public abstract partial class ComputingContextBase : IDisposable
     /// Calling it again does nothing.
     /// </summary>
     /// <remarks>
-    /// The source accessors keep accepting changes, but the context no longer tracks them: its
-    /// output handlers do not run, and its providers are not invalidated, so reading them may return
-    /// values computed before the change. Do not use a disposed context's providers.
-    /// <see cref="RegisterOutput{T}(IncrementalValueProvider{T}, Action{T, ComputingContextBase})"/>
-    /// and <see cref="TrimUnusedNodes"/> throw <see cref="ObjectDisposedException"/> afterwards.
+    /// <para>
+    /// A disposed context no longer tracks source changes, so it refuses to be used rather than
+    /// return stale values. Afterwards:
+    /// </para>
+    /// <list type="bullet">
+    /// <item><description>reading any of its providers (<see cref="IncrementalValueProvider{T}.GetValue"/>,
+    /// <see cref="IncrementalValueProvider{T}.Value"/>, <see cref="IncrementalValueProvider{T}.TryGetValue"/>,
+    /// <see cref="IncrementalValuesProvider{T}.GetValues"/>, <see cref="IncrementalValuesProvider{T}.Values"/>),
+    /// including pipelines built from them, throws <see cref="ObjectDisposedException"/>;</description></item>
+    /// <item><description>changing its sources (<c>Set</c>, <c>Push</c>, <c>PushRange</c>, <c>Remove</c>,
+    /// <c>Replace</c>, <c>Clear</c>, batch <c>Commit</c>) throws <see cref="ObjectDisposedException"/>;
+    /// reading a source's own current value (<c>GetValue</c>, <c>GetSnapshot</c>) still works;</description></item>
+    /// <item><description><see cref="RegisterOutput{T}(IncrementalValueProvider{T}, Action{T, ComputingContextBase})"/>
+    /// and <see cref="TrimUnusedNodes"/> throw <see cref="ObjectDisposedException"/>, and output handlers
+    /// are no longer called (as for a disposed registration, a delivery in progress on another thread
+    /// may still make one call).</description></item>
+    /// </list>
+    /// <para>
+    /// Reads and changes already in progress on other threads when <c>Dispose</c> is called may still
+    /// complete.
+    /// </para>
     /// </remarks>
     public virtual void Dispose()
     {
@@ -174,6 +190,11 @@ public abstract partial class ComputingContextBase : IDisposable
             }
 
             _outputRegistrations.Clear();
+
+            // Providers and sources of this context throw from now on (they share the graph state).
+            // After the registrations are marked: a delivery whose provider read throws because of
+            // this then sees its registration disposed, and ignores the exception (see OutputGate).
+            Graph.SharedState.MarkDisposed();
         }
 
         // Detach from sources so they neither keep this context alive nor
@@ -276,15 +297,48 @@ public abstract partial class ComputingContextBase : IDisposable
     /// rejected its input) or its computation fails.
     /// </summary>
     /// <remarks>
-    /// The handler is not called at registration. After each effective change of any source of the
-    /// context, it is called synchronously, on the thread that changed the source, if the provider's
-    /// value (including a <c>null</c> value) differs from the value last delivered to it, by the
-    /// provider's comparer. Exceptions thrown by handlers are collected and rethrown as one
-    /// <see cref="AggregateException"/> from the source operation, after all handlers have run.
     /// <para>
-    /// Disposing the returned registration is thread-safe and idempotent: once it returns, no new call
-    /// of the handler starts (a call already running on another thread completes). Other handlers,
-    /// including other registrations of the same handler, are not affected.
+    /// The handler is not called at registration. After each effective change of any source of the
+    /// context, the provider's value is delivered to it if that value (including a <c>null</c> value)
+    /// differs from the value last delivered to it, by the provider's comparer.
+    /// </para>
+    /// <para>
+    /// <b>Threading and ordering.</b> Sources may change on several threads at once. A value is
+    /// delivered synchronously by the thread that changed the source, before its source operation
+    /// returns, unless a delivery to this handler is already running (on another thread, or further up
+    /// the same thread when a handler changed a source). Then the source operation returns at once,
+    /// and the thread that is delivering calls the handler again after it returns, with the value
+    /// current at that point. Hence the calls of one handler are serialized (never concurrent with
+    /// each other, never re-entrant); a handler never receives the same value twice in a row; each
+    /// call reads the provider after the previous call returned, so values arrive in the order they
+    /// were read (intermediate values of changes that arrive while it runs may be skipped); and once
+    /// all source operations have returned, the last value it received is the provider's current
+    /// value. Different handlers may run concurrently with each other, and no lock of the context is
+    /// held while a handler runs.
+    /// </para>
+    /// <para>
+    /// The delivering thread keeps delivering while changes keep arriving during its deliveries, so a
+    /// source operation that delivers can be held for as long as other threads keep changing sources:
+    /// with slow handlers and continuous concurrent writes, its latency is unbounded.
+    /// </para>
+    /// <para>
+    /// <b>Exceptions</b> thrown by handlers surface on the thread that delivered: every handler runs
+    /// even if an earlier one throws, and afterwards that thread's source operation throws one
+    /// <see cref="AggregateException"/> whose inner exceptions are all the handler exceptions of its
+    /// deliveries, including those of deliveries it made for other threads' changes.
+    /// </para>
+    /// <para>
+    /// A handler may change sources itself. The resulting change does not call the same handler from
+    /// within itself: it is called again with the new value after it returns. A handler that always
+    /// changes a source to a new value therefore loops forever.
+    /// </para>
+    /// <para>
+    /// Disposing the returned registration is thread-safe and idempotent. Deliveries that start after
+    /// <c>Dispose</c> returns do not call the handler, and disposing it from within the handler (or on
+    /// the thread delivering to it) means it is not called again. A delivery already in progress on
+    /// another thread checks for disposal right before calling the handler, so it may still make one
+    /// call that begins just after <c>Dispose</c> returns; a call already running completes. Other
+    /// handlers, including other registrations of the same handler, are not affected.
     /// </para>
     /// </remarks>
     /// <typeparam name="T">The type of value produced by the provider</typeparam>
@@ -321,8 +375,9 @@ public abstract partial class ComputingContextBase : IDisposable
     /// Disposing the context unregisters all handlers.
     /// </returns>
     /// <remarks>
-    /// Called as described for the single-value overload; the values are compared with the last
-    /// delivered ones item by item, in order, with the provider's comparer.
+    /// Called as described for the single-value overload, including its threading and ordering
+    /// guarantees; the values are compared with the last delivered ones item by item, in order, with
+    /// the provider's comparer.
     /// </remarks>
     /// <exception cref="ArgumentNullException"><paramref name="handler"/> is <c>null</c>.</exception>
     /// <exception cref="ObjectDisposedException">The context has been disposed.</exception>
@@ -360,8 +415,10 @@ public abstract partial class ComputingContextBase : IDisposable
     /// </summary>
     /// <remarks>
     /// Every handler runs even if an earlier one throws. If any handler throws,
-    /// an <see cref="AggregateException"/> containing all handler exceptions is
-    /// thrown after all handlers have run.
+    /// an <see cref="AggregateException"/> containing all handler exceptions (also those of
+    /// deliveries this thread made for other threads' changes, see
+    /// <see cref="RegisterOutput{T}(IncrementalValueProvider{T}, Action{T, ComputingContextBase})"/>)
+    /// is thrown after all handlers have run.
     /// </remarks>
     /// <exception cref="AggregateException">One or more output handlers threw.</exception>
     protected void TriggerOutputs()
@@ -378,16 +435,11 @@ public abstract partial class ComputingContextBase : IDisposable
         List<Exception>? exceptions = null;
 
         // Execute handlers outside the lock
+        // (each registration collects its handler's exceptions, including those of deliveries it
+        // made for other threads' changes, into the list: one flat AggregateException)
         foreach (var registration in registrations)
         {
-            try
-            {
-                registration.Execute(this);
-            }
-            catch (Exception ex)
-            {
-                (exceptions ??= new List<Exception>()).Add(ex);
-            }
+            registration.Execute(this, ref exceptions);
         }
 
         if (exceptions != null)
@@ -400,6 +452,7 @@ public abstract partial class ComputingContextBase : IDisposable
     private abstract class OutputRegistrationBase : IDisposable
     {
         private readonly ComputingContextBase _context;
+        private readonly OutputGate _gate = new();
         private volatile bool _disposed;
 
         protected OutputRegistrationBase(ComputingContextBase context)
@@ -407,10 +460,17 @@ public abstract partial class ComputingContextBase : IDisposable
             _context = context;
         }
 
-        // Checked right before the handler runs, so that no new call starts once Dispose returned
-        protected bool IsDisposed => _disposed;
+        // Checked by the gate before each delivery and right before the handler runs. Set for every
+        // registration when the context is disposed.
+        public bool IsDisposed => _disposed;
 
-        public abstract void Execute(ComputingContextBase context);
+        // Serialized per registration (see OutputGate): Deliver, and the last delivered value it
+        // keeps, run on one thread at a time
+        public void Execute(ComputingContextBase context, ref List<Exception>? exceptions) =>
+            _gate.Run(this, context, ref exceptions);
+
+        // Reads the provider and calls the handler if the value changed. Called only by the gate.
+        public abstract void Deliver(ComputingContextBase context);
 
         // Called by the context's Dispose (under its lock) for every remaining registration
         public void MarkDisposed() => _disposed = true;
@@ -444,12 +504,24 @@ public abstract partial class ComputingContextBase : IDisposable
             _comparer = provider.Node is IHasComparer<T> withComparer ? withComparer.Comparer : DefaultEqualityComparer<T>.Instance;
         }
 
-        public override void Execute(ComputingContextBase context)
+        public override void Deliver(ComputingContextBase context)
         {
             if (IsDisposed)
                 return;
 
-            var result = _provider.GetValue();
+            Result<T, ComputationError> result;
+            try
+            {
+                result = _provider.GetValue();
+            }
+            catch (ObjectDisposedException) when (IsDisposed)
+            {
+                // The context was disposed during this delivery (it marks its registrations disposed
+                // before its providers start throwing): the handler is no longer called. Only the
+                // provider read is covered, so exceptions thrown by the handler always surface.
+                return;
+            }
+
             if (result.IsNone)
             {
                 // No value (filtered out by Where): don't run the handler, and run it again
@@ -496,12 +568,22 @@ public abstract partial class ComputingContextBase : IDisposable
             _comparer = provider.Node is IHasComparer<T> withComparer ? withComparer.Comparer : DefaultEqualityComparer<T>.Instance;
         }
 
-        public override void Execute(ComputingContextBase context)
+        public override void Deliver(ComputingContextBase context)
         {
             if (IsDisposed)
                 return;
 
-            var result = _provider.GetValues();
+            Result<IReadOnlyList<T>, ComputationError> result;
+            try
+            {
+                result = _provider.GetValues();
+            }
+            catch (ObjectDisposedException) when (IsDisposed)
+            {
+                // Disposed during this delivery: see OutputRegistration<T>.Deliver
+                return;
+            }
+
             if (result.IsSuccess && result.ValueOrDefault != null)
             {
                 // A read-only view of an immutable cached array (see GetValues), so it can be kept

@@ -111,8 +111,10 @@ public partial class OutputRegistrationDisposalTests
         var items = context.ItemsSource;
 
         context.Dispose();
-        source.Set(1);
-        items.Push("a");
+
+        // The sources refuse changes after the context's disposal (#88); no handler runs
+        Assert.Throws<ObjectDisposedException>(() => source.Set(1));
+        Assert.Throws<ObjectDisposedException>(() => items.Push("a"));
 
         Assert.Equal(0, calls);
         Assert.Throws<ObjectDisposedException>(() => context.RegisterOutput(context.Number, (_, _) => { }));

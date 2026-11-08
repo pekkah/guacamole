@@ -228,7 +228,7 @@ External code pushes changes into sources:
 // A source accessor is generated for each partial get-only provider property
 context.SourcesSource.Push(new SourceFile("Program.cs", "..."));   // collection with set semantics: duplicates are ignored, items keep insertion order
 context.SourcesSource.Remove(oldFile);
-context.SourcesSource.Replace(oldFile, newFile);                   // newFile takes oldFile's position; throws if oldFile is missing or newFile already present (an equal newFile is a no-op)
+context.SourcesSource.Replace(oldFile, newFile);                   // newFile takes oldFile's position; throws if oldFile is missing (even when newFile equals it) or newFile already present; an equal newFile for a present oldFile is a no-op
 context.SourcesSource.Clear();
 context.OptionsSource.Set(new BuildOptions("Release"));             // single value; setting an equal value is a no-op
 
@@ -269,11 +269,11 @@ IDisposable registration = context.RegisterOutput(provider, (value, ctx) => { /*
 registration.Dispose();
 ```
 
-- Handlers run synchronously, on the thread that changed a source, after **any** source of the context changes. They are not run at registration time.
+- Handlers run after **any** source of the context changes, not at registration time. A value is delivered synchronously by the thread whose `Push`/`Set`/... changed the source, before that call returns, unless a delivery to the same handler is already running: then the call returns at once and the delivering thread calls the handler again with the latest value after it returns (see [Thread Safety](#thread-safety)).
 - A handler is invoked only if its provider computes a value (not an error, and not "no value" from a `Where`; a `null` value is delivered) and the value differs from the last value delivered to that handler; after a "no value" phase, a reappearing value is delivered again even if it equals the last one (the provider's comparer when it was created with one, e.g. `Select(selector, comparer)`, otherwise `EqualityComparer<T>.Default`; element-wise for collections). `Collect()` results compare element-wise (in order), so a handler on a collected provider does not run for a re-collect with equal items; other `ImmutableArray<T>`, list or dictionary values returned by a `Select` compare by reference.
-- All handlers run even if one throws; afterwards the exceptions are rethrown as one `AggregateException` from the `Push`/`Set`/... call that triggered them.
-- `RegisterOutput` returns an `IDisposable`; disposing it unregisters that handler only (thread-safe, idempotent; no new call of the handler starts once `Dispose` returns). Collection handlers receive an `IReadOnlyList<T>`.
-- `Dispose()` on the context unsubscribes it from its sources and drops all of its output registrations. Its providers are no longer invalidated by source changes afterwards (they may return stale values), so do not read them.
+- All handlers run even if one throws; afterwards the exceptions are rethrown as one `AggregateException` (all handler exceptions as its inner exceptions) from the `Push`/`Set`/... call on the thread that delivered them, which is not the triggering call when the delivery was handed to another thread.
+- `RegisterOutput` returns an `IDisposable`; disposing it unregisters that handler only (thread-safe, idempotent; deliveries that start afterwards, and deliveries on the thread that disposed it, do not call the handler, but a delivery in progress on another thread may still make one call just after `Dispose` returns). Collection handlers receive an `IReadOnlyList<T>`.
+- `Dispose()` on the context unsubscribes it from its sources and drops all of its output registrations. A disposed context no longer tracks source changes, so instead of returning stale values, reading its providers (`GetValue`, `Value`, `TryGetValue`, `GetValues`, `Values`) and changing its sources (`Set`, `Push`, `PushRange`, `Remove`, `Replace`, `Clear`, batch `Commit`) throw `ObjectDisposedException`. The sources' own `GetValue`/`GetSnapshot` keep working.
 
 ### Thread Safety
 
@@ -282,10 +282,11 @@ What is synchronized:
 - Each source guards its contents with its own lock (collection sources publish an immutable snapshot, so their reads take no lock), so `Push`/`Remove`/`Replace`/`Clear`/`Set` and `GetSnapshot`/`GetValue` can be called concurrently.
 - The LRU value cache locks internally, version counters and node registries use concurrent collections, and storing a computed value together with its version information is a single atomic step.
 - Registering outputs, subscribing sources and `Dispose()` are synchronized with each other; a change notification that races with `Dispose()` is ignored.
+- Each handler's own calls are serialized: it is never called concurrently with itself or re-entrantly, never receives the same value twice in a row, and once all concurrent `Push`/`Set`/... calls have returned, the last value it received is its provider's current value. A change that arrives while the handler runs does not wait for it: the thread running the handler calls it again with the then current value after it returns (so the handler, and any exception it throws, may run on another thread than the one that made the change, and intermediate values may be skipped). A handler that changes a source is called again with the new value after it returns, not from within itself. A `Push`/`Set`/... call that is delivering keeps delivering while other threads keep changing sources, so with slow handlers and continuous concurrent writes its latency is unbounded.
 
 What is not:
 
-- Change notifications and output handlers run synchronously on the caller's thread with no lock held, so handlers triggered by concurrent changes can run concurrently. Make handlers thread-safe or serialize your writes.
+- Change notifications and output handlers run synchronously with no lock of the context held. Different handlers can run concurrently with each other, so handlers that share state must synchronize it.
 - Reading a provider does not lock the pipeline: two threads reading the same stale node may both compute it. Keep your lambdas pure.
 - `BeginBatch()` returns a buffer that is not thread-safe; `Commit()` applies its operations atomically under the source's lock (all or nothing), with a single notification.
 

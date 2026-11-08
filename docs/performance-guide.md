@@ -169,7 +169,7 @@ using (var batch = context.FilesSource.BeginBatch())
 } // one notification
 ```
 
-A batch is all or nothing: if an operation would fail (`Replace` of an item that is not present at that point of the batch, or with one that is, or a `null` item), `Commit()` throws without applying any operation and without a notification. Operations that cancel out (a `Push` of a new item and a `Remove` of it) raise no notification. A committed batch cannot be reused: `Push`/`Remove`/`Replace` after `Commit()` throw `InvalidOperationException`; begin a new batch instead.
+A batch is all or nothing: if an operation would fail (`Replace` of an item that is not present at that point of the batch, even with an equal replacement, or with one that is, or a `null` item), `Commit()` throws without applying any operation and without a notification. Operations that cancel out (a `Push` of a new item and a `Remove` of it) raise no notification. A committed batch cannot be reused: `Push`/`Remove`/`Replace` after `Commit()` throw `InvalidOperationException`; begin a new batch instead.
 
 ## Memory
 
@@ -185,13 +185,13 @@ A batch is all or nothing: if an operation would fail (`Replace` of an item that
   ```
 - Outside the cache, collection `Select`, `Where` and `SelectMany` stages keep their per-item memo (the latest input and results), and `Where`, `SelectMany` and `values.Combine(value)` also keep their latest output for [item-level deltas](#item-level-deltas) (`SelectMany` also an offset per item, `Combine` its latest input). That is about one or two N-element arrays per collection stage, released when the node is trimmed.
 - Nodes created by operator calls stay registered in the graph until `TrimUnusedNodes()` (called explicitly, or automatically with `AutoTrimInterval`) removes the ones nothing references anymore (see [Build Pipelines Once](#build-pipelines-once)).
-- `Dispose()` unsubscribes the context from its sources and drops its output registrations.
+- `Dispose()` unsubscribes the context from its sources and drops its output registrations; reading its providers or changing its sources afterwards throws `ObjectDisposedException` (a single volatile read on each provider read).
 
 ## Thread Safety and Performance
 
 - Source operations take the source's own write lock only while updating its contents; notifications and output handlers run afterwards, without a lock.
 - Reads do not lock the pipeline. Two threads reading the same stale provider may both compute it; the cache is updated atomically and the last result wins. Keep lambdas pure and side-effect free.
-- Output handlers run synchronously on the thread that changed a source. Long-running handlers delay the `Push`/`Set` call that triggered them.
+- Output handlers run synchronously, usually on the thread that changed a source. Long-running handlers delay the `Push`/`Set` call that triggered them. Each handler's calls are serialized without blocking: a change that arrives while the handler runs returns at once and is delivered by the thread already running it, after it returns. That thread's `Push`/`Set` call therefore keeps delivering as long as other threads keep changing sources; with slow handlers and continuous concurrent writes its latency is unbounded, so keep handlers short (hand slow work to a queue).
 
 ## Benchmarking
 

@@ -228,7 +228,7 @@ context.SourcesSource.Push(new SourceFile("Main.cs", "a b"));   // pushing an eq
 context.SourcesSource.PushRange(new[] { new SourceFile("Utils.cs", "c") });
 context.SourcesSource.Replace(
     new SourceFile("Utils.cs", "c"),
-    new SourceFile("Utils.cs", "c d"));                          // keeps the old item's position; throws if the old item is missing or the new one exists (an equal new item is a no-op)
+    new SourceFile("Utils.cs", "c d"));                          // keeps the old item's position; throws if the old item is missing (even if the new one equals it) or the new one exists; an equal new item for a present old one is a no-op
 context.SourcesSource.Remove(new SourceFile("Utils.cs", "c d")); // removing a missing item is a no-op
 IReadOnlyCollection<SourceFile> current = context.SourcesSource.GetSnapshot();
 
@@ -236,7 +236,7 @@ IReadOnlyCollection<SourceFile> current = context.SourcesSource.GetSnapshot();
 context.OptionsSource.Set(new BuildOptions("Release"));         // setting an equal value is a no-op; null throws
 ```
 
-Each operation that actually changes the source raises the source's `Changed` event. The context then increments the source's version and runs its output handlers, synchronously, before the call returns.
+Each operation that actually changes the source raises the source's `Changed` event. The context then increments the source's version and runs its output handlers, synchronously, before the call returns, except for a handler that is already being run by another thread (or further up the same thread): that thread calls it again with the latest value after it returns.
 
 ### Batches
 
@@ -252,7 +252,7 @@ using (var batch = context.SourcesSource.BeginBatch())
 ```
 
 - `Commit()` applies the operations in order in one step, with a single change notification (none if the source ends up unchanged, for example after a `Push` and a `Remove` of the same new item).
-- It is all or nothing: if an operation would fail (`Replace` of a missing item, or with an item that is present, at that point of the batch), `Commit()` throws and nothing is applied.
+- It is all or nothing: if an operation would fail (`Replace` of a missing item, even with an equal replacement, or with an item that is present, at that point of the batch), `Commit()` throws and nothing is applied.
 - After `Commit()` the batch is done: adding operations throws `InvalidOperationException`.
 - `Rollback()` discards the buffered operations.
 - Disposing a batch that was neither committed nor rolled back **commits** it.
@@ -314,10 +314,10 @@ context.SourcesSource.Push(new SourceFile("Main.cs", "a b"));
 Handler behavior:
 - Handlers are not run at registration; they run after **any** source of the context changes.
 - A handler is called only if its provider computes a value (not an error, and not "no value" from a `Where`) and the value differs from the last value delivered to that handler.
-- Handlers run synchronously on the thread that changed the source.
-- If handlers throw, the remaining handlers still run and the exceptions are rethrown together as an `AggregateException` from the `Push`/`Set`/... call.
+- Handlers run synchronously, usually on the thread that changed the source. One handler is never called concurrently with itself or re-entrantly (a change made while it runs, on any thread, is delivered after it returns), so it never sees the same value twice in a row and ends with the current value.
+- If handlers throw, the remaining handlers still run and the exceptions are rethrown together as one `AggregateException` from the `Push`/`Set`/... call on the thread that ran them.
 - `RegisterOutput` returns an `IDisposable`: disposing it unregisters that handler only (disposing twice is a no-op).
-- After `Dispose()`, the context no longer listens to its sources and all of its handlers are dropped.
+- After `Dispose()`, the context no longer listens to its sources and all of its handlers are dropped; reading its providers or changing its sources throws `ObjectDisposedException`.
 
 ## Troubleshooting
 
