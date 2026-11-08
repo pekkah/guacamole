@@ -14,6 +14,19 @@ This guide covers the breaking API changes made before 1.0:
 
 An architecture review of the public API before 1.0 removed dead members and made the remaining contracts consistent. Most changes are renames that the compiler points out.
 
+| Before | After |
+|--------|-------|
+| `[ComputingContext(GenerateAsyncMethods = ..., GenerateBatchMethods = ..., Name = ...)]` | `[ComputingContext]` |
+| `GetValues()` → `Result<IEnumerable<T>, ComputationError>`, `.Values` → `IEnumerable<T>` | `Result<IReadOnlyList<T>, ComputationError>`, `IReadOnlyList<T>` |
+| collection `RegisterOutput(provider, Action<IEnumerable<T>, ComputingContextBase>)` | `Action<IReadOnlyList<T>, ComputingContextBase>` |
+| `void RegisterOutput(...)` | `IDisposable RegisterOutput(...)` |
+| `result.Value` (on `Result<TValue, TError>`) | `result.ValueOrDefault` |
+| `AddGuacamoleCore`, `GuacamoleCoreOptions` | `AddGuacamole`, `GuacamoleOptions` |
+| `ProviderOptions`, `ProviderOptions.DefaultTags`, `IProviderMetadataFactory` | removed |
+| `SourceChangedEventArgs.Timestamp` (`DateTime`) | `DateTimeOffset` |
+
+New: `Merge(other, comparer)`.
+
 ### `ComputingContextAttribute` has no properties
 
 `GenerateAsyncMethods`, `GenerateBatchMethods` and `Name` were left over from the mutation-based design: the source generator never read them. Remove the arguments: `[ComputingContext(GenerateAsyncMethods = false)]` becomes `[ComputingContext]`. Generated code is unchanged.
