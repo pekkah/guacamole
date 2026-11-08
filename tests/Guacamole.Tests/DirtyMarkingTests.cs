@@ -339,7 +339,7 @@ public partial class DirtyMarkingTests
             default:
                 {
                     // Several operations in one batch
-                    using var batch = context.ItemsSource.BeginBatch();
+                    using IBatchOperation<int> batch = context.ItemsSource.BeginBatch();
                     for (var i = 0; i < 3; i++)
                     {
                         var item = random.Next(40);

@@ -105,7 +105,7 @@ public partial class BulkSourceOperationsTests
         context.RegisterOutput(total, (_, _) => outputs++);
         var version = SourceVersion(context);
 
-        using (var batch = context.ItemsSource.BeginBatch())
+        using (IBatchOperation<int> batch = context.ItemsSource.BeginBatch())
         {
             for (var i = 10; i < 60; i++)
                 batch.Push(i);
@@ -127,7 +127,7 @@ public partial class BulkSourceOperationsTests
         using var context = new ItemsContext();
         context.ItemsSource.PushRange([1, 2, 3]);
 
-        using (var batch = context.ItemsSource.BeginBatch())
+        using (IBatchOperation<int> batch = context.ItemsSource.BeginBatch())
         {
             batch.Remove(1);
             batch.Push(1);      // moves 1 to the end
@@ -149,7 +149,7 @@ public partial class BulkSourceOperationsTests
         var notifications = 0;
         context.ItemsSource.Changed += (_, _) => notifications++;
 
-        using (var batch = context.ItemsSource.BeginBatch())
+        using (IBatchOperation<int> batch = context.ItemsSource.BeginBatch())
         {
             batch.Push(1);
             batch.Remove(5);
@@ -157,7 +157,7 @@ public partial class BulkSourceOperationsTests
             batch.Commit();
         }
 
-        using (var batch = context.ItemsSource.BeginBatch())
+        using (IBatchOperation<int> batch = context.ItemsSource.BeginBatch())
         {
             batch.Push(7);
             batch.Rollback();
@@ -175,7 +175,7 @@ public partial class BulkSourceOperationsTests
         var notifications = 0;
         context.ItemsSource.Changed += (_, _) => notifications++;
 
-        var batch = context.ItemsSource.BeginBatch();
+        IBatchOperation<int> batch = context.ItemsSource.BeginBatch();
         batch.Push(3);
         batch.Replace(42, 43); // 42 is not present
         batch.Push(4);
@@ -194,7 +194,7 @@ public partial class BulkSourceOperationsTests
         var notifications = 0;
         context.ItemsSource.Changed += (_, _) => notifications++;
 
-        using (var batch = context.ItemsSource.BeginBatch())
+        using (IBatchOperation<int> batch = context.ItemsSource.BeginBatch())
         {
             batch.Push(1);
             batch.Push(2);
