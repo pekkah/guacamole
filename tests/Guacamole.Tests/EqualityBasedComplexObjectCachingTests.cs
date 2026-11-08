@@ -2,7 +2,6 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using Guacamole;
-using Microsoft.Extensions.DependencyInjection;
 using Xunit;
 
 namespace Guacamole.Tests;
@@ -54,17 +53,11 @@ public partial class EqualityBasedComplexObjectCachingTests
 
     }
 
-    private static System.IServiceProvider CreateServices()
-    {
-        var services = new ServiceCollection();
-        return services.BuildServiceProvider();
-    }
 
     [Fact]
     public void ComplexObject_WithRecord_EqualityWorksCorrectly()
     {
         // Arrange
-        var services = CreateServices();
         var context = new ComplexObjectContext();
         int handlerCallCount = 0;
 
@@ -87,7 +80,6 @@ public partial class EqualityBasedComplexObjectCachingTests
     public void ComplexObject_SelectProperty_CachingWorks()
     {
         // Arrange
-        var services = CreateServices();
         var context = new ComplexObjectContext();
         int handlerCallCount = 0;
         string? lastName = null;
@@ -119,7 +111,6 @@ public partial class EqualityBasedComplexObjectCachingTests
     public void ComplexCollection_FilterByProperty_CachingWorks()
     {
         // Arrange
-        var services = CreateServices();
         var context = new ComplexCollectionContext();
         int handlerCallCount = 0;
 

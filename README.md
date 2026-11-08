@@ -1,7 +1,6 @@
 # Guacamole
 
-[![CI](https://github.com/pekkah/guacamole/actions/workflows/ci.yml/badge.svg)](https://github.com/pekkah/guacamole/actions/workflows/ci.yml)
-[![Publish](https://github.com/pekkah/guacamole/actions/workflows/publish.yml/badge.svg)](https://github.com/pekkah/guacamole/actions/workflows/publish.yml)
+[![Build (main)](https://github.com/pekkah/guacamole/actions/workflows/publish.yml/badge.svg?branch=main)](https://github.com/pekkah/guacamole/actions/workflows/publish.yml)
 [![NuGet](https://img.shields.io/nuget/v/Guacamole.svg)](https://www.nuget.org/packages/Guacamole/)
 
 A .NET framework for building incremental compilers and computation pipelines, inspired by Roslyn's incremental generators. Provides automatic dependency tracking, caching, and change propagation for efficient recomputation when inputs change.
@@ -24,9 +23,14 @@ dotnet add package Guacamole --prerelease
 dotnet add package Guacamole.SourceGenerators --prerelease
 ```
 
-> **Note**: `Guacamole` is the runtime library. `Guacamole.SourceGenerators` contains the source generator that implements `[ComputingContext]` classes. The runtime package does not depend on the generator package, so **install both**. The generator is a development dependency: it runs at compile time only and is not passed on to projects that reference yours.
+> **Note**: `Guacamole` is the runtime library. `Guacamole.SourceGenerators` contains the source generator that implements `[ComputingContext]` classes. The runtime package does not depend on the generator package, so **install both**. The generator is a development dependency: `dotnet add package` and IDEs add it with `PrivateAssets="all"`, so it runs at compile time only and is not passed on to projects that reference yours. Those projects still get the `Guacamole` runtime through your package or project and can use the contexts you compiled; a project that declares `[ComputingContext]` classes of its own references `Guacamole.SourceGenerators` itself.
 
-`--prerelease` installs the latest preview: prerelease versions are published to nuget.org from `main`, and stable versions from release tags. Until the first stable release only previews exist, so `dotnet add package` without `--prerelease` finds no version; afterwards, omit it to get the latest stable version. In a `PackageReference`, give a preview version from nuget.org explicitly.
+`--prerelease` installs the latest preview: prerelease versions are published to nuget.org from `main`, and stable versions from release tags. Until the first stable release only previews exist, so `dotnet add package` without `--prerelease` finds no version; afterwards, omit it to get the latest stable version. In a `PackageReference`, give a preview version from nuget.org explicitly, and add `PrivateAssets="all"` to the generator yourself (NuGet does not add it to a hand-written reference, and without it the generator becomes a dependency of your package and runs in the projects that reference yours):
+
+```xml
+<PackageReference Include="Guacamole" Version="<version>" />
+<PackageReference Include="Guacamole.SourceGenerators" Version="<version>" PrivateAssets="all" />
+```
 
 The [changelog](https://github.com/pekkah/guacamole/blob/main/CHANGELOG.md) lists the changes in each version, and the [packages](#packages) table links to nuget.org.
 
@@ -177,7 +181,7 @@ How these behave:
 
 | Package | Description | NuGet |
 |---------|-------------|-------|
-| **Guacamole** | Runtime: `ComputingContextBase`, sources, providers and operators, computation graph, caching, DI registration | [![NuGet](https://img.shields.io/nuget/v/Guacamole.svg)](https://www.nuget.org/packages/Guacamole/) |
+| **Guacamole** | Runtime: `ComputingContextBase`, sources, providers and operators, computation graph, caching | [![NuGet](https://img.shields.io/nuget/v/Guacamole.svg)](https://www.nuget.org/packages/Guacamole/) |
 | **Guacamole.SourceGenerators** | Source generator and diagnostics for `[ComputingContext]` classes (separate package; required) | [![NuGet](https://img.shields.io/nuget/v/Guacamole.SourceGenerators.svg)](https://www.nuget.org/packages/Guacamole.SourceGenerators/) |
 
 ## Requirements
@@ -209,15 +213,22 @@ dotnet run -c Release
 
 ## Releasing
 
-Packages are published to nuget.org only from version tags (or a manual run of the Publish workflow):
+Every push to `main` publishes a preview package (`X.Y.Z-preview.N`) to nuget.org once the tests pass. To try the latest preview:
+
+```bash
+dotnet add package Guacamole --prerelease
+dotnet add package Guacamole.SourceGenerators --prerelease
+```
+
+Stable versions are published from version tags, which also create a GitHub release:
 
 ```bash
 git checkout main && git pull
-git tag -a v0.2.0 -m "Release 0.2.0"      # or v0.2.0-beta.1 for a prerelease
+git tag -a v0.2.0 -m "Release 0.2.0"      # stable versions only; prerelease tags are rejected
 git push origin v0.2.0
 ```
 
-The tag name (without `v`) is the package version. Pushes to `main` only build, test and pack. Publishing uses nuget.org trusted publishing (no stored API key); see [docs/ci-cd.md](https://github.com/pekkah/guacamole/blob/main/docs/ci-cd.md#nuget-trusted-publishing) for the one-time setup and details.
+The tag name (without `v`) is the package version. The first stable release is `v0.2.0`; until then `main` publishes `0.2.0-preview.N` (above the early `0.1.0-alpha.*` packages), and after it `main` continues with `0.3.0-preview.N`. Every published version must be higher than all versions already on nuget.org; Publish checks this before pushing. Pull requests are built and tested but never published. Publishing uses nuget.org trusted publishing (no stored API key); see [docs/ci-cd.md](https://github.com/pekkah/guacamole/blob/main/docs/ci-cd.md#nuget-trusted-publishing) for the one-time setup and details.
 
 ## Examples
 
@@ -308,7 +319,7 @@ What is not:
 
 ### Namespaces
 
-Everything a typical application uses (contexts, providers and their operators, sources, `Result`, `ComputationError`, `ProviderMetadata`, the dependency-injection extensions) is in the `Guacamole` namespace, so `using Guacamole;` is all you need. The only other public namespace is `Guacamole.Diagnostics` (`MetricsConfiguration` and the `GuacamoleMetrics` instruments). The computation graph, nodes, value cache and concrete source classes are internal implementation details. See the [Migration Guide](https://github.com/pekkah/guacamole/blob/main/MIGRATION_GUIDE.md) for the old namespaces and the members that became internal.
+Everything a typical application uses (contexts, providers and their operators, sources, `Result`, `ComputationError`, `ProviderMetadata`) is in the `Guacamole` namespace, so `using Guacamole;` is all you need. The only other public namespace is `Guacamole.Diagnostics` (`MetricsConfiguration` and the `GuacamoleMetrics` instruments). The computation graph, nodes, value cache and concrete source classes are internal implementation details. See the [Migration Guide](https://github.com/pekkah/guacamole/blob/main/MIGRATION_GUIDE.md) for the old namespaces and the members that became internal.
 
 ## Documentation
 
@@ -323,4 +334,4 @@ Everything a typical application uses (contexts, providers and their operators, 
 
 ## License
 
-MIT
+[MIT](https://github.com/pekkah/guacamole/blob/main/LICENSE)

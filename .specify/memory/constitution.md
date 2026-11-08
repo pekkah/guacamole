@@ -1,14 +1,15 @@
 <!--
 Sync Impact Report
 ==================
-Version change: 2.3.3 → 2.4.0 (minor update - new development standard)
+Version change: 2.4.0 → 2.5.0 (minor update - expanded package versioning rule)
 Modified principles: None
-Added sections:
-- Development Standards/Branch Protection (new principle mandating PR workflow)
-Modified sections: None
+Added sections: None
+Modified sections:
+- Package Distribution Standards/NuGet Package Requirements (pre-release suffixes
+  now also allow -preview, used for the automatic packages published from main)
 Removed sections: None
 Templates requiring updates:
-- ✅ plan-template.md (already references branching strategy, compatible)
+- ✅ plan-template.md (references v2.3.0, no pre-release suffix rules, compatible)
 - ✅ spec-template.md (no constitution references, compatible)
 - ✅ tasks-template.md (no constitution references, compatible)
 Follow-up TODOs: None
@@ -125,7 +126,9 @@ MAY be used with explicit justification.
 - Packages MUST be published to nuget.org as libraries (no executables)
 - Package ID MUST be "Guacamole" with appropriate suffixes for sub-packages
 - Semantic versioning MUST be strictly followed (MAJOR.MINOR.PATCH)
-- Pre-release versions MUST use standard suffixes (-alpha, -beta, -rc)
+- Pre-release versions MUST use standard suffixes (-alpha, -beta, -rc, -preview)
+  (-preview.N is what every push to main publishes, the established .NET
+  convention for continuous prereleases ahead of a stable vX.Y.Z tag)
 - Package metadata MUST include: description, project URL, license, tags
 - Package description MUST clarify: "Foundation framework for incremental
   compilers, powering the Fugu language compiler and similar tooling"
@@ -259,4 +262,4 @@ All pull requests MUST verify constitutional compliance. Complexity beyond
 these principles MUST be justified in writing. Violations without
 justification will result in PR rejection.
 
-**Version**: 2.4.0 | **Ratified**: 2025-09-26 | **Last Amended**: 2025-10-03
+**Version**: 2.5.0 | **Ratified**: 2025-09-26 | **Last Amended**: 2026-11-08

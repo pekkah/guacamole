@@ -6,7 +6,6 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <PackageId>Guacamole</PackageId>
     <!-- Description and PackageTags come from Directory.Build.props -->
-    <PackageTags>$(PackageTags);dependency-injection</PackageTags>
     <!-- Ship the XML docs (IntelliSense) in the package -->
     <GenerateDocumentationFile>true</GenerateDocumentationFile>
     <TreatWarningsAsErrors>true</TreatWarningsAsErrors>

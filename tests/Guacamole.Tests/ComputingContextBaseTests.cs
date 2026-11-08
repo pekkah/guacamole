@@ -1,5 +1,4 @@
 using System;
-using Microsoft.Extensions.DependencyInjection;
 using Xunit;
 
 namespace Guacamole.Tests;
@@ -17,11 +16,8 @@ public partial class ComputingContextBaseTests
     }
 
     [Fact]
-    public void Constructor_WithValidServices_CreatesInstance()
+    public void Constructor_CreatesUndisposedInstance()
     {
-        // Arrange
-        var services = new ServiceCollection().BuildServiceProvider();
-
         // Act
         using var context = new TestContext();
 
@@ -35,7 +31,6 @@ public partial class ComputingContextBaseTests
     public void Dispose_AfterCreation_SetsIsDisposed()
     {
         // Arrange
-        var services = new ServiceCollection().BuildServiceProvider();
         var context = new TestContext();
 
         // Act
@@ -49,7 +44,6 @@ public partial class ComputingContextBaseTests
     public void Dispose_CalledTwice_DoesNotThrow()
     {
         // Arrange
-        var services = new ServiceCollection().BuildServiceProvider();
         var context = new TestContext();
 
         // Act & Assert - should not throw

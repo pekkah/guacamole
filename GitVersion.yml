@@ -1,15 +1,34 @@
-tag-prefix: v
+# Versioning for CI builds (see docs/ci-cd.md#versioning-strategy).
+#
+#   main            -> X.Y.Z-preview.N    published to nuget.org on every push
+#   tag vX.Y.Z      -> X.Y.Z              ci.yml takes the tag name (GitVersion agrees)
+#   pull requests   -> X.Y.Z-pr.N         artifact only, never published
+#   other branches  -> X.Y.Z-<branch>.N   artifact only, never published
+#
+# After a stable tag vX.Y.Z, main continues with X.(Y+1).0-preview.1, .2, ...
+# (increment: Minor). "+semver: major|patch" in a commit message overrides that.
+# N counts commits since the last stable tag, so preview versions never repeat.
+#
+# next-version is a floor used while no tag at or above it exists: until the first
+# stable tag v0.2.0, main builds are 0.2.0-preview.N (above the 0.1.0-alpha.* packages
+# already on nuget.org). Once v0.2.0 exists the tag wins and main continues with
+# 0.3.0-preview.N, so the value can stay (verified with GitVersion 6.8.2).
+# GitVersion parses next-version with the tag-prefix pattern, so the prefix must be
+# optional ('v?'); with a mandatory 'v' it fails with "Failed to parse 0.2.0".
+# Release tags are still always vX.Y.Z (publish.yml and ci.yml reject anything else).
+next-version: 0.2.0
+tag-prefix: 'v?'
 mode: ContinuousDelivery
 branches:
   main:
     regex: ^main$
     mode: ContinuousDelivery
-    label: alpha
+    label: preview
     increment: Minor
   pull-request:
     label: pr
   feature:
-    label: alpha
+    label: '{BranchName}'
 commit-message-incrementing: Enabled
 major-version-bump-message: '\+semver:\s?(breaking|major)'
 minor-version-bump-message: '\+semver:\s?(feature|minor)'

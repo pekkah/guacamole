@@ -1,5 +1,4 @@
 using Guacamole;
-using Microsoft.Extensions.DependencyInjection;
 using Xunit;
 
 namespace Guacamole.Tests;
@@ -17,17 +16,11 @@ public partial class EqualityBasedPipelineCachingTests
 
     }
 
-    private static System.IServiceProvider CreateServices()
-    {
-        var services = new ServiceCollection();
-        return services.BuildServiceProvider();
-    }
 
     [Fact]
     public void Pipeline_WhenSourceValueUnchanged_CacheHitsPropagateThrough()
     {
         // Arrange
-        var services = CreateServices();
         var context = new PipelineTestContext();
         int handlerCallCount = 0;
         char? lastChar = null;
@@ -62,7 +55,6 @@ public partial class EqualityBasedPipelineCachingTests
     public void Pipeline_WhenSourceChangesButOutputSame_HandlerNotCalled()
     {
         // Arrange
-        var services = CreateServices();
         var context = new PipelineTestContext();
         int handlerCallCount = 0;
         char? lastChar = null;
@@ -95,7 +87,6 @@ public partial class EqualityBasedPipelineCachingTests
     public void Pipeline_WhenSourceChangesAndOutputChanges_HandlerCalled()
     {
         // Arrange
-        var services = CreateServices();
         var context = new PipelineTestContext();
         int handlerCallCount = 0;
         char? lastChar = null;
@@ -129,7 +120,6 @@ public partial class EqualityBasedPipelineCachingTests
     public void Pipeline_WhenOutputFiltered_HandlerNotCalledOnFailure()
     {
         // Arrange
-        var services = CreateServices();
         var context = new PipelineTestContext();
         int handlerCallCount = 0;
 
@@ -159,7 +149,6 @@ public partial class EqualityBasedPipelineCachingTests
     public void Pipeline_WithMultipleTransformations_CachingWorksCorrectly()
     {
         // Arrange
-        var services = CreateServices();
         var context = new PipelineTestContext();
         int handlerCallCount = 0;
         bool? lastResult = null;

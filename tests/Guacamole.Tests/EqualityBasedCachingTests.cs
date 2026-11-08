@@ -1,5 +1,4 @@
 using Guacamole;
-using Microsoft.Extensions.DependencyInjection;
 using Xunit;
 
 namespace Guacamole.Tests;
@@ -31,16 +30,10 @@ public partial class EqualityBasedCachingTests
 
     }
 
-    private static System.IServiceProvider CreateServices()
-    {
-        var services = new ServiceCollection();
-        return services.BuildServiceProvider();
-    }
     [Fact]
     public void SaveChanges_WhenValueChanged_InvalidatesCacheAndTriggersRecomputation()
     {
         // Arrange
-        var services = CreateServices();
         var context = new EqualityTestContext();
         int handlerCallCount = 0;
         string? lastValue = null;
@@ -65,7 +58,6 @@ public partial class EqualityBasedCachingTests
     public void SaveChanges_CollectionRemoveExistingItem_InvalidatesCache()
     {
         // Arrange
-        var services = CreateServices();
         var context = new EqualityTestCollectionContext();
         int handlerCallCount = 0;
 

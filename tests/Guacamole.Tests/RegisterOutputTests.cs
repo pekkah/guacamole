@@ -1,7 +1,6 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
-using Microsoft.Extensions.DependencyInjection;
 using Xunit;
 using Guacamole;
 
@@ -37,7 +36,6 @@ public partial class RegisterOutputTests
     public void RegisterOutput_WhenSaveChangesCalled_TriggersHandlerWithComputedValue()
     {
         // Arrange
-        var services = new ServiceCollection().BuildServiceProvider();
         var context = new TestContextWithValue();
 
         string? capturedValue = null;
@@ -61,7 +59,6 @@ public partial class RegisterOutputTests
     public void RegisterOutput_ForCollectionProvider_TriggersWithCollectionValue()
     {
         // Arrange
-        var services = new ServiceCollection().BuildServiceProvider();
         var context = new TestContextWithCollection();
 
         IEnumerable<string>? capturedItems = null;
@@ -86,7 +83,6 @@ public partial class RegisterOutputTests
     public void RegisterOutput_WithMultipleHandlers_TriggersAllHandlers()
     {
         // Arrange
-        var services = new ServiceCollection().BuildServiceProvider();
         var context = new TestContextWithValue();
 
         var handler1Called = false;
@@ -109,7 +105,6 @@ public partial class RegisterOutputTests
     public void RegisterOutput_WithComputationError_DoesNotCallHandler()
     {
         // Arrange
-        var services = new ServiceCollection().BuildServiceProvider();
         var context = new TestContextWithValue();
 
         var handlerCalled = false;
@@ -129,7 +124,6 @@ public partial class RegisterOutputTests
     public void RegisterOutput_AfterMultipleSaveChanges_TriggersEachTime()
     {
         // Arrange
-        var services = new ServiceCollection().BuildServiceProvider();
         var context = new TestContextWithValue();
 
         var callCount = 0;

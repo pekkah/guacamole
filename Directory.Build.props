@@ -23,10 +23,10 @@
     <RepositoryUrl>https://github.com/pekkah/guacamole</RepositoryUrl>
     <RepositoryType>git</RepositoryType>
 
-    <!-- Versioning: local builds default to 0.1.0-dev. CI (.github/workflows/ci.yml) computes the
+    <!-- Versioning: local builds default to 0.2.0-dev. CI (.github/workflows/ci.yml) computes the
          real version (GitVersion SemVer, or the v* tag name for releases; see GitVersion.yml and
          docs/ci-cd.md) and overrides this with -p:Version=... at pack time. -->
-    <Version>0.1.0-dev</Version>
+    <Version>0.2.0-dev</Version>
     <GenerateAssemblyInfo>true</GenerateAssemblyInfo>
 
     <!-- Output directories -->
@@ -47,8 +47,8 @@
 
     <!-- Package validation -->
     <EnablePackageValidation>true</EnablePackageValidation>
-    <!-- Uncomment after first 0.1.0 release:
-    <PackageValidationBaselineVersion>0.1.0</PackageValidationBaselineVersion>
+    <!-- Uncomment after the first stable release (v0.2.0):
+    <PackageValidationBaselineVersion>0.2.0</PackageValidationBaselineVersion>
     -->
   </PropertyGroup>
 
