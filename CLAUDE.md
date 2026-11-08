@@ -29,7 +29,7 @@ cd benchmarks/Guacamole.Benchmarks && dotnet run -c Release
 ```
 
 ## Code Style
-C# 15 / .NET 11.0 RC3: Follow standard conventions
+C# 15 / .NET 11.0 RC3: Follow standard conventions. LF line endings on every platform (`.gitattributes` `* text=auto eol=lf`, `.editorconfig` `end_of_line = lf`); CI runs `dotnet format guacamole.sln --verify-no-changes` on Linux and Windows
 
 ## Recent Changes
 - 010-property-genration-current: Added C# 15 / .NET 11.0 RC3 + Microsoft.CodeAnalysis.CSharp (Roslyn source generators), Microsoft.Extensions.DependencyInjection, System.Collections.Immutable

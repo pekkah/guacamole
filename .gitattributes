@@ -1,37 +1,36 @@
-# Normalize line endings: LF in the repository, native on checkout
-* text=auto
+# Line endings: LF in the repository AND in every working tree, on every platform.
+# .editorconfig sets `end_of_line = lf` and CI runs `dotnet format --verify-no-changes`
+# on Linux and Windows, so Windows checkouts must not be converted to CRLF.
+* text=auto eol=lf
 
-# Verify snapshot files must keep LF line endings on every platform
+# Verify snapshot files: LF and UTF-8 on every platform (covered by the default above,
+# kept explicit because snapshot comparisons depend on it)
 *.verified.txt  text eol=lf working-tree-encoding=UTF-8
 *.verified.xml  text eol=lf working-tree-encoding=UTF-8
 *.verified.json text eol=lf working-tree-encoding=UTF-8
 *.verified.cs   text eol=lf working-tree-encoding=UTF-8
 
-# Shell scripts must use LF; Windows scripts use CRLF
-*.sh   text eol=lf
+# cmd.exe batch files are the one exception: they can misbehave with LF (labels, goto).
+# PowerShell scripts (.ps1) work with LF and follow the default.
 *.cmd  text eol=crlf
 *.bat  text eol=crlf
-*.ps1  text eol=crlf
 
-# Source and project files
-*.cs      text diff=csharp
-*.csproj  text
-*.props   text
-*.targets text
-*.sln     text
-*.slnx    text
-*.json    text
-*.yml     text
-*.yaml    text
-*.md      text diff=markdown
-*.xml     text
+# Diff drivers
+*.cs  diff=csharp
+*.md  diff=markdown
 
 # Binary files
-*.png   binary
-*.jpg   binary
-*.gif   binary
-*.ico   binary
-*.dll   binary
-*.exe   binary
-*.nupkg binary
+*.png    binary
+*.jpg    binary
+*.jpeg   binary
+*.gif    binary
+*.ico    binary
+*.webp   binary
+*.pdf    binary
+*.zip    binary
+*.snk    binary
+*.dll    binary
+*.exe    binary
+*.pdb    binary
+*.nupkg  binary
 *.snupkg binary

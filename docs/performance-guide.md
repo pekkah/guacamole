@@ -156,12 +156,53 @@ var names = context.People.Select(p => p.Name, StringComparer.OrdinalIgnoreCase)
 
 ## Benchmarking
 
-The repository contains BenchmarkDotNet benchmarks in [`benchmarks/Guacamole.Benchmarks`](../benchmarks/Guacamole.Benchmarks/) (`SimpleProviderBenchmarks`, `CachingBenchmarks`, `ComplexGraphBenchmarks`):
+The repository contains BenchmarkDotNet benchmarks in [`benchmarks/Guacamole.Benchmarks`](../benchmarks/Guacamole.Benchmarks/):
+
+| Class | Measures |
+|-------|----------|
+| `SimpleProviderBenchmarks`, `ComplexGraphBenchmarks` | Reading a 5-stage chain / 21-stage tree |
+| `CachingBenchmarks` | Cold read (cache cleared) vs warm read |
+| `IncrementalUpdateBenchmarks` | Reading a total over N sources (a binary reduction tree) after one source changed, for N = 16, 256, 4,096, against recomputing the total directly |
+| `CollectionChangeBenchmarks` | Replacing K of N items, then reading `Items.Select(work).Collect().Select(Sum)`, against recomputing all N items directly |
+| `MemoryOverheadBenchmarks` | Building a context over N items and reading the total, against computing the results directly (time and allocations) |
 
 ```bash
 cd benchmarks/Guacamole.Benchmarks
-dotnet run -c Release
+dotnet run -c Release -- --filter "*"                                # all benchmarks, default job
+dotnet run -c Release -- --filter "*IncrementalUpdate*" --job short  # one class, quick run
 ```
+
+Reports go to `benchmarks/reports/results/` (HTML, CSV, GitHub Markdown). Add `--inProcess` where BenchmarkDotNet cannot start a separate benchmark process. `tests/Guacamole.Benchmarks.Tests` runs every benchmark once (dry job, in-process) and checks with call counters that the incremental benchmarks recompute what they claim to.
+
+### Benchmark results
+
+One short run (`--job short --inProcess`, 3 iterations) on a 4-core Intel Xeon 2.1 GHz VM, Linux, .NET 11 RC3. The error margins are wide, so read these as orders of magnitude, not exact figures. The per-item/per-leaf work (`Work.Mix`) takes about 0.11 µs.
+
+**One change in a graph of N sources** (`IncrementalUpdateBenchmarks`):
+
+| Sources | Stages | Cached read | One source changed | Direct recompute |
+|--------:|-------:|------------:|-------------------:|-----------------:|
+| 16 | 62 | 81 ns | 12 µs | 1.8 µs |
+| 256 | 1,022 | 82 ns | 97 µs | 28 µs |
+| 4,096 | 16,382 | 81 ns | 2.6 ms | 0.44 ms |
+
+**K changed items out of N** (`CollectionChangeBenchmarks`, incremental vs direct):
+
+| Items | K = 1 | K = 10 | K = 100 |
+|------:|------:|-------:|--------:|
+| 1,000 | 78 µs vs 111 µs | 96 µs vs 109 µs | 281 µs vs 113 µs |
+| 10,000 | 0.98 ms vs 1.12 ms | 1.03 ms vs 1.09 ms | 1.37 ms vs 1.13 ms |
+
+The incremental variant allocated 66 KB per change and read at 1,000 items and 607 KB at 10,000 items (K = 1); the direct one allocates nothing.
+
+**Memory overhead** (`MemoryOverheadBenchmarks`): building a context over 1,000 / 10,000 items and reading the total took 1.1 ms / 17 ms and allocated 1.5 MB / 18.6 MB, against 0.11 ms / 1.1 ms and 8 KB / 78 KB for computing the results directly (about 190-240x the allocations). Measured separately with `GC.GetTotalMemory`, the built context retained about 150 B per item, against 8 B per item for the direct results array (the items themselves are shared by both and not counted).
+
+What this shows:
+
+- **Cached reads are constant-time.** A read with no change since the last one costs about 80 ns, whatever the graph size.
+- **Recomputation is proportional to the changes.** After one source changes, only the changed leaf's lambda and the stages on its path to the root rerun; after K item replacements, the per-item lambda runs K times. The tests in `tests/Guacamole.Benchmarks.Tests/IncrementalScenarioTests.cs` assert these call counts.
+- **Wall time after a change is not.** Verifying that the unchanged stages are still valid visits every stage the read depends on, about 0.15-0.2 µs per stage in this run, and collection stages still walk (and allocate for) all N items. With work as cheap as 0.1 µs per stage this bookkeeping costs more than recomputing directly, and many changes per read (K = 100) are slower than a direct recompute. Incremental evaluation pays off when the work per stage or item is clearly more expensive than that (parsing, type checking, anything allocating or doing I/O), or when most reads hit the cache.
+- **Setup is allocation-heavy.** `PushRange` applies items one at a time, and each item gets a memo entry, so building a context allocates far more than the data it holds. Build once and apply changes incrementally.
 
 To benchmark your own context, measure the three things that matter: a cached read (should run no lambdas), a read after a small change (should run only the affected stages), and the cost of a source operation with your output handlers registered.
 

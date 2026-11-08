@@ -7,7 +7,7 @@
 ## Prerequisites
 
 Before running benchmarks, ensure:
-- [ ] .NET 10.0 RC1 SDK installed
+- [ ] .NET SDK from `global.json` installed (11.0 RC3)
 - [ ] Guacamole repository cloned
 - [ ] Solution builds successfully (`dotnet build`)
 - [ ] All existing tests pass (`dotnet test`)
@@ -31,12 +31,12 @@ dotnet build --configuration Release
 **Expected Output**:
 ```
 Build succeeded.
-Guacamole.Benchmarks -> /path/to/bin/Release/net10.0/Guacamole.Benchmarks.dll
+Guacamole.Benchmarks -> /path/to/bin/Release/net11.0/Guacamole.Benchmarks.dll
 ```
 
 **Troubleshooting**:
 - If build fails with missing BenchmarkDotNet: Run `dotnet restore` first
-- If Guacamole.Core not found: Build solution root first
+- If the `Guacamole` project is not found: build the solution root first
 
 ---
 
@@ -48,14 +48,16 @@ dotnet run --configuration Release
 
 **Expected Behavior**:
 1. BenchmarkDotNet prints ASCII art banner
-2. Lists discovered benchmarks (Simple, Complex, Caching)
+2. Without `--filter`, asks which benchmark class to run (`SimpleProviderBenchmarks`,
+   `ComplexGraphBenchmarks`, `CachingBenchmarks`, `IncrementalUpdateBenchmarks`,
+   `CollectionChangeBenchmarks`, `MemoryOverheadBenchmarks`); pass `--filter "*"` to run all
 3. Shows "// Validating benchmarks" message
-4. Executes warm-up iterations (3x per benchmark)
-5. Executes measurement iterations (10x per benchmark)
+4. Executes warm-up and measurement iterations (BenchmarkDotNet's default job decides how many)
+5. Uses a separate process per benchmark (add `--inProcess` where spawning one does not work)
 6. Displays progress: `WorkloadWarmup 1: X iterations`
 7. Generates summary table with results
 
-**Expected Duration**: 2-5 minutes (depends on hardware)
+**Expected Duration**: a few minutes for the original three classes; the parameterized classes take longer (`--job short` for a quick look)
 
 **Sample Output**:
 ```
@@ -79,18 +81,21 @@ Look for the summary table (shown above) which includes:
 - **Allocated**: Total memory allocated
 
 ### Detailed Reports
-Navigate to results directory:
+`Program.cs` writes BenchmarkDotNet's artifacts to `../reports` relative to the current
+directory, i.e. `benchmarks/reports/` when run from the project directory (not
+`BenchmarkDotNet.Artifacts/`). Navigate to the results directory:
 ```bash
-cd BenchmarkDotNet.Artifacts/results/
+cd ../reports/results/
 ls -la
 ```
 
-**Expected Files**:
-- `Guacamole.Benchmarks.SimpleProviderBenchmarks-report.html`
-- `Guacamole.Benchmarks.ComplexGraphBenchmarks-report.html`
-- `Guacamole.Benchmarks.CachingBenchmarks-report.html`
-- `*-report.json` (machine-readable results)
-- `*-report.md` (markdown format for documentation)
+**Expected Files** (one set per benchmark class that ran, e.g. `CachingBenchmarks`):
+- `Guacamole.Benchmarks.<Class>-report.html`
+- `Guacamole.Benchmarks.<Class>-report.csv` (machine-readable results)
+- `Guacamole.Benchmarks.<Class>-report-github.md` (markdown table for documentation)
+
+These are BenchmarkDotNet's default exporters. No JSON report is produced unless you add
+`--exporters json`. Log files go to `benchmarks/reports/` itself.
 
 **Action**: Open any `.html` file in browser for visual report with charts
 
@@ -98,15 +103,12 @@ ls -la
 
 ## Step 5: Validate Variance Threshold
 
-Check that standard deviation is within acceptable range:
+Compare the `StdDev` column with `Mean` in the summary table or the `-report-github.md` file.
+There is no automated variance gate (spec tasks T010/T022 were superseded): BenchmarkDotNet
+already reports `Error`/`StdDev` and warns about multimodal or noisy distributions.
 
-```bash
-# Parse JSON and validate (requires jq)
-cat BenchmarkDotNet.Artifacts/results/*-report.json | \
-  jq '.Benchmarks[] | select(.Statistics.StandardDeviation / .Statistics.Mean > 0.10) | .DisplayInfo'
-```
-
-**Expected Output**: Empty (no benchmarks exceed 10% variance)
+**Expected**: StdDev well below 10% of Mean on an idle machine with the default job
+(`--job short` runs only 3 iterations, so expect wider margins)
 
 **If Output Shows Results**:
 - Hardware may be under load (close other applications)
@@ -121,13 +123,19 @@ To run only one benchmark category:
 
 ```bash
 # Simple scenarios only
-dotnet run --configuration Release --filter "*SimpleProvider*"
+dotnet run --configuration Release -- --filter "*SimpleProvider*"
 
 # Complex scenarios only
-dotnet run --configuration Release --filter "*ComplexGraph*"
+dotnet run --configuration Release -- --filter "*ComplexGraph*"
 
 # Caching scenarios only
-dotnet run --configuration Release --filter "*Caching*"
+dotnet run --configuration Release -- --filter "*Caching*"
+
+# Re-evaluation after changes and memory overhead (spec 006 T031-T033)
+dotnet run --configuration Release -- --filter "*IncrementalUpdate*" "*CollectionChange*" "*MemoryOverhead*"
+
+# Quick, in-process run (fewer iterations, wider error margins)
+dotnet run --configuration Release -- --filter "*" --job short --inProcess
 ```
 
 **Use Case**: Targeted measurement after code changes
@@ -138,20 +146,9 @@ dotnet run --configuration Release --filter "*Caching*"
 
 Once baseline is established and stored in git:
 
-```bash
-# Run current benchmarks
-dotnet run --configuration Release --exporters json
-
-# Compare against baseline (example script)
-python scripts/compare-benchmarks.py \
-  --baseline benchmarks/baseline-results.json \
-  --current BenchmarkDotNet.Artifacts/results/combined-report.json \
-  --threshold 0.10
-```
-
-**Expected**: Script reports any regressions exceeding 10% threshold
-
-**Note**: Baseline comparison tooling is a future enhancement
+The committed baseline is the set of reports in `benchmarks/reports/results/`. Compare a new
+run against them by hand (same machine and job where possible). There is no comparison script;
+automated regression detection is not planned.
 
 ---
 
@@ -197,9 +194,9 @@ This quickstart validates the following acceptance scenarios from the spec:
 
 ## Troubleshooting
 
-### "No benchmarks found"
-**Cause**: Project not built in Release mode
-**Fix**: Run `dotnet build --configuration Release` before `dotnet run --configuration Release`
+### "No benchmarks found" / nothing runs
+**Cause**: the filter matched nothing, or BenchmarkDotNet refused a non-optimized (Debug) build
+**Fix**: Run with `--configuration Release` and check the `--filter` pattern (`--list flat` lists all benchmarks)
 
 ### High variance (>10%)
 **Causes**:
@@ -219,14 +216,14 @@ This quickstart validates the following acceptance scenarios from the spec:
 
 ### Benchmarks take too long
 **Cause**: Too many iterations configured
-**Fix**: Edit `BenchmarkConfig.cs` to reduce `warmupCount` and `targetCount` (trade-off: less statistical confidence)
+**Fix**: Pass `--job short` (or `--job dry` just to check that they run) and a narrower `--filter` (trade-off: less statistical confidence)
 
 ---
 
 ## Next Steps
 
 After establishing baseline:
-1. Store results in git (e.g., `benchmarks/baseline-results.json`)
+1. Store results in git (`benchmarks/reports/results/`)
 2. Configure CI to run benchmarks on every commit
 3. Set up automated regression detection
 4. Add new scenarios as framework evolves
@@ -238,8 +235,8 @@ After establishing baseline:
 
 This quickstart is successful when:
 - [ ] All benchmarks execute without errors
-- [ ] Standard deviation ≤ 10% for all benchmarks
-- [ ] Results exported to HTML/JSON/Markdown formats
+- [ ] Standard deviation well below 10% of the mean (default job, idle machine)
+- [ ] Results exported to HTML/CSV/Markdown formats in `benchmarks/reports/results/`
 - [ ] Caching benchmark shows warm run faster than cold run
 - [ ] Developer understands how to run and interpret benchmarks
 

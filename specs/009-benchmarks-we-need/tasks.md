@@ -1,6 +1,8 @@
 # Tasks: Performance Baseline Benchmarks
 
 > **Reconciliation (2026-11-08, #45)**: The benchmarks were implemented in #7 (`benchmarks/Guacamole.Benchmarks`, `tests/Guacamole.Benchmarks.Tests`) but this checklist was never updated. They target `src/Guacamole` (net11.0) and use BenchmarkDotNet defaults: the custom `BenchmarkConfig`, hardware normalization and variance validation were not built, and two validation tests are placeholders. Status markers: see [specs/README.md](../README.md).
+>
+> **Update (#53)**: T009 is a real dry run (every benchmark case, in-process, `Job.Dry`); the T010 placeholder was removed and T011 replaced by call-count tests; the hardware-normalization and variance-gate items (T013, T014, T021, T022) are superseded; `quickstart.md` was corrected (T026). Spec 006's re-evaluation and memory benchmarks were added alongside.
 
 **Feature**: 009-benchmarks-we-need
 **Input**: Design documents from `/specs/009-benchmarks-we-need/`
@@ -101,14 +103,14 @@
 
 ### Benchmark Validation Tests (Contract Tests)
 
-- [ ] **T009** [P] Create `BenchmarkValidationTests.cs` with benchmark execution smoke test — open: `AllBenchmarksExecuteWithoutErrors` only checks via reflection that `Program.Main` exists; no dry run
+- [x] **T009** [P] Create `BenchmarkValidationTests.cs` with benchmark execution smoke test — done: `AllBenchmarks_ExecuteInDryRun` runs every benchmark case through `Program.Run` with `Job.Dry` and `InProcessNoEmitToolchain` (a few seconds) and asserts that every benchmark class ran and every case succeeded; `Main` now returns an exit code (#53)
   - File: `tests/Guacamole.Benchmarks.Tests/BenchmarkValidationTests.cs`
   - Test: `AllBenchmarks_CompileAndExecute()`
   - Mock: Call `Program.Main(new[] { "--filter", "*", "--job", "dry" })`
   - Assert: Exit code = 0 (dry run succeeds)
   - **Expected**: Test FAILS (no Program.cs or benchmark classes exist yet)
 
-- [ ] **T010** [P] Add variance threshold validation test — open: `VarianceWithinAcceptableRange_PlaceholderTest` is a placeholder
+- [x] ~~**T010** [P] Add variance threshold validation test~~ — superseded: placeholder removed; a variance gate on timings is flaky on shared CI runners, and BenchmarkDotNet already reports Error/StdDev (#53)
   - File: `tests/Guacamole.Benchmarks.Tests/BenchmarkValidationTests.cs`
   - Test: `BenchmarkResults_MeetVarianceThreshold()`
   - Load mock benchmark results JSON
@@ -116,7 +118,7 @@
   - Assert: variance ≤ 0.10 for all results
   - **Expected**: Test FAILS (no result parsing logic exists yet)
 
-- [ ] **T011** [P] Add caching benefit validation test — open: `CachingBenchmark_WarmFasterThanCold_PlaceholderTest` is a placeholder
+- [x] **T011** [P] Add caching benefit validation test — done: replaced the placeholder with deterministic call-count tests instead of timings (`IncrementalScenarioTests`: a warm read runs no lambdas, a change reruns only the affected ones); the timing comparison is in the benchmark results (#53)
   - File: `tests/Guacamole.Benchmarks.Tests/BenchmarkValidationTests.cs`
   - Test: `CachingBenchmark_WarmFasterThanCold()`
   - Mock cold cache time and warm cache time
@@ -136,13 +138,13 @@
   - Validation: NodeCount > 0, DepthLevels > 0
   - IsComplex logic: NodeCount ≥ 20 AND DepthLevels ≥ 5
 
-- [ ] **T013** [P] Create `HardwareBaseline.cs` record type — open: not implemented
+- [x] ~~**T013** [P] Create `HardwareBaseline.cs` record type~~ — superseded: CPU-score normalization is not meaningful across machines; BenchmarkDotNet records the hardware in every report (#53)
   - File: `benchmarks/Guacamole.Benchmarks/Infrastructure/HardwareBaseline.cs`
   - Properties: CpuModel, CpuScore, MemoryGB, OsVersion, LastUpdated
   - Validation: CpuScore > 0, MemoryGB > 0
   - Add default baseline constant (reference hardware)
 
-- [ ] **T014** [P] Create `BenchmarkConfig.cs` with hardware normalization — open: not implemented; benchmarks use BenchmarkDotNet defaults plus `[MemoryDiagnoser]`
+- [x] ~~**T014** [P] Create `BenchmarkConfig.cs` with hardware normalization~~ — superseded: BenchmarkDotNet defaults plus `[MemoryDiagnoser]` are enough; jobs are chosen on the command line (`--job short`, `--inProcess`) (#53)
   - File: `benchmarks/Guacamole.Benchmarks/Infrastructure/BenchmarkConfig.cs`
   - Extend: `ManualConfig` from BenchmarkDotNet
   - Configure: `[MemoryDiagnoser]`, `[SimpleJob(warmupCount: 3, targetCount: 10)]`
@@ -179,7 +181,7 @@
 
 ### Core Benchmark Classes
 
-- [x] **T017** Implement `Program.cs` BenchmarkDotNet runner — done: `Main` returns `void`; artifacts go to `benchmarks/reports/`
+- [x] **T017** Implement `Program.cs` BenchmarkDotNet runner — done: artifacts go to `benchmarks/reports/`; `Main` returns 0, or 1 if a benchmark failed (#53)
   - File: `benchmarks/Guacamole.Benchmarks/Program.cs`
   - Entry point: `static int Main(string[] args)`
   - Use: `BenchmarkSwitcher.FromAssembly(typeof(Program).Assembly).Run(args)`
@@ -217,7 +219,7 @@
 
 ## Phase 3.5: Result Processing & Normalization
 
-- [ ] **T021** Implement `NormalizedExporter.cs` for hardware-adjusted results — open: not implemented
+- [x] ~~**T021** Implement `NormalizedExporter.cs` for hardware-adjusted results~~ — superseded: depends on T013's normalization, which was dropped (#53)
   - File: `benchmarks/Guacamole.Benchmarks/Infrastructure/NormalizedExporter.cs`
   - Implement: `IExporter` from BenchmarkDotNet
   - Extract: Current hardware CPU score from environment
@@ -225,7 +227,7 @@
   - Output: Append normalized column to results
   - Log: Normalization factor and baseline specs
 
-- [ ] **T022** [P] Add result validation in `BenchmarkConfig.cs` — open: not implemented
+- [x] ~~**T022** [P] Add result validation in `BenchmarkConfig.cs`~~ — superseded: same reason as T010 (#53)
   - File: `benchmarks/Guacamole.Benchmarks/Infrastructure/BenchmarkConfig.cs`
   - Add: Custom validator checking StandardDeviation / Mean ≤ 0.10
   - Warn: Log warning if variance exceeds threshold
@@ -245,7 +247,7 @@
   - Check: Exit code = 0
   - Output: Link to results in `BenchmarkDotNet.Artifacts/results/`
 
-- [x] **T024** Run all tests to verify TDD cycle complete — done: runs in CI as part of `dotnet test` (T010/T011 are placeholders)
+- [x] **T024** Run all tests to verify TDD cycle complete — done: runs in CI as part of `dotnet test`
   - Command: `dotnet test tests/Guacamole.Benchmarks.Tests/`
   - Expected: All tests pass (green)
   - Verify: T006-T011 all passing
@@ -258,7 +260,7 @@
   - Verify: Warm cache faster than cold cache
   - Verify: HTML/JSON/Markdown reports generated
 
-- [ ] **T026** Validate quickstart.md manual steps — open: `quickstart.md` still points at `BenchmarkDotNet.Artifacts/results/` and JSON reports; `Program.cs` writes to `benchmarks/reports/`
+- [x] **T026** Validate quickstart.md manual steps — done: `quickstart.md` now points at `benchmarks/reports/results/` and the HTML/CSV/Markdown reports, uses `dotnet run -- --filter`, and drops the JSON/variance-script/`BenchmarkConfig` steps (#53)
   - Follow: `specs/009-benchmarks-we-need/quickstart.md`
   - Execute: Steps 1-7 as documented
   - Verify: All acceptance scenarios validated
@@ -390,12 +392,12 @@ dotnet task T029    # Format (must be last before commit)
 
 Before marking feature complete, verify:
 
-- [x] All tests in T006-T011 pass (green) — done: green, but T010/T011 are placeholders
+- [x] All tests in T006-T011 pass (green) — done: T010 superseded
 - [x] All benchmark classes compile and execute
-- [ ] Variance threshold ≤10% enforced and validated — open: see T010/T022
+- [x] ~~Variance threshold ≤10% enforced and validated~~ — superseded: see T010/T022
 - [x] Warm cache demonstrably faster than cold cache (improvement ≥50%) — done: 195 ns vs 659 ns (≈70%)
-- [ ] Hardware normalization calculates and reports correctly — open: see T013/T014/T021
-- [ ] quickstart.md steps execute successfully — open: see T026
+- [x] ~~Hardware normalization calculates and reports correctly~~ — superseded: see T013/T014/T021
+- [x] quickstart.md steps execute successfully — done: see T026
 - [x] Solution builds without errors: `dotnet build`
 - [x] All tests pass: `dotnet test`
 - [x] Benchmarks run: `dotnet run --project benchmarks/Guacamole.Benchmarks/ -c Release`
