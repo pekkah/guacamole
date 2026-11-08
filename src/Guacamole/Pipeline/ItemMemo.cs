@@ -13,8 +13,10 @@ namespace Guacamole.Pipeline;
 /// </summary>
 /// <remarks>
 /// <para>
-/// Items are matched with <see cref="EqualityComparer{T}.Default"/> (not a custom result comparer,
-/// which may be looser than the item's own equality). A hit returns the identical value instance,
+/// Items are matched with <see cref="DefaultEqualityComparer{T}.Instance"/>: the item's default
+/// equality, or element-wise for <see cref="System.Collections.Immutable.ImmutableArray{T}"/> items
+/// (and component-wise for small tuples of them), both for the map and for the aligned walk. A custom
+/// result comparer is not used, as it may be looser than the item's own equality. A hit returns the identical value instance,
 /// so downstream stages see an unchanged item even when the value only has reference equality.
 /// </para>
 /// <para>
@@ -44,6 +46,14 @@ namespace Guacamole.Pipeline;
 /// <typeparam name="TValue">The value computed per item</typeparam>
 internal sealed class ItemMemo<TSource, TValue>
 {
+    // The item comparer; structural for immutable arrays (and tuples of them), whose default
+    // equality is by reference
+    private static readonly IEqualityComparer<TSource> s_comparer = DefaultEqualityComparer<TSource>.Instance;
+
+    // Whether s_comparer differs from EqualityComparer<TSource>.Default. When it does not, Same calls
+    // EqualityComparer<TSource>.Default directly, which the JIT devirtualizes on the per-item path.
+    private static readonly bool s_structural = !ReferenceEquals(s_comparer, EqualityComparer<TSource>.Default);
+
     private sealed class Generation(TSource[] items, TValue[] values)
     {
         public TSource[] Items { get; } = items;
@@ -100,7 +110,7 @@ internal sealed class ItemMemo<TSource, TValue>
         var previous = _latest;
         var previousItems = previous?.Items ?? [];
         var previousValues = previous?.Values ?? [];
-        var map = _map ??= new Dictionary<TSource, Entry>(current.Length, EqualityComparer<TSource>.Default);
+        var map = _map ??= new Dictionary<TSource, Entry>(current.Length, s_comparer);
 
         var values = new TValue[current.Length];
         List<(int Start, int End)>? skipped = null; // ranges of previous items not matched by position
@@ -230,7 +240,7 @@ internal sealed class ItemMemo<TSource, TValue>
             }
             else
             {
-                computed ??= new Dictionary<TSource, TValue>(EqualityComparer<TSource>.Default);
+                computed ??= new Dictionary<TSource, TValue>(s_comparer);
                 if (!computed.TryGetValue(item, out var value))
                 {
                     value = compute(item);
@@ -270,5 +280,5 @@ internal sealed class ItemMemo<TSource, TValue>
 
     private static bool Same(TSource item, TSource? other) =>
         (!typeof(TSource).IsValueType && ReferenceEquals(item, other))
-        || EqualityComparer<TSource>.Default.Equals(item, other);
+        || (s_structural ? s_comparer.Equals(item, other!) : EqualityComparer<TSource>.Default.Equals(item, other));
 }
