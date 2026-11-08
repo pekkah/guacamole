@@ -255,7 +255,7 @@ using (var batch = context.SourcesSource.BeginBatch())
 - It is all or nothing: if an operation would fail (`Replace` of a missing item, even with an equal replacement, or with an item that is present, at that point of the batch), `Commit()` throws and nothing is applied.
 - After `Commit()` the batch is done: adding operations throws `InvalidOperationException`.
 - `Rollback()` discards the buffered operations.
-- Disposing a batch that was neither committed nor rolled back **commits** it.
+- Disposing a batch that was neither committed nor rolled back **commits** it. If the context has been disposed in the meantime, disposing the batch discards its operations instead and does not throw, so a `using` block still ends cleanly; an explicit `Commit()` throws `ObjectDisposedException`, as does `BeginBatch()` on a source of a disposed context.
 
 ## Understanding Caching
 
@@ -316,7 +316,7 @@ Handler behavior:
 - Handlers run synchronously, usually on the thread that changed the source. One handler is never called concurrently with itself or re-entrantly (a change made while it runs, on any thread, is delivered after it returns), so it never sees the same value twice in a row and ends with the current value.
 - If handlers throw, the remaining handlers still run and the exceptions are rethrown together as one `AggregateException` from the `Push`/`Set`/... call on the thread that ran them.
 - `RegisterOutput` returns an `IDisposable`: disposing it unregisters that handler only (disposing twice is a no-op).
-- After `Dispose()`, the context no longer listens to its sources and all of its handlers are dropped; reading its providers or changing its sources throws `ObjectDisposedException`.
+- After `Dispose()`, the context no longer listens to its sources and all of its handlers are dropped; reading its providers, changing its sources or beginning or committing a batch throws `ObjectDisposedException` (disposing a pending batch discards it without throwing).
 
 ## Troubleshooting
 

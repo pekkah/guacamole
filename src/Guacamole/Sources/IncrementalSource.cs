@@ -697,12 +697,17 @@ internal sealed class IncrementalSource<T> : IIncrementalSource<T>
     }
 
     /// <summary>
+    /// Whether the context owning this source has been disposed.
+    /// </summary>
+    internal bool IsContextDisposed => _graphProvider().SharedState.IsDisposed;
+
+    /// <summary>
     /// Throws <see cref="ObjectDisposedException"/> once the context owning this source has been
     /// disposed: it no longer tracks changes, so a change would leave its providers stale.
     /// </summary>
-    private void ThrowIfContextDisposed()
+    internal void ThrowIfContextDisposed()
     {
-        if (_graphProvider().SharedState.IsDisposed)
+        if (IsContextDisposed)
             SharedGraphState.ThrowDisposed(SourceId);
     }
 

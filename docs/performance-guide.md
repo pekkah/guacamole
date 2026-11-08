@@ -190,7 +190,7 @@ using (var batch = context.FilesSource.BeginBatch())
 } // one notification
 ```
 
-A batch is all or nothing: if an operation would fail (`Replace` of an item that is not present at that point of the batch, even with an equal replacement, or with one that is, or a `null` item), `Commit()` throws without applying any operation and without a notification. Operations that cancel out (a `Push` of a new item and a `Remove` of it) raise no notification. A committed batch cannot be reused: `Push`/`Remove`/`Replace` after `Commit()` throw `InvalidOperationException`; begin a new batch instead.
+A batch is all or nothing: if an operation would fail (`Replace` of an item that is not present at that point of the batch, even with an equal replacement, or with one that is, or a `null` item), `Commit()` throws without applying any operation and without a notification. Operations that cancel out (a `Push` of a new item and a `Remove` of it) raise no notification. A committed batch cannot be reused: `Push`/`Remove`/`Replace` after `Commit()` throw `InvalidOperationException`; begin a new batch instead. Once the context is disposed, `BeginBatch()` and `Commit()` throw `ObjectDisposedException`, but disposing a pending batch discards its operations without throwing.
 
 ## Memory
 
@@ -207,7 +207,7 @@ A batch is all or nothing: if an operation would fail (`Replace` of an item that
 - `CollectToDictionary` keeps a memo of each distinct item's (key, value) pair, the candidate values of each key and its latest dictionary (and the one before it): three N-entry structures, updated in place, so a change allocates only the dictionary nodes it replaces.
 - Outside the cache, collection `Select`, `Where` and `SelectMany` stages keep their per-item memo (the latest input and results), and `Where`, `SelectMany` and `values.Combine(value)` also keep their latest output for [item-level deltas](#item-level-deltas) (`SelectMany` also an offset per item, `Combine` its latest input). That is about one or two N-element arrays per collection stage, released when the node is trimmed.
 - Nodes created by operator calls stay registered in the graph until `TrimUnusedNodes()` (called explicitly, or automatically with `AutoTrimInterval`) removes the ones nothing references anymore (see [Build Pipelines Once](#build-pipelines-once)).
-- `Dispose()` unsubscribes the context from its sources and drops its output registrations; reading its providers or changing its sources afterwards throws `ObjectDisposedException` (a single volatile read on each provider read).
+- `Dispose()` unsubscribes the context from its sources and drops its output registrations; reading its providers, changing its sources or beginning or committing a batch afterwards throws `ObjectDisposedException` (disposing a pending batch discards it quietly) (a single volatile read on each provider read).
 
 ## Thread Safety and Performance
 

@@ -8,6 +8,20 @@ namespace Guacamole;
 /// Represents a batch operation that defers cache invalidation until commit.
 /// </summary>
 /// <typeparam name="T">Type of items in the source</typeparam>
+/// <remarks>
+/// <para>
+/// Disposing a batch that was neither committed nor rolled back commits its pending operations, as
+/// <see cref="Commit"/> does (and throws what <see cref="Commit"/> would throw for an operation that
+/// fails). If the context that created the source has been disposed, disposing the batch instead
+/// discards the pending operations without throwing, so a <c>using</c> block that ends after the
+/// context was disposed does not throw <see cref="ObjectDisposedException"/>; an explicit
+/// <see cref="Commit"/> still throws it.
+/// </para>
+/// <para>
+/// <see cref="Push"/>, <see cref="Remove"/> and <see cref="Replace"/> only buffer the operation and
+/// do not check the source or its context; the operations are checked when they are committed.
+/// </para>
+/// </remarks>
 public interface IBatchOperation<T> : IDisposable
 {
     /// <summary>
@@ -182,7 +196,25 @@ internal sealed class BatchOperation<T> : IBatchOperation<T>
             // Auto-commit on dispose if not explicitly committed or rolled back
             if (!_committed && _operations.Count > 0)
             {
-                Commit();
+                if (IsContextDisposed)
+                {
+                    // The context no longer tracks changes, so the batch cannot be applied, and
+                    // Dispose must not throw (#96): discard the pending operations instead
+                    _committed = true;
+                    _operations.Clear();
+                }
+                else
+                {
+                    try
+                    {
+                        Commit();
+                    }
+                    catch (ObjectDisposedException) when (IsContextDisposed)
+                    {
+                        // The context was disposed concurrently, before the batch was applied
+                        // (Apply checks first and applies nothing then)
+                    }
+                }
             }
         }
         finally
@@ -190,6 +222,11 @@ internal sealed class BatchOperation<T> : IBatchOperation<T>
             _disposed = true;
         }
     }
+
+    /// <summary>
+    /// Whether the source was created by a context that has since been disposed.
+    /// </summary>
+    private bool IsContextDisposed => _source is IncrementalSource<T> { IsContextDisposed: true };
 
     private void ThrowIfDisposed()
     {
@@ -207,10 +244,21 @@ public static class IncrementalSourceExtensions
     /// Begins a batch operation where multiple changes can be applied
     /// with a single cache invalidation at the end.
     /// </summary>
+    /// <remarks>
+    /// For a source created by a context, <c>BeginBatch</c> throws <see cref="ObjectDisposedException"/>
+    /// once that context has been disposed, like the source's own change methods (such a batch could
+    /// never be committed). See <see cref="IBatchOperation{T}"/> for disposing a batch after the context
+    /// was disposed.
+    /// </remarks>
     /// <exception cref="ArgumentNullException"><paramref name="source"/> is <c>null</c>.</exception>
+    /// <exception cref="ObjectDisposedException">The context that created <paramref name="source"/>
+    /// has been disposed.</exception>
     public static IBatchOperation<T> BeginBatch<T>(this IIncrementalSource<T> source)
     {
         ArgumentNullException.ThrowIfNull(source);
+        if (source is IncrementalSource<T> incremental)
+            incremental.ThrowIfContextDisposed();
+
         return new BatchOperation<T>(source);
     }
 

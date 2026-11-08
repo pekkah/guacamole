@@ -91,7 +91,7 @@ These changes keep the API but make misuse fail loudly instead of silently.
 
 ### A disposed context throws (#88)
 
-After `Dispose()`, a context's sources used to accept changes that the context ignored, so its providers kept returning values computed before them. Now reading a disposed context's providers (`GetValue`, `Value`, `TryGetValue`, `GetValues`, `Values`) and changing its sources (`Set`, `Push`, `PushRange`, `Remove`, `Replace`, `Clear`, batch `Commit`) throw `ObjectDisposedException`. A source's own `GetValue()`/`GetSnapshot()` still work. Stop using a context (and the providers and sources you obtained from it) once you dispose it, or create a new one.
+After `Dispose()`, a context's sources used to accept changes that the context ignored, so its providers kept returning values computed before them. Now reading a disposed context's providers (`GetValue`, `Value`, `TryGetValue`, `GetValues`, `Values`) and changing its sources (`Set`, `Push`, `PushRange`, `Remove`, `Replace`, `Clear`, `BeginBatch`, batch `Commit`) throw `ObjectDisposedException`. Disposing a pending batch (for example at the end of a `using` block) discards its operations instead of committing them, and does not throw. A source's own `GetValue()`/`GetSnapshot()` still work. Stop using a context (and the providers and sources you obtained from it) once you dispose it, or create a new one.
 
 ### `Replace` of a missing item always throws (#90)
 
