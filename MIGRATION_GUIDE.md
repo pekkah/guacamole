@@ -44,6 +44,17 @@ if (result.IsSuccess) Use(result.ValueOrDefault);
 
 `IsSuccess`, `IsNone`, `IsError`, `ErrorValue`, `Match`, `GetValueOrDefault(...)`, `Map`, `Bind` and `MapError` are unchanged. A search for `.GetValue().Value`, `.GetValues().Value` and `result.Value` finds most call sites; the compiler reports the rest.
 
+### Dependency-injection surface
+
+| Before | After |
+|--------|-------|
+| `services.AddGuacamoleCore()` / `AddGuacamoleCore(Action<GuacamoleCoreOptions>)` | `services.AddGuacamole()` / `AddGuacamole(Action<GuacamoleOptions>)` |
+| `GuacamoleCoreOptions` | `GuacamoleOptions` (no settings yet) |
+| `GuacamoleCoreOptions.ProviderOptions`, `ProviderOptions`, `ProviderOptions.DefaultTags` | removed |
+| `IProviderMetadataFactory` (and its DI registration) | removed |
+
+Nothing in the framework read `DefaultTags` or resolved `IProviderMetadataFactory`: providers get their metadata from operators such as `WithTrackingName`, never from the container. If you used the factory to create metadata, create it directly, for example `new ProviderMetadata("parse").WithTags("app", "x")`. Contexts are still registered like any other service (`services.AddScoped<MyContext>()`).
+
 ## Namespace Consolidation
 
 All public types used to be spread over `Guacamole`, `Guacamole.Sources`, `Guacamole.Exceptions` and several `Guacamole.Core.*` namespaces. They now live in `Guacamole`, plus `Guacamole.Diagnostics` for metrics, and the `Core` segment is gone. Infrastructure types moved to `Guacamole.Pipeline` and `Guacamole.Caching` and are now internal (see [Internal types and members](#internal-types-and-members)). A typical application needs only:

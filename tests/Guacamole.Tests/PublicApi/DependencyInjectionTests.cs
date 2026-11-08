@@ -1,4 +1,3 @@
-using System.Collections.Immutable;
 using Microsoft.Extensions.DependencyInjection;
 using Xunit;
 
@@ -14,10 +13,10 @@ namespace Guacamole.Tests.PublicApi;
 /// </remarks>
 public class DependencyInjectionTests
 {
-    private static IServiceCollection AddGuacamole(IServiceCollection services) => services.AddGuacamoleCore();
+    private static IServiceCollection AddGuacamole(IServiceCollection services) => services.AddGuacamole();
 
-    private static IServiceCollection AddGuacamole(IServiceCollection services, Action<GuacamoleCoreOptions> configure) =>
-        services.AddGuacamoleCore(configure);
+    private static IServiceCollection AddGuacamole(IServiceCollection services, Action<GuacamoleOptions> configure) =>
+        services.AddGuacamole(configure);
 
     [Fact]
     public void Registration_ReturnsTheSameCollection_ForChaining()
@@ -37,59 +36,25 @@ public class DependencyInjectionTests
     }
 
     [Fact]
-    public void DefaultRegistration_ProvidesSingletonOptions_AndAFactoryWithoutDefaultTags()
+    public void DefaultRegistration_ProvidesSingletonOptions()
     {
         using var provider = AddGuacamole(new ServiceCollection()).BuildServiceProvider();
 
-        var options = provider.GetRequiredService<GuacamoleCoreOptions>();
-        Assert.Same(options, provider.GetRequiredService<GuacamoleCoreOptions>());
-        Assert.Empty(options.ProviderOptions.DefaultTags);
-
-        var factory = provider.GetRequiredService<IProviderMetadataFactory>();
-        Assert.Same(factory, provider.GetRequiredService<IProviderMetadataFactory>());
-        var metadata = factory.Create("parse");
-        Assert.Equal("parse", metadata.TrackingName);
-        Assert.True(metadata.Tags.IsDefaultOrEmpty);
-    }
-
-    [Fact]
-    public void Factory_AppliesDefaultTagsFirst_AndThePipelineStage()
-    {
-        using var provider = AddGuacamole(new ServiceCollection(), o => o.ProviderOptions.DefaultTags = ["app", "env"])
-            .BuildServiceProvider();
-        var factory = provider.GetRequiredService<IProviderMetadataFactory>();
-
-        var metadata = factory.Create("parse", ["x"], "stage");
-
-        Assert.Equal(["app", "env", "x"], metadata.Tags);
-        Assert.Equal("stage", metadata.PipelineStage);
-        Assert.Equal(["app", "env"], factory.Create("bind").Tags);
+        var options = provider.GetRequiredService<GuacamoleOptions>();
+        Assert.Same(options, provider.GetRequiredService<GuacamoleOptions>());
     }
 
     [Fact]
     public void RegisteringTwice_KeepsTheFirstConfiguration()
     {
         var services = new ServiceCollection();
-        AddGuacamole(services, o => o.ProviderOptions.DefaultTags = ["first"]);
-        AddGuacamole(services, o => o.ProviderOptions.DefaultTags = ["second"]);
+        GuacamoleOptions? first = null;
+        AddGuacamole(services, o => first = o);
+        AddGuacamole(services, _ => { });
         using var provider = services.BuildServiceProvider();
 
-        Assert.Equal(["first"], provider.GetRequiredService<GuacamoleCoreOptions>().ProviderOptions.DefaultTags);
-        Assert.Single(services, d => d.ServiceType == typeof(IProviderMetadataFactory));
-    }
-
-    [Fact]
-    public void FactoryMetadata_CanBePassedToOperators()
-    {
-        using var provider = AddGuacamole(new ServiceCollection(), o => o.ProviderOptions.DefaultTags = ["app"])
-            .BuildServiceProvider();
-        var factory = provider.GetRequiredService<IProviderMetadataFactory>();
-        using var context = new ApiContext();
-
-        var doubled = context.Number.Select(static x => x * 2, factory.Create("double"));
-
-        Assert.Equal("double", doubled.Metadata.TrackingName);
-        Assert.Equal(["app"], doubled.Metadata.Tags);
+        Assert.Single(services, d => d.ServiceType == typeof(GuacamoleOptions));
+        Assert.Same(first, provider.GetRequiredService<GuacamoleOptions>());
     }
 
     [Fact]
@@ -113,12 +78,5 @@ public class DependencyInjectionTests
         }
 
         Assert.True(scoped.IsDisposed);
-    }
-
-    [Fact]
-    public void DefaultTags_DefaultToEmpty()
-    {
-        Assert.Equal(ImmutableArray<string>.Empty, new ProviderOptions().DefaultTags);
-        Assert.NotNull(new GuacamoleCoreOptions().ProviderOptions);
     }
 }
