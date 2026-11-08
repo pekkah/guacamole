@@ -3,8 +3,12 @@
   <PropertyGroup>
     <TargetFramework>netstandard2.0</TargetFramework>
     <PackageId>Guacamole.SourceGenerators</PackageId>
-    <Description>Source generators for the Guacamole incremental query engine framework</Description>
-    <PackageTags>incremental;query;engine;source-generators;compiler;framework</PackageTags>
+    <Description>Source generator and diagnostics (GUAC0003-GUAC0009) for Guacamole [ComputingContext] classes; use it together with the Guacamole package. Guacamole: $(GuacamoleSummary)</Description>
+    <PackageTags>$(PackageTags);source-generators;roslyn;analyzers</PackageTags>
+    <!-- Compile-time only: consumers get PrivateAssets="all", so it does not flow to their dependents -->
+    <DevelopmentDependency>true</DevelopmentDependency>
+    <!-- No symbol package (the DLL is not build output); embed the PDB in the generator DLL instead -->
+    <DebugType>embedded</DebugType>
     <IncludeBuildOutput>false</IncludeBuildOutput>
     <GeneratePackageOnBuild>false</GeneratePackageOnBuild>
     <EnforceExtendedAnalyzerRules>true</EnforceExtendedAnalyzerRules>

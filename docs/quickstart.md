@@ -25,17 +25,19 @@ Typical uses: incremental compilers, build tools, file processing and data trans
 
 ### Prerequisites
 
-- .NET 11 RC3 SDK (11.0.100-rc.3) or later
-- C# 15 (LangVersion latest; partial properties require C# 13+)
+- A project targeting .NET 11 (`net11.0`), built with the .NET 11 SDK, RC3 (11.0.100-rc.3) or later
+- C# 13 or later for partial properties (the default for `net11.0` is C# 15)
+
+See [Requirements](../README.md#requirements) in the README.
 
 ### Install via NuGet
 
 ```bash
-dotnet add package Guacamole
-dotnet add package Guacamole.SourceGenerators
+dotnet add package Guacamole --prerelease
+dotnet add package Guacamole.SourceGenerators --prerelease
 ```
 
-Both packages are required: `Guacamole` is the runtime, and `Guacamole.SourceGenerators` contains the source generator that implements your `[ComputingContext]` classes. The runtime package does not pull in the generator.
+Both packages are required: `Guacamole` is the runtime, and `Guacamole.SourceGenerators` contains the source generator that implements your `[ComputingContext]` classes. The runtime package does not pull in the generator. Until the first stable release only preview versions exist, hence `--prerelease`; see [Installation](../README.md#installation).
 
 ## Core Concepts
 

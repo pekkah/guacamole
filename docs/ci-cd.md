@@ -150,7 +150,8 @@ up in review as diffs of these files.
   For removed API, delete its line from `PublicAPI.Unshipped.txt`, or mark it `*REMOVED*` in front
   of the line copied from `PublicAPI.Shipped.txt`.
 - When releasing a version, move the `PublicAPI.Unshipped.txt` entries to `PublicAPI.Shipped.txt`
-  (keep `#nullable enable` as the first line of both files).
+  (keep `#nullable enable` as the first line of both files); see the
+  [release checklist](#release-checklist). Until the first release, `PublicAPI.Shipped.txt` is empty.
 
 RS0026 (several overloads with optional parameters) is disabled: the operators deliberately give
 every overload a trailing optional `ProviderMetadata`. The source generator project is an
@@ -210,6 +211,40 @@ git push origin v1.2.3
 The Publish workflow then runs the test matrix, packs `1.2.3`, pushes it to nuget.org and
 creates the GitHub release `v1.2.3` with the packages attached. Tags with a `-label` produce a
 prerelease on both nuget.org and GitHub.
+
+### Release checklist
+
+Before tagging (in the commit that will be tagged):
+
+1. `CHANGELOG.md`: rename `## [Unreleased]` to `## [X.Y.Z] - YYYY-MM-DD`, add a new empty
+   `## [Unreleased]` above it, and update the link references at the bottom:
+   `[Unreleased]: https://github.com/pekkah/guacamole/compare/vX.Y.Z...HEAD` and
+   `[X.Y.Z]: https://github.com/pekkah/guacamole/releases/tag/vX.Y.Z` (for the first release the
+   `[Unreleased]` link points at `commits/main`, since there is no earlier tag to compare with).
+2. Check the package contents locally (`dotnet pack guacamole.sln -c Release`, then list the
+   `.nupkg` files in `artifacts/`): `Guacamole` has `lib/net11.0/Guacamole.dll` and `Guacamole.xml`
+   plus a `.snupkg` with the PDB; `Guacamole.SourceGenerators` has
+   `analyzers/dotnet/cs/Guacamole.SourceGenerators.dll` (PDB embedded, no `lib/` folder, marked as
+   a development dependency); both contain `README.md`.
+
+After the tag is published, in a follow-up commit on `main`:
+
+1. **Promote the public API.** Move every entry of `src/Guacamole/PublicAPI.Unshipped.txt` to
+   `src/Guacamole/PublicAPI.Shipped.txt`, leaving only `#nullable enable` in the unshipped file
+   (keep it as the first line of both). For a `*REMOVED*` entry, delete the corresponding line from
+   the shipped file instead of copying it. From then on, RS0016/RS0017 report changes against the
+   released API (see [Public API tracking](#public-api-tracking)).
+2. **Promote the analyzer release.** Move the rules of
+   `src/Guacamole.SourceGenerators/AnalyzerReleases.Unshipped.md` to `AnalyzerReleases.Shipped.md`
+   under a `## Release X.Y.Z` heading (keep the comment header of both files); keep
+   `DiagnosticDescriptors.cs` in sync with them.
+3. **Set the package validation baseline** after the **first stable** tag: in
+   `Directory.Build.props`, uncomment `<PackageValidationBaselineVersion>` and set it to that
+   version (for example `0.1.0`). `dotnet pack` then downloads that version of each package from
+   nuget.org and fails on breaking changes against it (`EnablePackageValidation` is already on).
+   Raise the baseline when a later release intentionally breaks compatibility (a new major
+   version, or a new minor version while the major version is 0). Previews (`-preview.N`) are
+   never used as a baseline.
 
 ### Ad-hoc prerelease from main
 
