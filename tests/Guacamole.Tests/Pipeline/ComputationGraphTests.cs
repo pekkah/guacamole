@@ -269,6 +269,49 @@ public class ComputationGraphTests
     }
 
     /// <summary>
+    /// Issue #78: replacing a node updates <see cref="ComputationGraph.Dependencies"/>,
+    /// <see cref="ComputationGraph.Dependents"/> and the edge count to the new node's dependencies,
+    /// instead of keeping the replaced node's edges.
+    /// </summary>
+    [Fact]
+    public void ReplaceNode_UpdatesDependenciesAndDependents()
+    {
+        var graph = new ComputationGraph()
+            .AddNode(new TestComputationNode("a", typeof(int)))
+            .AddNode(new TestComputationNode("b", typeof(int)))
+            .AddNode(new TestComputationNode("c", typeof(int)))
+            .AddNode(new TestComputationNode("x", typeof(int), dependencies: ["a", "b"]))
+            .AddNode(new TestComputationNode("y", typeof(int), dependencies: ["b", "x"]));
+        Assert.Equal(4, graph.DependencyCount);
+
+        // x: {a, b} -> {b, c}; a is no longer declared by any node, b keeps both dependents
+        var replaced = graph.ReplaceNode(new TestComputationNode("x", typeof(int), dependencies: ["b", "c"]));
+
+        Assert.Equal(new[] { "b", "c" }, replaced.Dependencies["x"].Order(StringComparer.Ordinal));
+        Assert.False(replaced.Dependents.ContainsKey("a"));
+        Assert.Equal(new[] { "x", "y" }, replaced.Dependents["b"].Order(StringComparer.Ordinal));
+        Assert.Equal(new[] { "x" }, replaced.Dependents["c"]);
+        Assert.Equal(new[] { "y" }, replaced.Dependents["x"]);
+        Assert.Equal(4, replaced.DependencyCount);
+
+        // The original graph is unchanged
+        Assert.Equal(new[] { "a", "b" }, graph.Dependencies["x"].Order(StringComparer.Ordinal));
+        Assert.Equal(new[] { "x" }, graph.Dependents["a"]);
+
+        // Dropping every dependency removes all of the node's edges
+        var isolated = replaced.ReplaceNode(new TestComputationNode("x", typeof(int)));
+        Assert.Empty(isolated.Dependencies["x"]);
+        Assert.False(isolated.Dependents.ContainsKey("c"));
+        Assert.Equal(new[] { "y" }, isolated.Dependents["b"]);
+        Assert.Equal(2, isolated.DependencyCount);
+
+        // The edges follow the replacement, so the cycle check sees y -> x, but no longer x -> a
+        Assert.Throws<InvalidOperationException>(() => isolated.ReplaceNode(new TestComputationNode("x", typeof(int), dependencies: ["y"])));
+        var withA = isolated.ReplaceNode(new TestComputationNode("a", typeof(int), dependencies: ["x"]));
+        Assert.Equal(new[] { "a", "y" }, withA.Dependents["x"].Order(StringComparer.Ordinal));
+    }
+
+    /// <summary>
     /// Invalidation follows the edges recorded as stages read their inputs, so it reaches computed
     /// runtime stages (which are not in <see cref="ComputationGraph.Dependencies"/>), and only them.
     /// </summary>
