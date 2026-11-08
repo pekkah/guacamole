@@ -171,4 +171,66 @@ public partial class CustomComparerBehaviorTests
 
         Assert.Equal(1, downstreamRuns);
     }
+
+    [ComputingContext]
+    private partial class TwoWordListsContext : ComputingContextBase
+    {
+        public partial IncrementalValuesProvider<string> First { get; }
+        public partial IncrementalValuesProvider<string> Second { get; }
+    }
+
+    [Fact]
+    public void Merge_WithComparer_EqualResults_DoNotRecomputeDownstream()
+    {
+        using var context = new TwoWordListsContext();
+        var downstreamRuns = 0;
+        var merged = context.First.Merge(context.Second, new IgnoreCase());
+        var count = merged.Collect().Select(all => { downstreamRuns++; return all.Length; });
+
+        context.FirstSource.Push("alpha");
+        context.SecondSource.Push("beta");
+        Assert.Equal(["alpha", "beta"], merged.Values);
+        Assert.Equal(2, count.Value);
+
+        context.FirstSource.Replace("alpha", "ALPHA"); // equal under the comparer
+        Assert.Equal(2, count.Value);
+        Assert.Equal(1, downstreamRuns);
+
+        context.SecondSource.Push("gamma"); // a real change
+        Assert.Equal(3, count.Value);
+        Assert.Equal(2, downstreamRuns);
+    }
+
+    [Fact]
+    public void Merge_WithComparer_EqualResults_DoNotFireOutputHandler()
+    {
+        using var context = new TwoWordListsContext();
+        var calls = 0;
+        context.RegisterOutput(context.First.Merge(context.Second, new IgnoreCase()), (_, _) => calls++);
+
+        context.FirstSource.Push("alpha");
+        context.FirstSource.Replace("alpha", "ALPHA");
+        context.SecondSource.Push("beta");
+
+        Assert.Equal(2, calls);
+    }
+
+    [Fact]
+    public void Merge_WithSameComparer_ReusesNodes()
+    {
+        using var context = new TwoWordListsContext();
+        var comparer = new IgnoreCase();
+        context.FirstSource.Push("a");
+        context.SecondSource.Push("b");
+
+        _ = context.First.Merge(context.Second, comparer).Values;
+        var nodeCount = context.Graph.GetRuntimeNodeCount();
+        var values = context.First.Merge(context.Second, comparer).Values;
+
+        Assert.Equal(nodeCount, context.Graph.GetRuntimeNodeCount());
+        Assert.Equal(["a", "b"], values);
+
+        _ = context.First.Merge(context.Second).Values;
+        Assert.True(context.Graph.GetRuntimeNodeCount() > nodeCount);
+    }
 }

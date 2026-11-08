@@ -147,7 +147,7 @@ IncrementalValueProvider<int> tokenCount = tokens.Select(t => t.Length);
 
 **Single value (`IncrementalValueProvider<T>`):** `Select`, `Where`, `Combine(other)`, `SelectMany` (returns a collection provider).
 
-**Collection (`IncrementalValuesProvider<T>`):** `Select`, `Where`, `SelectMany`, `Collect()` (returns `IncrementalValueProvider<ImmutableArray<T>>`, compared element-wise; `Collect(comparer)` compares the items with a custom comparer), `Combine(singleValue)`, `Merge(other)`, `Flatten()`.
+**Collection (`IncrementalValuesProvider<T>`):** `Select`, `Where`, `SelectMany`, `Collect()` (returns `IncrementalValueProvider<ImmutableArray<T>>`, compared element-wise; `Collect(comparer)` compares the items with a custom comparer), `Combine(singleValue)`, `Merge(other)` / `Merge(other, comparer)` (first, then second), `Flatten()` (an `IncrementalValuesProvider<ImmutableArray<T>>`, or an `IncrementalValueProvider<ImmutableArray<ImmutableArray<T>>>`, to an `IncrementalValuesProvider<T>`).
 
 `Select`, `Where` and `SelectMany` have overloads that take an `IEqualityComparer<T>` for the result values.
 

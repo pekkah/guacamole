@@ -55,6 +55,10 @@ if (result.IsSuccess) Use(result.ValueOrDefault);
 
 Nothing in the framework read `DefaultTags` or resolved `IProviderMetadataFactory`: providers get their metadata from operators such as `WithTrackingName`, never from the container. If you used the factory to create metadata, create it directly, for example `new ProviderMetadata("parse").WithTags("app", "x")`. Contexts are still registered like any other service (`services.AddScoped<MyContext>()`).
 
+### `SourceChangedEventArgs.Timestamp` is a `DateTimeOffset`
+
+`SourceChangedEventArgs.Timestamp` and the constructor's `timestamp` parameter are `DateTimeOffset` (were `DateTime`). Sources still record UTC (`Offset` is zero). Use `Timestamp.UtcDateTime` where a `DateTime` is needed.
+
 ## Namespace Consolidation
 
 All public types used to be spread over `Guacamole`, `Guacamole.Sources`, `Guacamole.Exceptions` and several `Guacamole.Core.*` namespaces. They now live in `Guacamole`, plus `Guacamole.Diagnostics` for metrics, and the `Core` segment is gone. Infrastructure types moved to `Guacamole.Pipeline` and `Guacamole.Caching` and are now internal (see [Internal types and members](#internal-types-and-members)). A typical application needs only:

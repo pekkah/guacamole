@@ -365,6 +365,39 @@ public static class IncrementalValuesProviderExtensions
     }
 
     /// <summary>
+    /// Merges two values providers into a single provider containing all values from both collections,
+    /// comparing values with a custom equality comparer.
+    /// </summary>
+    /// <typeparam name="T">Value type</typeparam>
+    /// <param name="first">First values provider</param>
+    /// <param name="second">Second values provider</param>
+    /// <param name="comparer">Custom equality comparer for values: used to decide whether either input,
+    /// and the merged result, changed</param>
+    /// <param name="metadata">Optional metadata for the new provider</param>
+    /// <returns>A new values provider with all values from both inputs (first, then second)</returns>
+    /// <remarks>
+    /// Equivalent to
+    /// <c>first.Collect(comparer).Combine(second.Collect(comparer)).SelectMany(tuple =&gt; tuple.Item1.Concat(tuple.Item2), comparer)</c>;
+    /// see <see cref="Merge{T}(IncrementalValuesProvider{T}, IncrementalValuesProvider{T}, ProviderMetadata)"/>.
+    /// Identical calls (same inputs and comparer) reuse their nodes.
+    /// </remarks>
+    public static IncrementalValuesProvider<T> Merge<T>(
+        this IncrementalValuesProvider<T> first,
+        IncrementalValuesProvider<T> second,
+        IEqualityComparer<T> comparer,
+        ProviderMetadata metadata = default)
+    {
+        ArgumentNullException.ThrowIfNull(comparer);
+
+        var combined = first.Collect(comparer).Combine(second.Collect(comparer));
+
+        return combined.SelectMany(
+            tuple => tuple.Item1.Concat(tuple.Item2),
+            comparer,
+            metadata);
+    }
+
+    /// <summary>
     /// Flattens a nested collection from a single value provider into a flat values provider.
     /// Useful after operations that produce nested arrays, such as grouping or batching.
     /// </summary>

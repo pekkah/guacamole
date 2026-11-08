@@ -687,7 +687,7 @@ internal sealed class IncrementalSource<T> : IIncrementalSource<T>
     /// </summary>
     private void NotifyChanged()
     {
-        Changed?.Invoke(this, new SourceChangedEventArgs(SourceId, DateTime.UtcNow));
+        Changed?.Invoke(this, new SourceChangedEventArgs(SourceId, DateTimeOffset.UtcNow));
     }
 
     private readonly struct Slot(T item)

@@ -141,7 +141,7 @@ internal sealed class IncrementalValueSource<T> : IIncrementalValueSource<T>
     /// </summary>
     private void NotifyChanged()
     {
-        Changed?.Invoke(this, new SourceChangedEventArgs(SourceId, DateTime.UtcNow));
+        Changed?.Invoke(this, new SourceChangedEventArgs(SourceId, DateTimeOffset.UtcNow));
     }
 
     /// <summary>

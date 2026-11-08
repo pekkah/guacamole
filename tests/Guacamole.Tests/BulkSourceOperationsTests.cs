@@ -446,4 +446,20 @@ public partial class BulkSourceOperationsTests
     {
         public partial IncrementalValuesProvider<string> Items { get; }
     }
+
+    [Fact]
+    public void ChangeNotification_CarriesSourceIdAndUtcTimestamp()
+    {
+        using var context = new ItemsContext();
+        SourceChangedEventArgs? args = null;
+        context.ItemsSource.Changed += (_, e) => args = e;
+        var before = DateTimeOffset.UtcNow;
+
+        context.ItemsSource.Push(1);
+
+        Assert.NotNull(args);
+        Assert.Equal(context.ItemsSource.SourceId, args.SourceId);
+        Assert.Equal(TimeSpan.Zero, args.Timestamp.Offset);
+        Assert.InRange(args.Timestamp, before, DateTimeOffset.UtcNow);
+    }
 }

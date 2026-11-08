@@ -135,9 +135,16 @@ values.Collect(customComparer)  // Compares the collected items with customCompa
 // Combine with single value
 values.Combine(singleValue)  // Pairs each value with the single value
 
-// Concatenate two collection providers
+// Concatenate two collection providers (first, then second)
 values.Merge(otherValues)
+values.Merge(otherValues, customComparer)  // Compares the values with customComparer
+
+// Flatten collections of collections
+arrays.Flatten()   // IncrementalValuesProvider<ImmutableArray<T>> -> IncrementalValuesProvider<T>
+nested.Flatten()   // IncrementalValueProvider<ImmutableArray<ImmutableArray<T>>> -> IncrementalValuesProvider<T>
 ```
+
+`Flatten()` is shorthand for `SelectMany(array => array)`: on a collection of arrays it is as incremental as `SelectMany` (only new or changed arrays are flattened again); on a single nested array it flattens the whole value whenever it changes. `Merge` collects both inputs, so any change to either re-concatenates both; prefer a single source with `Where` when the inputs are large and change often.
 
 How these behave:
 
