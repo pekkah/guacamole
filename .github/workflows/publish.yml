@@ -1,18 +1,21 @@
 name: Publish
 
-# Publishes to nuget.org and creates a GitHub release.
+# Builds, tests, packs and publishes to nuget.org.
 #
 # Triggers:
-#   - push of a version tag  v1.2.3 / v1.2.3-beta.1  -> package version = tag without "v"
-#   - manual run (workflow_dispatch), only from main or a v* tag.
-#       * on a tag:  same as a tag push
-#       * on main:   publishes the current GitVersion prerelease (e.g. 0.2.0-alpha.5)
-#                    to nuget.org; no GitHub release is created (there is no tag)
+#   - push to main         -> X.Y.Z-preview.N (GitVersion SemVer), nuget.org only, no GitHub release
+#   - push of a tag vX.Y.Z -> X.Y.Z (tag without "v"), nuget.org + GitHub release
+#                             Tags must be stable; v1.2.3-beta.1 etc. are rejected and not published.
+#   - manual run (workflow_dispatch) on main or a v* tag: re-runs the same publish for that
+#     ref (e.g. after fixing the nuget.org policy). Any other ref is refused.
 #
-# Plain pushes to main do NOT publish; ci.yml builds, tests and packs them.
+# CI is reused, not duplicated: the build job calls ci.yml (workflow_call), so the full
+# test matrix runs once per push and nothing is published unless it passes. ci.yml has
+# no push trigger of its own; pull requests are built by ci.yml alone and never published.
 
 on:
   push:
+    branches: [main]
     tags:
       - 'v*'
   workflow_dispatch:
@@ -20,6 +23,9 @@ on:
 permissions:
   contents: read
 
+# One publish at a time per ref; an in-progress publish is never cancelled. GitHub keeps
+# at most one *pending* run per group, so with several quick pushes to main an older
+# pending run may be replaced by the newest one; that only skips an intermediate preview.
 concurrency:
   group: publish-${{ github.ref }}
   cancel-in-progress: false
@@ -34,11 +40,18 @@ jobs:
     name: Check ref
     runs-on: ubuntu-latest
     steps:
-      - name: Only main or v* tags may publish
+      # Fails fast, before the test matrix. ci.yml repeats the stable-tag check when it
+      # computes the version, so a tag build can never pack a prerelease version.
+      - name: Only main or stable v* tags may publish
         shell: bash
         run: |
-          if [ "$GITHUB_REF_TYPE" = "tag" ] && [[ "$GITHUB_REF_NAME" == v* ]]; then exit 0; fi
           if [ "$GITHUB_REF" = "refs/heads/main" ]; then exit 0; fi
+          if [ "$GITHUB_REF_TYPE" = "tag" ] && [[ "$GITHUB_REF_NAME" == v* ]]; then
+            stable_re='^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$'
+            if [[ "$GITHUB_REF_NAME" =~ $stable_re ]]; then exit 0; fi
+            echo "::error::Tag '$GITHUB_REF_NAME' is not a stable version. Release tags must be vMAJOR.MINOR.PATCH (e.g. v1.2.3); prerelease packages are published automatically from main as X.Y.Z-preview.N. Delete the tag; nothing was published."
+            exit 1
+          fi
           echo "::error::Publishing is only allowed from main or a v* tag (got $GITHUB_REF)"
           exit 1
 
@@ -54,8 +67,13 @@ jobs:
     name: Publish to NuGet.org
     runs-on: ubuntu-latest
     needs: build
+    # A main build is always a preview (X.Y.Z-preview.N), except when main's HEAD already
+    # carries a release tag (commit and tag pushed together): GitVersion then reports the
+    # stable X.Y.Z, and that version is left to the tag's own run, which also creates the
+    # GitHub release.
+    if: github.ref_type == 'tag' || needs.build.outputs.prerelease == 'true'
     permissions:
-      contents: write  # gh release create
+      contents: write  # gh release create (tags only)
       id-token: write  # OIDC token for NuGet trusted publishing
 
     steps:
@@ -78,11 +96,13 @@ jobs:
           ls -l artifacts/
 
       # .snupkg files next to the .nupkg are pushed to the symbol server automatically.
-      # --skip-duplicate only makes re-runs of the same tag idempotent; versions never
-      # contain build metadata, so distinct commits never collapse to the same version.
+      # --skip-duplicate makes re-runs idempotent; versions never contain build metadata
+      # and preview numbers grow with every commit on main, so distinct commits never
+      # collapse to the same version.
       # Trusted publishing: exchange the workflow's OIDC token for a short-lived
       # (1 hour) nuget.org API key. No long-lived NUGET_API_KEY secret is stored.
-      # Requires a trusted publishing policy on nuget.org for this repo + publish.yml.
+      # Requires a trusted publishing policy on nuget.org for this repo + publish.yml with
+      # no environment, which covers runs from main and from tags alike.
       - name: NuGet login (trusted publishing)
         id: nuget-login
         uses: NuGet/login@v1
@@ -101,7 +121,6 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ github.ref_name }}
           VERSION: ${{ needs.build.outputs.version }}
-          PRERELEASE: ${{ needs.build.outputs.prerelease }}
         run: |
           set -euo pipefail
           shopt -s nullglob
@@ -113,6 +132,6 @@ jobs:
             exit 0
           fi
 
-          flags=(--repo "$GITHUB_REPOSITORY" --title "$VERSION" --generate-notes --verify-tag)
-          if [ "$PRERELEASE" = "true" ]; then flags+=(--prerelease); fi
-          gh release create "$TAG" "${files[@]}" "${flags[@]}"
+          # Tag versions are always stable (ci.yml rejects prerelease tags), so this is
+          # a normal release that becomes "Latest".
+          gh release create "$TAG" "${files[@]}" --repo "$GITHUB_REPOSITORY" --title "$VERSION" --generate-notes --verify-tag

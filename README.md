@@ -1,7 +1,6 @@
 # Guacamole
 
-[![CI](https://github.com/pekkah/guacamole/actions/workflows/ci.yml/badge.svg)](https://github.com/pekkah/guacamole/actions/workflows/ci.yml)
-[![Publish](https://github.com/pekkah/guacamole/actions/workflows/publish.yml/badge.svg)](https://github.com/pekkah/guacamole/actions/workflows/publish.yml)
+[![Build (main)](https://github.com/pekkah/guacamole/actions/workflows/publish.yml/badge.svg?branch=main)](https://github.com/pekkah/guacamole/actions/workflows/publish.yml)
 [![NuGet](https://img.shields.io/nuget/v/Guacamole.svg)](https://www.nuget.org/packages/Guacamole/)
 
 A .NET framework for building incremental compilers and computation pipelines, inspired by Roslyn's incremental generators. Provides automatic dependency tracking, caching, and change propagation for efficient recomputation when inputs change.
@@ -209,15 +208,22 @@ dotnet run -c Release
 
 ## Releasing
 
-Packages are published to nuget.org only from version tags (or a manual run of the Publish workflow):
+Every push to `main` publishes a preview package (`X.Y.Z-preview.N`) to nuget.org once the tests pass. To try the latest preview:
+
+```bash
+dotnet add package Guacamole --prerelease
+dotnet add package Guacamole.SourceGenerators --prerelease
+```
+
+Stable versions are published from version tags, which also create a GitHub release:
 
 ```bash
 git checkout main && git pull
-git tag -a v0.2.0 -m "Release 0.2.0"      # or v0.2.0-beta.1 for a prerelease
+git tag -a v0.2.0 -m "Release 0.2.0"      # stable versions only; prerelease tags are rejected
 git push origin v0.2.0
 ```
 
-The tag name (without `v`) is the package version. Pushes to `main` only build, test and pack. Publishing uses nuget.org trusted publishing (no stored API key); see [docs/ci-cd.md](https://github.com/pekkah/guacamole/blob/main/docs/ci-cd.md#nuget-trusted-publishing) for the one-time setup and details.
+The tag name (without `v`) is the package version; after `v0.2.0`, `main` continues with `0.3.0-preview.N`. Pull requests are built and tested but never published. Publishing uses nuget.org trusted publishing (no stored API key); see [docs/ci-cd.md](https://github.com/pekkah/guacamole/blob/main/docs/ci-cd.md#nuget-trusted-publishing) for the one-time setup and details.
 
 ## Examples
 

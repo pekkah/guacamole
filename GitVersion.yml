@@ -1,15 +1,25 @@
+# Versioning for CI builds (see docs/ci-cd.md#versioning-strategy).
+#
+#   main            -> X.Y.Z-preview.N    published to nuget.org on every push
+#   tag vX.Y.Z      -> X.Y.Z              ci.yml takes the tag name (GitVersion agrees)
+#   pull requests   -> X.Y.Z-pr.N         artifact only, never published
+#   other branches  -> X.Y.Z-<branch>.N   artifact only, never published
+#
+# After a stable tag vX.Y.Z, main continues with X.(Y+1).0-preview.1, .2, ...
+# (increment: Minor). "+semver: major|patch" in a commit message overrides that.
+# N counts commits since the last stable tag, so preview versions never repeat.
 tag-prefix: v
 mode: ContinuousDelivery
 branches:
   main:
     regex: ^main$
     mode: ContinuousDelivery
-    label: alpha
+    label: preview
     increment: Minor
   pull-request:
     label: pr
   feature:
-    label: alpha
+    label: '{BranchName}'
 commit-message-incrementing: Enabled
 major-version-bump-message: '\+semver:\s?(breaking|major)'
 minor-version-bump-message: '\+semver:\s?(feature|minor)'

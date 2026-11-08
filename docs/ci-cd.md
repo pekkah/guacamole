@@ -2,27 +2,30 @@
 
 ## Overview
 
-Guacamole uses GitHub Actions to build, test and pack on every change, and to publish
-NuGet packages **only** when a version tag is pushed (or the Publish workflow is run by hand).
+Guacamole uses GitHub Actions to build, test and pack on every change. Every push to `main`
+publishes a **preview** package to nuget.org once the tests pass, and a `vX.Y.Z` tag publishes
+the **stable** version `X.Y.Z` and creates a GitHub release.
 
 | Event | Workflow | Test matrix | Pack (artifact) | nuget.org | GitHub release |
 |-------|----------|-------------|-----------------|-----------|----------------|
-| Pull request to `main` | CI | Linux + Windows | yes | no | no |
-| Push to `main` | CI | Linux + Windows | yes | **no** | no |
-| Push tag `v1.2.3` / `v1.2.3-beta.1` | Publish (reuses CI) | Linux + Windows | yes | yes | yes (prerelease if the version has a label) |
-| Manual run on a `v*` tag | Publish (reuses CI) | Linux + Windows | yes | yes | yes |
-| Manual run on `main` | Publish (reuses CI) | Linux + Windows | yes | yes (GitVersion prerelease, e.g. `0.2.0-alpha.5`) | no |
-| Manual run on any other branch | Publish | - | - | refused | - |
+| Pull request to `main` | CI | Linux + Windows | yes (`X.Y.Z-pr.N`) | **no** | no |
+| Push to `main` | Publish (reuses CI) | Linux + Windows | yes | yes, preview `X.Y.Z-preview.N` | no |
+| Push tag `vX.Y.Z` | Publish (reuses CI) | Linux + Windows | yes | yes, stable `X.Y.Z` | yes |
+| Push tag with a prerelease suffix (`v1.2.3-beta.1`) | Publish | - | - | refused (`::error::`) | - |
+| Manual run on `main` or a `vX.Y.Z` tag | Publish (reuses CI) | Linux + Windows | yes | same as the push (re-run; duplicates skipped) | tags only |
+| Manual run on any other ref | Publish | - | - | refused | - |
 | PR / push to `main` touching `.github/workflows/**` | Lint workflows | - | - | - | - |
 
-The test matrix runs exactly once per event: tag pushes do not trigger CI on their own, and
-Publish calls `ci.yml` as a reusable workflow instead of duplicating its jobs.
+The test matrix runs exactly once per event: `ci.yml` has no `push` trigger, and Publish
+calls it as a reusable workflow (`workflow_call`) instead of duplicating its jobs, then
+publishes only if it passed. See [Why Publish reuses CI](#why-publish-reuses-ci).
 
 ## Workflows
 
 ### CI (`.github/workflows/ci.yml`)
 
-**Triggers**: push to `main`, pull requests targeting `main`, and `workflow_call` (used by Publish).
+**Triggers**: pull requests targeting `main`, and `workflow_call` (used by Publish for pushes
+to `main` and `v*` tags). There is no `push` trigger, so pushes are not built twice.
 
 **Jobs**:
 
@@ -46,23 +49,51 @@ CI has `contents: read` permission only and never publishes.
 
 ### Publish (`.github/workflows/publish.yml`)
 
-**Triggers**: push of tags matching `v*`, and `workflow_dispatch`.
+**Triggers**: push to `main`, push of tags matching `v*`, and `workflow_dispatch` (to re-run
+the publish for `main` or a tag, e.g. after fixing the nuget.org policy).
 
 **Jobs**:
 
-1. **guard** - fails unless the ref is `main` or a `v*` tag
-2. **build** - calls `ci.yml` (full test matrix + pack)
+1. **guard** - fails unless the ref is `main` or a stable `vMAJOR.MINOR.PATCH` tag. A tag with a
+   prerelease suffix (`v1.2.3-beta.1`) fails here with an `::error::`, before the test matrix,
+   and nothing is published
+2. **build** - calls `ci.yml` (full test matrix + pack); `ci.yml` checks the tag again when it
+   computes the version
 3. **publish** (needs `build`, `contents: write`, `id-token: write`)
+   - Runs for tags, and for `main` builds whose version is a prerelease. If `main`'s HEAD already
+     carries a release tag (commit and tag pushed together), GitVersion reports the stable
+     version and the job is skipped; the tag's own run publishes it and creates the release
    - Download the `nuget-packages` artifact
    - `NuGet/login@v1` exchanges the job's GitHub OIDC token for a short-lived nuget.org API
      key ([trusted publishing](#nuget-trusted-publishing))
    - `dotnet nuget push artifacts/*.nupkg --skip-duplicate` to nuget.org with that key
-     (`.snupkg` symbol packages are pushed alongside automatically)
-   - For tag refs: `gh release create <tag> --generate-notes --verify-tag` with the `.nupkg`
-     and `.snupkg` files attached, and `--prerelease` when the version contains a `-label`.
-     If the release already exists (re-run), the assets are re-uploaded with `--clobber`.
+     (`.snupkg` symbol packages next to the `.nupkg` files are pushed alongside automatically)
+   - For tag refs only: `gh release create <tag> --generate-notes --verify-tag` with the `.nupkg`
+     and `.snupkg` files attached. If the release already exists (re-run), the assets are
+     re-uploaded with `--clobber`. Preview builds from `main` get no GitHub release; they are
+     only on nuget.org
 
-Runs are serialized per ref (`concurrency: publish-<ref>`, not cancelled).
+**Concurrency**: `publish-<ref>` with `cancel-in-progress: false`, so publishes of the same ref
+run one at a time and a running publish is never cancelled. GitHub keeps at most one *pending*
+run per group: after several quick pushes to `main`, an older pending run can be replaced by the
+newest one. That only skips an intermediate preview; versions stay in order. Each tag is its own
+ref, so tags never wait for `main` or for each other.
+
+### Why Publish reuses CI
+
+Alternatives that were considered:
+
+- **`ci.yml` keeps `push: main` and Publish also runs on `push: main`**: simple, but every push
+  to `main` runs the Linux + Windows matrix twice.
+- **Publish on `workflow_run` of CI**: CI runs once, but the publish run has to download
+  artifacts from another run (run id, `actions: read`), always runs in the context of the default
+  branch (so the tag/ref has to be recovered from the triggering run's payload), and tags would
+  need a CI push trigger again. More moving parts for the same result.
+- **Chosen: Publish triggers on `push: main` + `v*` tags and calls `ci.yml`; `ci.yml` has only
+  `pull_request` and `workflow_call`**. CI runs once per push, the packages come from the same
+  run (`needs: build`), and nothing is published unless every test job passed. Pushes to `main`
+  show up as Publish runs (`Publish / Build / Test on ...`) instead of CI runs; pull request
+  check names are unchanged.
 
 ### Lint workflows (`.github/workflows/lint-workflows.yml`)
 
@@ -161,60 +192,88 @@ analyzer with no public API for consumers, so it is not tracked.
 
 Versions are SemVer 2.0 **without build metadata**.
 
+| Ref | Version | Published |
+|-----|---------|-----------|
+| Tag `v1.2.3` | `1.2.3` (stable) | nuget.org + GitHub release |
+| Tag `v1.3.0-beta.1` (any prerelease suffix) | - | **refused**, the build fails |
+| `main`, no tags yet | `0.1.0-preview.<commits>` | nuget.org (preview) |
+| `main`, HEAD is the tagged `v1.2.3` commit | `1.2.3` | by the tag's run only |
+| `main`, 1 commit after `v1.2.3` | `1.3.0-preview.1` | nuget.org (preview) |
+| `main`, 5 commits after `v1.2.3` | `1.3.0-preview.5` | nuget.org (preview) |
+| Pull request | `<next>-pr.<n>` | no (CI artifact only) |
+| Other branch, e.g. `feature/foo` | `<next>-foo.<n>` | no (never built by Publish) |
+| Local build | `0.1.0-dev` (`Directory.Build.props`) | no |
+
 - **Tag builds** (`refs/tags/v*`): the version is the tag name without the leading `v`, and
-  must match `MAJOR.MINOR.PATCH[-prerelease]`. `v1.2.3+meta` or `vfoo` fail the build.
-- **Everything else**: GitVersion's `SemVer` variable (GitVersion 6.x, pinned in
+  must be a stable `MAJOR.MINOR.PATCH`. `v1.2.3-beta.1`, `v1.2.3+meta`, `v1.2` or `vfoo` fail
+  with an `::error::` (in Publish's guard job and again in `ci.yml`).
+- **Everything else**: GitVersion's `SemVer` variable (GitVersion 6.8.2, pinned in
   `.config/dotnet-tools.json`, configured by `GitVersion.yml`).
 - **Local builds**: `Directory.Build.props` sets `0.1.0-dev`; CI overrides it with `-p:Version`.
 
-Why not GitVersion's `FullSemVer`? On non-`main` branches it carries `+N` build metadata
-(observed locally on a topic branch: `SemVer 0.1.0-<branch>.1`, `FullSemVer 0.1.0-<branch>.1+42`). NuGet ignores
-build metadata when comparing versions, so two different builds would collide and
-`--skip-duplicate` would silently skip the newer one. GitVersion 6 no longer outputs
-`NuGetVersion`/`NuGetVersionV2`, so `SemVer` is the right variable.
+### Version increment rule (GitVersion)
 
-Why use the tag name instead of GitVersion on tags? With `mode: ContinuousDelivery` and
-`label: alpha` on `main`, GitVersion ignores prerelease tags with a different label: a commit
-tagged `v0.2.0-beta.1` is reported as `0.2.0-alpha.N`. Stable tags (`v0.2.0` -> `0.2.0`) are
-reported correctly, but taking the tag verbatim is simpler and always matches the release.
+`GitVersion.yml` uses `mode: ContinuousDelivery` with `label: preview` and `increment: Minor` on
+`main`:
 
-### Example versions
-
-| Ref | Version |
-|-----|---------|
-| Tag `v1.2.3` | `1.2.3` |
-| Tag `v1.3.0-beta.1` | `1.3.0-beta.1` |
-| `main`, 2 commits after `v1.2.3` | `1.3.0-alpha.2` |
-| `main`, no tags yet | `0.1.0-alpha.<commits>` |
-| Pull request | `<next>-pr<...>` prerelease (artifact only, never published) |
-
-### Version increment (GitVersion)
-
-- `main` increments the **minor** version after the last tag
-- Commit messages can override: `+semver: major|minor|patch|none`
+- After a stable tag `vX.Y.Z`, `main` builds are `X.(Y+1).0-preview.N`, where `N` is the number
+  of commits since the tag. `N` only grows, so every push to `main` gets a new, higher version.
+- Release the next version by tagging the `main` commit you want: `vX.(Y+1).0` (or any higher
+  stable version, e.g. `v(X+1).0.0`; GitVersion continues from the latest tag).
+- Commit messages can override the increment: `+semver: major|minor|patch|none`. For example
+  `+semver: major` after `v1.2.3` makes the previews `2.0.0-preview.N`.
 
 ```bash
-git commit -m "feat: add caching support +semver: minor"
+git commit -m "feat!: new API +semver: major"
 ```
+
+This was verified with GitVersion 6.4.0 and 6.8.2 (identical results) in a scratch clone:
+`main` with no tags gives `0.1.0-preview.<commits>`; tagging that commit `v0.1.0` gives `0.1.0`
+(also for a detached checkout with `GITHUB_REF=refs/tags/v0.1.0`, as on Actions); the next
+commits give `0.2.0-preview.1`, `0.2.0-preview.2`; `feature/foo` gives `0.2.0-foo.1`; a PR
+merge ref gives `0.2.0-pr.3`; a `+semver: major` commit gives `1.0.0-preview.3`.
+
+Why not GitVersion's `FullSemVer`? On non-`main` branches it carries `+N` build metadata
+(e.g. `SemVer 0.2.0-foo.1`, `FullSemVer 0.2.0-foo.1+3`). NuGet ignores build metadata when
+comparing versions, so two different builds would collide and `--skip-duplicate` would silently
+skip the newer one. GitVersion 6 no longer outputs `NuGetVersion`/`NuGetVersionV2`, so `SemVer`
+is the right variable.
+
+Why use the tag name instead of GitVersion on tags? It always matches the release exactly.
+GitVersion agrees for stable tags (`v0.1.0` -> `0.1.0`), but ignores prerelease tags whose label
+differs from the branch label, which is one more reason prerelease tags are not allowed:
+prereleases come from `main`.
 
 ## Creating a Release
 
-### Stable or prerelease release
+### Preview packages
+
+Nothing to do: every push to `main` (including merged pull requests) publishes
+`X.Y.Z-preview.N` to nuget.org after the tests pass. Install them with
+
+```bash
+dotnet add package Guacamole --prerelease
+dotnet add package Guacamole.SourceGenerators --prerelease
+```
+
+### Stable release
 
 ```bash
 git checkout main
 git pull origin main
-git tag -a v1.2.3 -m "Release 1.2.3"        # prerelease: v1.3.0-beta.1
+git tag -a v1.2.3 -m "Release 1.2.3"
 git push origin v1.2.3
 ```
 
 The Publish workflow then runs the test matrix, packs `1.2.3`, pushes it to nuget.org and
-creates the GitHub release `v1.2.3` with the packages attached. Tags with a `-label` produce a
-prerelease on both nuget.org and GitHub.
+creates the GitHub release `v1.2.3` with the packages attached. The next push to `main`
+publishes `1.3.0-preview.1`. Tags must be stable (`vMAJOR.MINOR.PATCH`); a prerelease tag is
+refused.
 
 ### Release checklist
 
-Before tagging (in the commit that will be tagged):
+Previews need no checklist. For a stable release, before tagging (in the commit that will be
+tagged; the push of that commit to `main` publishes one more `X.Y.Z-preview.N`, which is expected):
 
 1. `CHANGELOG.md`: rename `## [Unreleased]` to `## [X.Y.Z] - YYYY-MM-DD`, add a new empty
    `## [Unreleased]` above it, and update the link references at the bottom:
@@ -226,8 +285,12 @@ Before tagging (in the commit that will be tagged):
    plus a `.snupkg` with the PDB; `Guacamole.SourceGenerators` has
    `analyzers/dotnet/cs/Guacamole.SourceGenerators.dll` (PDB embedded, no `lib/` folder, marked as
    a development dependency); both contain `README.md`.
+3. Wait for that commit's Publish run on `main` to pass, then tag exactly that commit
+   (`git tag -a vX.Y.Z <sha>`). The first stable release is `v0.1.0`: until then `main` publishes
+   `0.1.0-preview.N`, which sorts above the old `0.1.0-alpha.*` packages and below `0.1.0`.
 
-After the tag is published, in a follow-up commit on `main`:
+After the tag's Publish run has pushed `X.Y.Z` to nuget.org and created the GitHub release, in a
+follow-up commit on `main` (its push publishes the first `X.(Y+1).0-preview.N`):
 
 1. **Promote the public API.** Move every entry of `src/Guacamole/PublicAPI.Unshipped.txt` to
    `src/Guacamole/PublicAPI.Shipped.txt`, leaving only `#nullable enable` in the unshipped file
@@ -246,16 +309,11 @@ After the tag is published, in a follow-up commit on `main`:
    version, or a new minor version while the major version is 0). Previews (`-preview.N`) are
    never used as a baseline.
 
-### Ad-hoc prerelease from main
+### Re-running a publish
 
-Actions → **Publish** → *Run workflow* → branch `main`. This publishes the current GitVersion
-prerelease (e.g. `0.2.0-alpha.5`) to nuget.org without creating a GitHub release. Running it
-again without new commits produces the same version and is skipped by `--skip-duplicate`.
-
-### Re-running a release
-
-Re-running a failed Publish run for a tag is safe: already-pushed packages are skipped and
-existing release assets are replaced.
+Re-running a failed Publish run (or Actions -> **Publish** -> *Run workflow* on `main` or a tag)
+is safe: already-pushed packages are skipped (`--skip-duplicate`) and existing release assets
+are replaced. A manual run on `main` publishes the version of `main`'s current HEAD.
 
 ## NuGet Trusted Publishing
 
@@ -272,6 +330,11 @@ One-time setup:
    - Repository: `guacamole`
    - Workflow file: `publish.yml`
    - Environment: leave empty (the workflow does not use a GitHub environment)
+
+   The policy has no branch or tag filter: it matches any run of `publish.yml` in this
+   repository, so it covers both pushes to `main` (previews) and `v*` tags (stable). If you add
+   a GitHub environment to the publish job later, the policy's environment must match it, and
+   the environment's deployment branch/tag rules must allow both `main` and `v*` tags.
 2. In GitHub: **Settings → Secrets and variables → Actions → New repository secret**
    `NUGET_USER` = the nuget.org username that owns the policy. The `NuGet/login` step reads it.
 3. Delete the old `NUGET_API_KEY` repository secret and revoke the key on nuget.org; it is no
@@ -285,11 +348,17 @@ extra secret is required.
 
 ## Troubleshooting
 
-### Publish fails at "Calculate version"
-The tag is not `v<MAJOR>.<MINOR>.<PATCH>[-label]`. Delete it and push a valid one.
+### Publish fails at "Check ref" or "Calculate version"
+The tag is not a stable `vMAJOR.MINOR.PATCH` (e.g. `v1.2.3-beta.1`), or a manual run was
+started on a ref other than `main` or a `v*` tag. Nothing was published. Delete the tag
+(`git push origin --delete v1.2.3-beta.1`) and push a valid one; previews come from `main`.
 
-### Publish run was refused by "Check ref"
-Manual runs are only allowed on `main` or a `v*` tag.
+### A push to `main` did not publish
+- The Build job failed (tests, format check, pack): nothing is published until it passes
+- The publish job was skipped because `main`'s HEAD carries a release tag; the tag's run
+  publishes that version
+- The run was still pending when a newer push arrived and was replaced by the newer run
+  (see the concurrency note under [Publish](#publish-githubworkflowspublishyml))
 
 ### Package publish fails
 - `NuGet login` fails: no matching trusted publishing policy (check owner, repository and
@@ -331,9 +400,11 @@ mark the GitHub release accordingly.
 
 ## Security
 
-- No long-lived NuGet credentials are stored: the `publish` job (only for `v*` tags or manual
-  runs on `main`) gets a one-hour key via OIDC trusted publishing; only that job has
-  `id-token: write`
+- No long-lived NuGet credentials are stored: the `publish` job (only for pushes to `main` and
+  stable `v*` tags, after the tests pass) gets a one-hour key via OIDC trusted publishing; only
+  that job has `id-token: write`
+- Pull requests (including from forks) run `ci.yml` only, with `contents: read`, and can never
+  publish
 - CI and the workflow lint run with `contents: read`; only the publish job gets `contents: write`
 - Action versions are pinned to major versions (`actions/checkout@v7`, `setup-dotnet@v6`,
   `cache@v6`, `upload-artifact@v7`, `download-artifact@v8`, `NuGet/login@v1`); the

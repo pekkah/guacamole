@@ -1,14 +1,16 @@
 name: CI
 
-# Build, test and pack. Runs on its own for pushes to main and pull requests,
-# and is reused by publish.yml (workflow_call) so release builds run the exact
-# same test matrix and packaging steps without duplicating them.
+# Build, test and pack. Runs on its own for pull requests, and is reused by
+# publish.yml (workflow_call) for every push to main and every v* tag, so the
+# builds that get published run the exact same test matrix and packaging steps.
+#
+# There is deliberately no `push` trigger here: pushes to main are built by
+# publish.yml, which calls this workflow and only publishes when it passed.
+# A push trigger would run the whole test matrix a second time for each push.
 #
 # This workflow never publishes anything; it only uploads build artifacts.
 
 on:
-  push:
-    branches: [main]
   pull_request:
     branches: [main]
   workflow_call:
@@ -122,14 +124,13 @@ jobs:
         run: dotnet tool restore
 
       # Version selection:
-      #  - tag builds (refs/tags/vX.Y.Z[-label]): the tag *is* the version. GitVersion's
-      #    ContinuousDelivery mode on main ignores prerelease tags whose label is not
-      #    "alpha" (e.g. v1.0.0-beta.1 would come out as 1.0.0-alpha.N), so we do not
-      #    trust it for releases.
-      #  - everything else: GitVersion `SemVer`. Never `FullSemVer`, which can carry
-      #    "+N" build metadata that NuGet drops when comparing versions (so a later
-      #    push with --skip-duplicate would silently be skipped). GitVersion 6 no
-      #    longer emits NuGetVersion/NuGetVersionV2.
+      #  - tag builds (refs/tags/vX.Y.Z): the tag *is* the version, and it must be a
+      #    stable MAJOR.MINOR.PATCH. Prerelease versions come from main (X.Y.Z-preview.N),
+      #    so a tag such as v1.0.0-beta.1 is rejected here and never published.
+      #  - everything else (main, pull requests): GitVersion `SemVer` (see GitVersion.yml).
+      #    Never `FullSemVer`, which can carry "+N" build metadata that NuGet drops when
+      #    comparing versions (so a later push with --skip-duplicate would silently be
+      #    skipped). GitVersion 6 no longer emits NuGetVersion/NuGetVersionV2.
       - name: Calculate version
         id: version
         shell: bash
@@ -139,6 +140,11 @@ jobs:
           jq '{SemVer, FullSemVer, PreReleaseTag, BranchName, Sha}' gitversion.json
 
           if [ "$GITHUB_REF_TYPE" = "tag" ]; then
+            stable_re='^v?(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$'
+            if ! [[ "$GITHUB_REF_NAME" =~ $stable_re ]]; then
+              echo "::error::Tag '$GITHUB_REF_NAME' is not a stable version. Release tags must be vMAJOR.MINOR.PATCH (e.g. v1.2.3); prerelease packages are published automatically from main as X.Y.Z-preview.N."
+              exit 1
+            fi
             version="${GITHUB_REF_NAME#v}"
           else
             version="$(jq -r .SemVer gitversion.json)"
@@ -146,7 +152,7 @@ jobs:
 
           semver_re='^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(-[0-9A-Za-z.-]+)?$'
           if ! [[ "$version" =~ $semver_re ]]; then
-            echo "::error::'$version' is not a valid SemVer 2.0 version without build metadata (tags must look like v1.2.3 or v1.2.3-beta.1)"
+            echo "::error::'$version' is not a valid SemVer 2.0 version without build metadata"
             exit 1
           fi
 
