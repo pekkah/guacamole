@@ -1,34 +1,52 @@
 using System;
 using System.Collections.Generic;
 using System.Collections.Immutable;
-using System.Linq;
+using System.Collections.ObjectModel;
 using System.Threading;
 using Guacamole.Pipeline;
 
 namespace Guacamole;
 
 /// <summary>
-/// Thread-safe implementation of IIncrementalSource using immutable collections.
+/// Thread-safe implementation of IIncrementalSource.
 /// Raises change events when data changes; cache invalidation is handled by the context.
 /// </summary>
 /// <remarks>
+/// <para>
 /// Items have set semantics (using <see cref="EqualityComparer{T}.Default"/>) and are enumerated in
-/// insertion order: each item is assigned an increasing sequence number when pushed. An index
-/// (item to sequence number) answers membership, and a sorted map (sequence number to item) keeps the
-/// order, so <c>Push</c>, <c>Remove</c> and <c>Replace</c> are O(log n) and a snapshot is O(n).
-/// <c>Replace</c> gives the new item the old item's sequence number, so it keeps its position;
-/// removing an item and pushing it again appends it.
+/// insertion order. They are kept in an array of slots in insertion order, with an index from item to
+/// slot: <c>Push</c> appends a slot, <c>Replace</c> overwrites the old item's slot (so the new item
+/// keeps its position), and <c>Remove</c> empties the slot; empty slots are compacted away once they
+/// outnumber the items. All three are O(1) amortized. Removing an item and pushing it again appends it.
+/// </para>
+/// <para>
+/// Mutations take a lock. Reads use an immutable snapshot array, built under the lock on the first
+/// read after a change and shared by all reads until the next change, so reading an unchanged
+/// source neither locks nor allocates. The snapshot is what the pipeline reads, and is never
+/// modified once published.
+/// </para>
 /// </remarks>
 /// <typeparam name="T">Type of items in the source</typeparam>
 internal sealed class IncrementalSource<T> : IIncrementalSource<T>
 {
-    private readonly ReaderWriterLockSlim _lock = new(LockRecursionPolicy.NoRecursion);
+    // Empty slots are compacted when there are at least this many and more than live items
+    private const int MinCompactionGap = 32;
+
+    private readonly object _lock = new();
+
     // Items are never null (Push and Replace reject null), so T is a valid dictionary key.
 #pragma warning disable CS8714
-    private ImmutableDictionary<T, long> _sequenceByItem = ImmutableDictionary<T, long>.Empty;
+    private readonly Dictionary<T, int> _slotByItem = new();
 #pragma warning restore CS8714
-    private ImmutableSortedDictionary<long, T> _itemBySequence = ImmutableSortedDictionary<long, T>.Empty;
-    private long _nextSequence;
+
+    // Items in insertion order; slots at index >= _slotCount are unused, and slots of removed items
+    // are empty (HasItem is false) until the next compaction
+    private Slot[] _slots = [];
+    private int _slotCount;
+
+    // The items in order, or null when they changed since the last read (see GetItems)
+    private T[]? _snapshot = [];
+
     private readonly Func<ComputationGraph> _graphProvider;
     private readonly ICollectionComputationNode<T> _node;
 
@@ -81,22 +99,10 @@ internal sealed class IncrementalSource<T> : IIncrementalSource<T>
     {
         ArgumentNullException.ThrowIfNull(item);
 
-        bool changed = false;
-
-        _lock.EnterWriteLock();
-        try
+        bool changed;
+        lock (_lock)
         {
-            if (!_sequenceByItem.ContainsKey(item))
-            {
-                var sequence = _nextSequence++;
-                _sequenceByItem = _sequenceByItem.Add(item, sequence);
-                _itemBySequence = _itemBySequence.Add(sequence, item);
-                changed = true;
-            }
-        }
-        finally
-        {
-            _lock.ExitWriteLock();
+            changed = PushCore(item);
         }
 
         if (changed)
@@ -112,21 +118,10 @@ internal sealed class IncrementalSource<T> : IIncrementalSource<T>
     {
         ArgumentNullException.ThrowIfNull(item);
 
-        bool changed = false;
-
-        _lock.EnterWriteLock();
-        try
+        bool changed;
+        lock (_lock)
         {
-            if (_sequenceByItem.TryGetValue(item, out var sequence))
-            {
-                _sequenceByItem = _sequenceByItem.Remove(item);
-                _itemBySequence = _itemBySequence.Remove(sequence);
-                changed = true;
-            }
-        }
-        finally
-        {
-            _lock.ExitWriteLock();
+            changed = RemoveCore(item);
         }
 
         if (changed)
@@ -146,31 +141,12 @@ internal sealed class IncrementalSource<T> : IIncrementalSource<T>
         if (EqualityComparer<T>.Default.Equals(oldItem, newItem))
             return; // No change
 
-        bool changed = false;
-
-        _lock.EnterWriteLock();
-        try
+        lock (_lock)
         {
-            if (!_sequenceByItem.TryGetValue(oldItem, out var sequence))
-                throw new InvalidOperationException($"Item to replace not found in source '{SourceId}'");
-
-            if (_sequenceByItem.ContainsKey(newItem))
-                throw new InvalidOperationException($"Replacement item already exists in source '{SourceId}'");
-
-            // The new item takes the old item's place in the order
-            _sequenceByItem = _sequenceByItem.Remove(oldItem).Add(newItem, sequence);
-            _itemBySequence = _itemBySequence.SetItem(sequence, newItem);
-            changed = true;
-        }
-        finally
-        {
-            _lock.ExitWriteLock();
+            ReplaceCore(oldItem, newItem);
         }
 
-        if (changed)
-        {
-            NotifyChanged();
-        }
+        NotifyChanged();
     }
 
     /// <summary>
@@ -178,55 +154,137 @@ internal sealed class IncrementalSource<T> : IIncrementalSource<T>
     /// </summary>
     public void Clear()
     {
-        bool changed = false;
-
-        _lock.EnterWriteLock();
-        try
+        lock (_lock)
         {
-            if (_sequenceByItem.IsEmpty)
+            if (_slotByItem.Count == 0)
                 return;
 
-            _sequenceByItem = _sequenceByItem.Clear();
-            _itemBySequence = _itemBySequence.Clear();
-            changed = true;
-        }
-        finally
-        {
-            _lock.ExitWriteLock();
+            _slotByItem.Clear();
+            _slots = [];
+            _slotCount = 0;
+            _snapshot = [];
         }
 
-        if (changed)
-        {
-            NotifyChanged();
-        }
+        NotifyChanged();
     }
 
     /// <summary>
     /// Gets a thread-safe snapshot of the current items, in insertion order.
     /// </summary>
-    public IReadOnlyCollection<T> GetSnapshot()
+    /// <remarks>
+    /// A read-only view of the shared snapshot array, so that callers cannot modify what the
+    /// pipeline reads.
+    /// </remarks>
+    public IReadOnlyCollection<T> GetSnapshot() => new ReadOnlyCollection<T>(GetItems());
+
+    /// <summary>
+    /// The current items in insertion order, as an array shared by all reads until the next change.
+    /// Callers must not modify it.
+    /// </summary>
+    internal T[] GetItems()
     {
-        ImmutableSortedDictionary<long, T> items;
+        var snapshot = Volatile.Read(ref _snapshot);
+        if (snapshot is not null)
+            return snapshot;
 
-        _lock.EnterReadLock();
-        try
+        lock (_lock)
         {
-            items = _itemBySequence;
+            snapshot = _snapshot;
+            if (snapshot is null)
+            {
+                snapshot = new T[_slotByItem.Count];
+                var count = 0;
+                for (var i = 0; i < _slotCount; i++)
+                {
+                    if (_slots[i].HasItem)
+                        snapshot[count++] = _slots[i].Item;
+                }
+
+                Volatile.Write(ref _snapshot, snapshot);
+            }
+
+            return snapshot;
         }
-        finally
+    }
+
+    /// <summary>
+    /// Appends <paramref name="item"/> unless it is present; returns whether it was added. Lock held.
+    /// </summary>
+    private bool PushCore(T item)
+    {
+        if (!_slotByItem.TryAdd(item, _slotCount))
+            return false;
+
+        if (_slotCount == _slots.Length)
+            Array.Resize(ref _slots, Math.Max(4, _slots.Length * 2));
+
+        _slots[_slotCount++] = new Slot(item);
+        _snapshot = null;
+        return true;
+    }
+
+    /// <summary>
+    /// Removes <paramref name="item"/> if present; returns whether it was removed. Lock held.
+    /// </summary>
+    private bool RemoveCore(T item)
+    {
+        if (!_slotByItem.Remove(item, out var slot))
+            return false;
+
+        _slots[slot] = default; // also releases the item
+        _snapshot = null;
+
+        var empty = _slotCount - _slotByItem.Count;
+        if (empty >= MinCompactionGap && empty > _slotByItem.Count)
+            Compact();
+
+        return true;
+    }
+
+    /// <summary>
+    /// Puts <paramref name="newItem"/> in <paramref name="oldItem"/>'s slot. Lock held.
+    /// </summary>
+    /// <exception cref="InvalidOperationException"><paramref name="oldItem"/> is missing or
+    /// <paramref name="newItem"/> is present.</exception>
+    private void ReplaceCore(T oldItem, T newItem)
+    {
+        if (!_slotByItem.TryGetValue(oldItem, out var slot))
+            throw new InvalidOperationException($"Item to replace not found in source '{SourceId}'");
+
+        if (_slotByItem.ContainsKey(newItem))
+            throw new InvalidOperationException($"Replacement item already exists in source '{SourceId}'");
+
+        // The new item takes the old item's place in the order
+        _slotByItem.Remove(oldItem);
+        _slotByItem.Add(newItem, slot);
+        _slots[slot] = new Slot(newItem);
+        _snapshot = null;
+    }
+
+    /// <summary>
+    /// Moves the items to the front of the slot array, keeping their order. Lock held.
+    /// </summary>
+    private void Compact()
+    {
+        var count = 0;
+        for (var i = 0; i < _slotCount; i++)
         {
-            _lock.ExitReadLock();
+            if (!_slots[i].HasItem)
+                continue;
+
+            if (count != i)
+            {
+                _slots[count] = _slots[i];
+                _slots[i] = default;
+            }
+
+            _slotByItem[_slots[count].Item] = count;
+            count++;
         }
 
-        // The map is immutable, so it can be copied outside the lock
-        var snapshot = new T[items.Count];
-        var i = 0;
-        foreach (var (_, item) in items)
-        {
-            snapshot[i++] = item;
-        }
-
-        return snapshot;
+        _slotCount = count;
+        if (_slots.Length > 4 * Math.Max(count, 4))
+            Array.Resize(ref _slots, Math.Max(4, count * 2));
     }
 
     /// <summary>
@@ -236,6 +294,13 @@ internal sealed class IncrementalSource<T> : IIncrementalSource<T>
     private void NotifyChanged()
     {
         Changed?.Invoke(this, new SourceChangedEventArgs(SourceId, DateTime.UtcNow));
+    }
+
+    private readonly struct Slot(T item)
+    {
+        public T Item { get; } = item;
+
+        public bool HasItem { get; } = true;
     }
 
     /// <summary>
@@ -258,10 +323,9 @@ internal sealed class IncrementalSource<T> : IIncrementalSource<T>
 
         public Result<IEnumerable<T>, ComputationError> Compute(ComputationContext context)
         {
-            // Sources are the ground truth - always read fresh data, never use cache
-            // The cache is for computed nodes (Select, Combine, etc.) that depend on sources
-            var items = _source.GetSnapshot();
-            return Result<IEnumerable<T>, ComputationError>.Success(items);
+            // Sources are the ground truth - always read the current items, never the value cache.
+            // The cache is for computed nodes (Select, Combine, etc.) that depend on sources.
+            return Result<IEnumerable<T>, ComputationError>.Success(_source.GetItems());
         }
     }
 }

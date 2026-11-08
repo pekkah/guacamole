@@ -1,4 +1,5 @@
 using System.Collections.Immutable;
+using System.Runtime.InteropServices;
 using Guacamole.Pipeline;
 
 namespace Guacamole;
@@ -497,13 +498,29 @@ internal sealed class SelectManyValuesNode<TSource, TResult> : ICollectionComput
             // Unchanged items reuse their previous results without running the selector.
             // Materialize inside the try so selector exceptions become error results.
             var perItem = _memo.Apply(sourceResult.Value!, item => _selector(item).ToArray());
-            var results = perItem.SelectMany(r => r).ToArray();
-            return Result<IEnumerable<TResult>, ComputationError>.Success(results);
+            return Result<IEnumerable<TResult>, ComputationError>.Success(Flatten(perItem));
         }
         catch (Exception ex)
         {
             return Result<IEnumerable<TResult>, ComputationError>.Error(ComputationError.FromException(ex));
         }
+    }
+
+    private static TResult[] Flatten(TResult[][] perItem)
+    {
+        var count = 0;
+        foreach (var results in perItem)
+            count += results.Length;
+
+        var flattened = new TResult[count];
+        var offset = 0;
+        foreach (var results in perItem)
+        {
+            results.CopyTo(flattened, offset);
+            offset += results.Length;
+        }
+
+        return flattened;
     }
 }
 
@@ -544,7 +561,10 @@ internal sealed class CollectValuesNode<T> : IComputationNode<ImmutableArray<T>>
             if (!sourceResult.IsSuccess)
                 return Result<ImmutableArray<T>, ComputationError>.Error(sourceResult.ErrorValue!);
 
-            var collected = sourceResult.Value!.ToImmutableArray();
+            // Arrays read from upstream stages and sources are immutable snapshots: share them
+            var collected = sourceResult.Value is T[] array
+                ? ImmutableCollectionsMarshal.AsImmutableArray(array)
+                : sourceResult.Value!.ToImmutableArray();
             return Result<ImmutableArray<T>, ComputationError>.Success(collected);
         }
         catch (Exception ex)
@@ -638,15 +658,27 @@ internal sealed class WhereValuesNode<T> : ICollectionComputationNode<T>, IHasCo
 
             // Unchanged items reuse their previous verdicts without running the predicate.
             // Materialize inside the try so predicate exceptions become error results.
-            var items = sourceResult.Value as IReadOnlyList<T> ?? sourceResult.Value!.ToArray();
+            var items = sourceResult.Value as T[] ?? sourceResult.Value!.ToArray();
             var keep = _memo.Apply(items, _predicate);
-            var filtered = new List<T>(items.Count);
-            for (var i = 0; i < items.Count; i++)
+            var kept = 0;
+            foreach (var k in keep)
+            {
+                if (k)
+                    kept++;
+            }
+
+            // Nothing filtered out: the (immutable) input array is the result
+            if (kept == items.Length)
+                return Result<IEnumerable<T>, ComputationError>.Success(items);
+
+            var filtered = new T[kept];
+            kept = 0;
+            for (var i = 0; i < items.Length; i++)
             {
                 if (keep[i])
-                    filtered.Add(items[i]);
+                    filtered[kept++] = items[i];
             }
-            return Result<IEnumerable<T>, ComputationError>.Success(filtered.ToArray());
+            return Result<IEnumerable<T>, ComputationError>.Success(filtered);
         }
         catch (Exception ex)
         {

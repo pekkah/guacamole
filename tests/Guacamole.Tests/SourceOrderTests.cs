@@ -1,3 +1,5 @@
+using System;
+using System.Collections.Generic;
 using System.Linq;
 using System.Threading.Tasks;
 using Xunit;
@@ -140,5 +142,70 @@ public partial class SourceOrderTests
             var own = snapshot.Where(s => s.StartsWith(prefix, StringComparison.Ordinal)).ToArray();
             Assert.Equal(Enumerable.Range(0, perWriter).Select(i => $"{prefix}{i}"), own);
         }
+    }
+
+    [Theory]
+    [InlineData(1)]
+    [InlineData(2)]
+    [InlineData(3)]
+    public void RandomOperations_KeepInsertionOrder_AcrossCompaction(int seed)
+    {
+        using var context = new OrderContext();
+        var random = new Random(seed);
+        var model = new List<string>();
+        var values = context.Items.Select(s => s.Length);
+
+        for (var step = 0; step < 2000; step++)
+        {
+            var item = $"x{random.Next(300)}";
+            switch (random.Next(10))
+            {
+                case < 4:
+                    if (!model.Contains(item))
+                        model.Add(item);
+                    context.ItemsSource.Push(item);
+                    break;
+                case < 8:
+                    // Removals outnumber pushes now and then, so empty slots get compacted
+                    if (model.Count > 0)
+                    {
+                        var removed = model[random.Next(model.Count)];
+                        model.Remove(removed);
+                        context.ItemsSource.Remove(removed);
+                    }
+
+                    break;
+                case 8 when model.Count > 0 && !model.Contains(item):
+                    {
+                        var index = random.Next(model.Count);
+                        context.ItemsSource.Replace(model[index], item);
+                        model[index] = item;
+                        break;
+                    }
+                case 9 when random.Next(50) == 0:
+                    model.Clear();
+                    context.ItemsSource.Clear();
+                    break;
+            }
+
+            if (step % 7 == 0)
+            {
+                Assert.Equal(model, context.ItemsSource.GetSnapshot());
+                Assert.Equal(model.Select(s => s.Length), values.Values);
+            }
+        }
+
+        Assert.Equal(model, context.Items.Values);
+    }
+
+    [Fact]
+    public void Snapshot_IsReadOnly()
+    {
+        using var context = new OrderContext();
+        context.ItemsSource.PushRange(["a", "b"]);
+        var snapshot = context.ItemsSource.GetSnapshot();
+
+        Assert.Throws<NotSupportedException>(() => ((IList<string>)snapshot)[0] = "z");
+        Assert.Equal(["a", "b"], context.Items.Values);
     }
 }

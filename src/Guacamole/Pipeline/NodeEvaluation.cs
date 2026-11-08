@@ -585,6 +585,9 @@ internal sealed class CollectionNodeHandle<T> : NodeHandle<IEnumerable<T>>
             return false;
 
         var b = (T[])current;
+        if (ReferenceEquals(a, b))
+            return true;
+
         if (a.Length != b.Length)
             return false;
 

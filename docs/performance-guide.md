@@ -40,10 +40,10 @@ Each stage occupies one entry in the context's value cache (see [Memory](#memory
 Collection operators (`Select`, `Where`, `SelectMany` on `IncrementalValuesProvider<T>`) remember, for each input item of their previous computation, what their lambda returned. When such a stage is recomputed, the lambda runs only for items that are new or changed; an item equal to one seen last time (by `EqualityComparer<T>.Default`, i.e. the item's own equality) reuses the previous result. Pushing one item to a 10,000-item source runs each recomputed stage's lambda once, not 10,000 times.
 
 - A reused result is the **same instance** as before, so the next stage's memo hits too, even when the result type only has reference equality.
-- The memo holds one entry per distinct item of the latest computation and is replaced when a computation completes; if a lambda throws, the stage returns an error and keeps its previous memo.
+- The memo holds one entry per distinct item of the latest computation and is updated in place when a computation completes; if a lambda throws, the stage returns an error and keeps its previous memo.
 - `null` items are not memoized; the lambda runs for them every time.
 - Items must be immutable (records are ideal): an item mutated in place still equals itself, so its stale result would be reused.
-- The stage still walks the whole collection (and allocates the result array) on recomputation; only the lambda calls are saved. To avoid even that for unrelated data, split it into separate sources.
+- The stage still walks the whole collection on recomputation (one comparison per unchanged item, and a new result array unless every result is unchanged); only the lambda calls and the memo bookkeeping for unchanged items are saved. To avoid even that for unrelated data, split it into separate sources.
 - Memoization is per item. A lambda that also depends on a combined value (`values.Combine(value)`) sees a new input for every item when that value changes; see [cross-item lookups](#cross-item-lookups-eg-symbol-tables) for keeping such inputs equal.
 
 ## Cross-Item Lookups (e.g. Symbol Tables)
