@@ -228,7 +228,7 @@ context.SourcesSource.Push(new SourceFile("Main.cs", "a b"));   // pushing an eq
 context.SourcesSource.PushRange(new[] { new SourceFile("Utils.cs", "c") });
 context.SourcesSource.Replace(
     new SourceFile("Utils.cs", "c"),
-    new SourceFile("Utils.cs", "c d"));                          // keeps the old item's position; throws if the old item is missing or the new one exists
+    new SourceFile("Utils.cs", "c d"));                          // keeps the old item's position; throws if the old item is missing or the new one exists (an equal new item is a no-op)
 context.SourcesSource.Remove(new SourceFile("Utils.cs", "c d")); // removing a missing item is a no-op
 IReadOnlyCollection<SourceFile> current = context.SourcesSource.GetSnapshot();
 

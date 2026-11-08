@@ -14,10 +14,16 @@ public record class ComputationError(
     string? DiagnosticId = null)
 {
     /// <summary>
-    /// Creates a ComputationError from an exception.
+    /// Creates a ComputationError from an exception: its message, with the chain of inner exceptions
+    /// as <see cref="InnerError"/>s.
     /// </summary>
+    /// <param name="exception">The exception</param>
+    /// <param name="diagnosticId">Optional diagnostic identifier of the top-level error</param>
+    /// <exception cref="ArgumentNullException"><paramref name="exception"/> is <c>null</c>.</exception>
     public static ComputationError FromException(Exception exception, string? diagnosticId = null)
     {
+        ArgumentNullException.ThrowIfNull(exception);
+
         return new ComputationError(
             Message: exception.Message,
             InnerError: exception.InnerException != null

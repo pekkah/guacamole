@@ -147,7 +147,7 @@ How these behave:
 - **Per-item memoization** - a recomputed collection `Select`/`Where`/`SelectMany` runs its lambda only for new or changed items; items equal to ones seen in the previous computation reuse the previous result (the same instance). Items should be immutable.
 - **Cross-item lookups** (e.g. a symbol table built from all files) - compute shared data with `Collect()` and a deterministic merge into a type with structural equality, then `Combine` it with each item; never accumulate it in a lambda, which makes results depend on processing order. See [Cross-item lookups](docs/performance-guide.md#cross-item-lookups-eg-symbol-tables).
 - **Custom equality comparers** decide whether a recomputed value counts as changed. Use records or `IEquatable<T>` types; without value equality every recomputation looks like a change.
-- **Errors are values** - exceptions thrown by your lambdas become failed `Result`s; `GetValue()`/`GetValues()` do not throw them (`.Value`/`.Values` do).
+- **Errors are values** - exceptions thrown by your lambdas become failed `Result`s; `GetValue()`/`GetValues()` do not throw them (`.Value`/`.Values` and `TryGetValue` do, as `InvalidOperationException`). Downstream stages pass the error on without running their lambdas. Failed results (and `null` values) are not cached: a failing stage runs again each time it is read, until its inputs change and it succeeds.
 - **A filtered-out single value is "no value", not an error.** When a single-value `Where` rejects its input, `GetValue()` returns a `Result` with `IsNone == true` (`IsSuccess` and `IsError` are false). Downstream `Select`/`Where`/`Combine` propagate "no value" without running their lambdas; `SelectMany` and collection `Combine` produce no items; output handlers are not called. `.Value` throws `InvalidOperationException`; use `TryGetValue(out value)`, which returns `false` for no value (and throws only if the computation failed).
 
 ## Packages
@@ -220,7 +220,7 @@ External code pushes changes into sources:
 // A source accessor is generated for each partial get-only provider property
 context.SourcesSource.Push(new SourceFile("Program.cs", "..."));   // collection with set semantics: duplicates are ignored, items keep insertion order
 context.SourcesSource.Remove(oldFile);
-context.SourcesSource.Replace(oldFile, newFile);                   // newFile takes oldFile's position; throws if oldFile is missing or newFile already present
+context.SourcesSource.Replace(oldFile, newFile);                   // newFile takes oldFile's position; throws if oldFile is missing or newFile already present (an equal newFile is a no-op)
 context.SourcesSource.Clear();
 context.OptionsSource.Set(new BuildOptions("Release"));             // single value; setting an equal value is a no-op
 
@@ -260,15 +260,15 @@ context.RegisterOutput(provider, (value, ctx) => { /* ... */ });
 ```
 
 - Handlers run synchronously, on the thread that changed a source, after **any** source of the context changes. They are not run at registration time.
-- A handler is invoked only if its provider computes a value (not an error, and not "no value" from a `Where`) and the value differs from the last value delivered to that handler; after a "no value" phase, a reappearing value is delivered again even if it equals the last one (the provider's comparer when it was created with one, e.g. `Select(selector, comparer)`, otherwise `EqualityComparer<T>.Default`; element-wise for collections). `Collect()` results compare element-wise (in order), so a handler on a collected provider does not run for a re-collect with equal items; other `ImmutableArray<T>`, list or dictionary values returned by a `Select` compare by reference.
+- A handler is invoked only if its provider computes a value (not an error, and not "no value" from a `Where`; a `null` value is delivered) and the value differs from the last value delivered to that handler; after a "no value" phase, a reappearing value is delivered again even if it equals the last one (the provider's comparer when it was created with one, e.g. `Select(selector, comparer)`, otherwise `EqualityComparer<T>.Default`; element-wise for collections). `Collect()` results compare element-wise (in order), so a handler on a collected provider does not run for a re-collect with equal items; other `ImmutableArray<T>`, list or dictionary values returned by a `Select` compare by reference.
 - All handlers run even if one throws; afterwards the exceptions are rethrown as one `AggregateException` from the `Push`/`Set`/... call that triggered them.
-- `Dispose()` unsubscribes the context from its sources and drops its output registrations.
+- `Dispose()` unsubscribes the context from its sources and drops its output registrations. Its providers are no longer invalidated by source changes afterwards (they may return stale values), so do not read them.
 
 ### Thread Safety
 
 What is synchronized:
 
-- Each source guards its contents with its own `ReaderWriterLockSlim`, so `Push`/`Remove`/`Replace`/`Clear`/`Set` and `GetSnapshot`/`GetValue` can be called concurrently.
+- Each source guards its contents with its own lock (collection sources publish an immutable snapshot, so their reads take no lock), so `Push`/`Remove`/`Replace`/`Clear`/`Set` and `GetSnapshot`/`GetValue` can be called concurrently.
 - The LRU value cache locks internally, version counters and node registries use concurrent collections, and storing a computed value together with its version information is a single atomic step.
 - Registering outputs, subscribing sources and `Dispose()` are synchronized with each other; a change notification that races with `Dispose()` is ignored.
 

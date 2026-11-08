@@ -35,6 +35,8 @@ context.RegisterOutput(report, (r, _) => Publish(r));
 
 Each stage occupies one entry in the context's value cache (see [Memory](#memory)). An evicted entry is recomputed when it is next needed, and counts as a change for the stages downstream of it.
 
+Failed results and `null` values are the exception: they are not cached. A stage whose lambda throws (or returns `null`) runs again each time it is read, including by output handlers after every source change, and counts as changed for the stages downstream of it. Keep expensive lambdas from failing routinely; return a value that represents the failure (for example a record with a diagnostics list) when a failure is an expected outcome.
+
 ### Per-item memoization
 
 Collection operators (`Select`, `Where`, `SelectMany` on `IncrementalValuesProvider<T>`) remember, for each input item of their previous computation, what their lambda returned. When such a stage is recomputed, the lambda runs only for items that are new or changed; an item equal to one seen last time (by `EqualityComparer<T>.Default`, i.e. the item's own equality) reuses the previous result. Pushing one item to a 10,000-item source runs each recomputed stage's lambda once, not 10,000 times.
