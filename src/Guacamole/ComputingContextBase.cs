@@ -53,6 +53,43 @@ public abstract partial class ComputingContextBase : IDisposable
     protected virtual int CacheCapacity => DefaultCacheCapacity;
 
     /// <summary>
+    /// Enables automatic trimming of unused pipeline nodes: the context runs
+    /// <see cref="TrimUnusedNodes"/> itself after every <see cref="AutoTrimInterval"/> pipeline nodes
+    /// added to its graph. <c>0</c> (the default) disables automatic trimming.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Use this in long-running hosts that build pipelines dynamically (capturing lambdas,
+    /// per-request pipelines), so that the graph stays bounded without calling
+    /// <see cref="TrimUnusedNodes"/> explicitly. Override to enable it, for example
+    /// <c>protected override int AutoTrimInterval =&gt; 1_000;</c>. Like <see cref="CacheCapacity"/>,
+    /// the value is read once by the <see cref="ComputingContextBase"/> constructor, so the override
+    /// must not depend on instance state.
+    /// </para>
+    /// <para>
+    /// Only nodes newly added to the graph by operator calls (or first read) count; reads of
+    /// existing pipelines and repeated identical operator calls that reuse a node cost nothing. When
+    /// many nodes remain registered, a trim waits for at least half as many new nodes as remained
+    /// after the previous trim, so the cost of trimming stays proportional to the number of nodes
+    /// added. A trim runs on the thread that added the node, never inside a node computation (it is
+    /// deferred to the next node added outside one) and never waits for another trim: if one is
+    /// running, the next added node tries again. While a trim runs, other threads creating new
+    /// nodes wait for it; reads do not.
+    /// </para>
+    /// <para>
+    /// As with explicit calls, a trim removes the nodes that have been garbage-collected and
+    /// releases the context's own references to the rest, so unreferenced nodes are removed by a
+    /// later automatic trim once the garbage collector has collected them. When no new nodes are
+    /// added, no trims run, but the graph does not grow either. Nodes that only the context keeps
+    /// alive (for example nodes created by identical operator calls in a property getter whose
+    /// providers are not stored) may be collected after a trim and are then recreated with an empty
+    /// cache by the next identical call; nodes referenced by a provider, an output registration or
+    /// a downstream node are never removed, so trimming never affects results.
+    /// </para>
+    /// </remarks>
+    protected virtual int AutoTrimInterval => 0;
+
+    /// <summary>
     /// Removes the pipeline nodes that are no longer used from this context's graph, together with
     /// their cached values and version records.
     /// </summary>
@@ -79,8 +116,9 @@ public abstract partial class ComputingContextBase : IDisposable
     /// A node that is still referenced (directly or as an input of a node that is) is never removed,
     /// so trimming never affects results. An unreferenced node that is removed and later requested by
     /// an identical operator call is recreated with an empty cache. Call this periodically (for example
-    /// after handling a batch of requests) when pipelines are built dynamically; it is not needed when
-    /// pipelines are built once. Thread-safe.
+    /// after handling a batch of requests) when pipelines are built dynamically, or override
+    /// <see cref="AutoTrimInterval"/> to have the context call it automatically; it is not needed
+    /// when pipelines are built once. Thread-safe.
     /// </para>
     /// </remarks>
     /// <returns>The number of nodes removed</returns>
@@ -94,10 +132,18 @@ public abstract partial class ComputingContextBase : IDisposable
     /// <summary>
     /// Creates a new computing context.
     /// </summary>
-    /// <exception cref="ArgumentOutOfRangeException"><see cref="CacheCapacity"/> is less than 1.</exception>
+    /// <exception cref="ArgumentOutOfRangeException"><see cref="CacheCapacity"/> is less than 1, or
+    /// <see cref="AutoTrimInterval"/> is negative.</exception>
     protected ComputingContextBase()
     {
-        Graph = new ComputationGraph(CacheCapacity);
+        var autoTrimInterval = AutoTrimInterval;
+        if (autoTrimInterval < 0)
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(AutoTrimInterval), autoTrimInterval, "AutoTrimInterval must be 0 (disabled) or positive.");
+        }
+
+        Graph = new ComputationGraph(CacheCapacity, autoTrimInterval);
     }
 
     /// <summary>

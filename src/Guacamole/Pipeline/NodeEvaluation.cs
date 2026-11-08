@@ -46,6 +46,20 @@ internal sealed class GraphEvaluator
         Context = new ComputationContext(NoCachedValues) { Evaluator = this };
     }
 
+    // Number of node computations in progress on this thread (nested when a computation reads a
+    // provider that has to be computed itself)
+    [ThreadStatic]
+    private static int t_computationDepth;
+
+    /// <summary>
+    /// Whether a node computation is in progress on the current thread.
+    /// </summary>
+    public static bool IsComputing => t_computationDepth > 0;
+
+    internal static void EnterComputation() => t_computationDepth++;
+
+    internal static void ExitComputation() => t_computationDepth--;
+
     public ComputationGraph Graph { get; }
 
     public SharedGraphState State { get; }
@@ -284,6 +298,7 @@ internal abstract class NodeHandle<TResult> : NodeHandle
         var frame = evaluator.BeginFrame();
         Result<TResult, ComputationError> result;
         DependencyVersion[] dependencies;
+        GraphEvaluator.EnterComputation();
         try
         {
             result = metadata is { } providerMetadata
@@ -298,6 +313,7 @@ internal abstract class NodeHandle<TResult> : NodeHandle
         }
         finally
         {
+            GraphEvaluator.ExitComputation();
             dependencies = evaluator.EndFrame(frame);
         }
 

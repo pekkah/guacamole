@@ -63,7 +63,7 @@ if (result.IsSuccess)
 
 ### Build pipelines once
 
-Every operator call (`Select`, `Where`, `Combine`, `Collect`, ...) creates a **new computation node with a unique ID**, and cached values are stored per node. Build a pipeline once (in a constructor or at startup) and keep the resulting provider. Avoid building pipelines inside property getters or per request. Identical operator calls are reused: calling the same operator on the same input with an equal delegate (a non-capturing lambda, a lambda that only captures `this`, or a method group on the same instance) returns the existing node. Lambdas that capture locals allocate a new closure per call, so they never match and create a new node each time. Such nodes start with an empty cache and stay registered in the context's graph until you call `context.TrimUnusedNodes()`, which removes the nodes no provider, output registration or other node references anymore (see [Performance Guide](docs/performance-guide.md#build-pipelines-once)).
+Every operator call (`Select`, `Where`, `Combine`, `Collect`, ...) creates a **new computation node with a unique ID**, and cached values are stored per node. Build a pipeline once (in a constructor or at startup) and keep the resulting provider. Avoid building pipelines inside property getters or per request. Identical operator calls are reused: calling the same operator on the same input with an equal delegate (a non-capturing lambda, a lambda that only captures `this`, or a method group on the same instance) returns the existing node. Lambdas that capture locals allocate a new closure per call, so they never match and create a new node each time. Such nodes start with an empty cache and stay registered in the context's graph until you call `context.TrimUnusedNodes()` (or the context does it automatically, if it overrides `AutoTrimInterval`), which removes the nodes no provider, output registration or other node references anymore (see [Performance Guide](docs/performance-guide.md#build-pipelines-once)).
 
 The generator emits the context's public parameterless constructor, so you cannot declare your own parameterless constructor. To expose derived pipelines as properties, declare them as non-partial properties with a setter and assign them in a constructor that chains to `this()`:
 
@@ -129,7 +129,8 @@ values.SelectMany(x => x.Tags)
 values.SelectMany(x => x.Children, customComparer)
 
 // Collect to immutable array
-values.Collect()  // Returns IncrementalValueProvider<ImmutableArray<T>>
+values.Collect()  // Returns IncrementalValueProvider<ImmutableArray<T>>, compared element-wise
+values.Collect(customComparer)  // Compares the collected items with customComparer
 
 // Combine with single value
 values.Combine(singleValue)  // Pairs each value with the single value
@@ -232,6 +233,7 @@ Automatic dependency tracking and lazy invalidation:
 - Providers form a directed acyclic graph (DAG); every operator call adds a new node
 - A source change increments that source's version; dependents are revalidated lazily when read
 - Computed values live in an LRU cache per context: 10,000 entries by default; override `protected override int CacheCapacity => ...;` on the context to change it
+- Unused pipeline nodes are removed by `context.TrimUnusedNodes()`; override `protected override int AutoTrimInterval => ...;` (off by default) to have the context trim automatically as nodes are added
 
 ### 3. **Incremental Providers**
 Immutable pipeline structures that lazily compute values:
@@ -258,7 +260,7 @@ context.RegisterOutput(provider, (value, ctx) => { /* ... */ });
 ```
 
 - Handlers run synchronously, on the thread that changed a source, after **any** source of the context changes. They are not run at registration time.
-- A handler is invoked only if its provider computes a value (not an error, and not "no value" from a `Where`) and the value differs from the last value delivered to that handler; after a "no value" phase, a reappearing value is delivered again even if it equals the last one (the provider's comparer when it was created with one, e.g. `Select(selector, comparer)`, otherwise `EqualityComparer<T>.Default`; element-wise for collections). `ImmutableArray<T>` (the result of `Collect()`) compares by reference, so a handler on a collected provider runs whenever it is recomputed.
+- A handler is invoked only if its provider computes a value (not an error, and not "no value" from a `Where`) and the value differs from the last value delivered to that handler; after a "no value" phase, a reappearing value is delivered again even if it equals the last one (the provider's comparer when it was created with one, e.g. `Select(selector, comparer)`, otherwise `EqualityComparer<T>.Default`; element-wise for collections). `Collect()` results compare element-wise (in order), so a handler on a collected provider does not run for a re-collect with equal items; other `ImmutableArray<T>`, list or dictionary values returned by a `Select` compare by reference.
 - All handlers run even if one throws; afterwards the exceptions are rethrown as one `AggregateException` from the `Push`/`Set`/... call that triggered them.
 - `Dispose()` unsubscribes the context from its sources and drops its output registrations.
 

@@ -18,7 +18,8 @@ namespace Guacamole.Pipeline;
 /// their dependencies weakly. A node is kept alive by the providers, output registrations and
 /// downstream nodes that reference it, and (until the next <see cref="TrimUnusedNodes"/>) by the
 /// node-reuse cache. <see cref="TrimUnusedNodes"/> removes the registry entries, cached values and
-/// version records of nodes that have been collected.
+/// version records of nodes that have been collected; with <see cref="EnableAutoTrim"/> it also
+/// runs automatically as nodes are added.
 /// </para>
 /// </remarks>
 internal sealed class SharedGraphState
@@ -138,9 +139,89 @@ internal sealed class SharedGraphState
         }
 
         // Add to runtime collections
-        RuntimeNodes.TryAdd(node.Id, new WeakReference<IComputationNode>(node));
+        if (!RuntimeNodes.TryAdd(node.Id, new WeakReference<IComputationNode>(node)))
+            return; // registered concurrently
+
         RuntimeDependencies.TryAdd(node.Id, node.Dependencies);
+
+        if (_autoTrimInterval > 0)
+            OnRuntimeNodeAdded();
     }
+
+    // Automatic trimming (see EnableAutoTrim); _autoTrimInterval is 0 when it is off
+    private int _autoTrimInterval;
+    private LRUCache<string, object>? _autoTrimValueCache;
+    private int _nodesAddedSinceTrim;
+    private int _autoTrimThreshold;
+
+    /// <summary>
+    /// Makes this state trim unused nodes automatically, after every <paramref name="interval"/>
+    /// runtime nodes added to <see cref="RuntimeNodes"/>, or after as many nodes as half the size of
+    /// the registry after the previous trim if that is more (so that the cost of a trim, which
+    /// scans the registry, stays proportional to the number of nodes added since the previous one).
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// The check costs one interlocked increment per added node; nothing is done on reads or for
+    /// nodes that are already registered. A trim is never started inside a node computation (it is
+    /// started by the next node added outside one instead), and never waits: when another trim or
+    /// a node creation holds the lock, the next added node tries again. Because a trim only removes
+    /// nodes that have already been collected and releases the others, nodes released by one
+    /// automatic trim are removed by a later one, once the garbage collector has collected them.
+    /// </para>
+    /// <para>
+    /// Must be called before the state is used (by the <see cref="ComputationGraph"/> constructor).
+    /// </para>
+    /// </remarks>
+    /// <param name="interval">The minimum number of added nodes between automatic trims (at least 1)</param>
+    /// <param name="valueCache">The value cache of the graphs sharing this state</param>
+    /// <exception cref="ArgumentOutOfRangeException"><paramref name="interval"/> is less than 1.</exception>
+    public void EnableAutoTrim(int interval, LRUCache<string, object> valueCache)
+    {
+        ArgumentOutOfRangeException.ThrowIfLessThan(interval, 1);
+        ArgumentNullException.ThrowIfNull(valueCache);
+
+        _autoTrimValueCache = valueCache;
+        _autoTrimThreshold = interval;
+        _autoTrimInterval = interval;
+    }
+
+    private void OnRuntimeNodeAdded()
+    {
+        if (Interlocked.Increment(ref _nodesAddedSinceTrim) < Volatile.Read(ref _autoTrimThreshold))
+            return;
+
+        // Not from inside a node computation (a node may be created while one is running, for
+        // example by a lambda building a pipeline): the next node added outside one trims instead.
+        if (GraphEvaluator.IsComputing)
+            return;
+
+        // Non-blocking: if another trim or a node creation holds the lock (possibly on this thread),
+        // skip; the counter stays above the threshold, so the next added node tries again.
+        if (Monitor.IsEntered(_reuseLock) || !Monitor.TryEnter(_reuseLock))
+            return;
+
+        try
+        {
+            // Another thread may have trimmed between the increment and the lock
+            if (Volatile.Read(ref _nodesAddedSinceTrim) >= _autoTrimThreshold)
+            {
+                TrimUnusedNodesCore(_autoTrimValueCache!);
+                Interlocked.Increment(ref _autoTrimCount);
+            }
+        }
+        finally
+        {
+            Monitor.Exit(_reuseLock);
+        }
+    }
+
+    /// <summary>
+    /// The number of automatic trims run so far (for diagnostics and tests).
+    /// </summary>
+    internal int AutoTrimCount => Volatile.Read(ref _autoTrimCount);
+
+    private int _autoTrimCount;
 
     /// <summary>
     /// Removes the state of collected nodes and releases the reuse cache's references to the others.
@@ -163,29 +244,47 @@ internal sealed class SharedGraphState
     {
         lock (_reuseLock)
         {
-            var removed = 0;
-            foreach (var (id, weakNode) in RuntimeNodes)
-            {
-                if (weakNode.TryGetTarget(out _))
-                    continue;
-
-                if (!RuntimeNodes.TryRemove(new KeyValuePair<string, WeakReference<IComputationNode>>(id, weakNode)))
-                    continue;
-
-                RuntimeDependencies.TryRemove(id, out _);
-                valueCache.Remove(id);
-                Versions.Remove(id);
-                removed++;
-            }
-
-            foreach (var (key, entry) in _reusableNodes)
-            {
-                if (!entry.Release())
-                    _reusableNodes.TryRemove(new KeyValuePair<NodeReuseKey, ReusableNode>(key, entry));
-            }
-
-            return removed;
+            return TrimUnusedNodesCore(valueCache);
         }
+    }
+
+    /// <summary>
+    /// <see cref="TrimUnusedNodes"/> with <see cref="_reuseLock"/> held.
+    /// </summary>
+    private int TrimUnusedNodesCore(LRUCache<string, object> valueCache)
+    {
+        // Nodes added from here on count towards the next automatic trim
+        Interlocked.Exchange(ref _nodesAddedSinceTrim, 0);
+
+        var removed = 0;
+        foreach (var (id, weakNode) in RuntimeNodes)
+        {
+            if (weakNode.TryGetTarget(out _))
+                continue;
+
+            if (!RuntimeNodes.TryRemove(new KeyValuePair<string, WeakReference<IComputationNode>>(id, weakNode)))
+                continue;
+
+            RuntimeDependencies.TryRemove(id, out _);
+            valueCache.Remove(id);
+            Versions.Remove(id);
+            removed++;
+        }
+
+        foreach (var (key, entry) in _reusableNodes)
+        {
+            if (!entry.Release())
+                _reusableNodes.TryRemove(new KeyValuePair<NodeReuseKey, ReusableNode>(key, entry));
+        }
+
+        if (_autoTrimInterval > 0)
+        {
+            // Wait for at least half as many new nodes as remain registered, so that trimming a
+            // large registry stays amortized over the nodes added in between
+            Volatile.Write(ref _autoTrimThreshold, Math.Max(_autoTrimInterval, RuntimeNodes.Count / 2));
+        }
+
+        return removed;
     }
 
     /// <summary>
