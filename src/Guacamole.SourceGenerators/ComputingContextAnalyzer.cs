@@ -1,9 +1,9 @@
-using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Collections.Immutable;
 using System.Linq;
 using System.Threading;
 using Microsoft.CodeAnalysis;
+using Microsoft.CodeAnalysis.CSharp;
 using Microsoft.CodeAnalysis.CSharp.Syntax;
 using Microsoft.CodeAnalysis.Diagnostics;
 using Microsoft.CodeAnalysis.Operations;
@@ -28,7 +28,7 @@ public sealed class ComputingContextAnalyzer : DiagnosticAnalyzer
     private static readonly SymbolDisplayFormat MemberTypeFormat = SymbolDisplayFormat.CSharpShortErrorMessageFormat;
 
     /// <summary>At most this many members are named in one GUAC0010 message.</summary>
-    private const int MaxNamedMembers = 5;
+    private const int MaxNamedMembers = EqualityAnalysis.MaxCollectedMembers;
 
     /// <inheritdoc />
     public override ImmutableArray<DiagnosticDescriptor> SupportedDiagnostics { get; } =
@@ -57,7 +57,8 @@ public sealed class ComputingContextAnalyzer : DiagnosticAnalyzer
                 compilation.GetTypeByMetadataName(ContextAnalyzer.ValuesProviderName),
                 new EqualityAnalysis(compilation));
 
-            compilationContext.RegisterSymbolStartAction(symbolContext => AnalyzeContext(symbolContext, types), SymbolKind.NamedType);
+            compilationContext.RegisterSymbolAction(symbolContext => AnalyzeProperties(symbolContext, types), SymbolKind.NamedType);
+            compilationContext.RegisterOperationAction(operationContext => AnalyzeConstructor(operationContext, types), OperationKind.ConstructorBody);
         });
     }
 
@@ -68,36 +69,12 @@ public sealed class ComputingContextAnalyzer : DiagnosticAnalyzer
         INamedTypeSymbol? ValuesProvider,
         EqualityAnalysis Equality);
 
-    private static void AnalyzeContext(SymbolStartAnalysisContext context, WellKnownTypes types)
+    private static void AnalyzeProperties(SymbolAnalysisContext context, WellKnownTypes types)
     {
         var classSymbol = (INamedTypeSymbol)context.Symbol;
-        if (classSymbol.TypeKind != TypeKind.Class
-            || !classSymbol.GetAttributes().Any(a => SymbolEqualityComparer.Default.Equals(a.AttributeClass, types.Attribute)))
-        {
+        if (classSymbol.TypeKind != TypeKind.Class || !IsComputingContext(classSymbol, types))
             return;
-        }
 
-        // Constructor initializers, collected from the constructor bodies (not from generated code).
-        var initializers = new ConcurrentDictionary<IMethodSymbol, ConstructorInitializer>(SymbolEqualityComparer.Default);
-        context.RegisterOperationAction(operationContext =>
-        {
-            var body = (IConstructorBodyOperation)operationContext.Operation;
-            if (operationContext.ContainingSymbol is IMethodSymbol { MethodKind: MethodKind.Constructor, IsStatic: false } constructor
-                && SymbolEqualityComparer.Default.Equals(constructor.ContainingType, classSymbol))
-            {
-                initializers[constructor] = GetInitializer(body);
-            }
-        }, OperationKind.ConstructorBody);
-
-        context.RegisterSymbolEndAction(endContext =>
-        {
-            AnalyzeProperties(endContext, classSymbol, types);
-            AnalyzeConstructors(endContext, classSymbol, types, initializers);
-        });
-    }
-
-    private static void AnalyzeProperties(SymbolAnalysisContext context, INamedTypeSymbol classSymbol, WellKnownTypes types)
-    {
         foreach (var property in classSymbol.GetMembers().OfType<IPropertySymbol>())
         {
             context.CancellationToken.ThrowIfCancellationRequested();
@@ -125,46 +102,57 @@ public sealed class ComputingContextAnalyzer : DiagnosticAnalyzer
                     property.Name));
             }
 
-            if (result.ReferenceMembers.Count > 0)
+            if (result.ReferenceMemberCount > 0)
             {
                 context.ReportDiagnostic(Diagnostic.Create(
                     DiagnosticDescriptors.CollectionMemberComparedByReference,
                     location,
                     property.Name,
                     itemType!.ToDisplayString(),
-                    DescribeMembers(result.ReferenceMembers)));
+                    DescribeMembers(result)));
             }
         }
     }
 
-    private static string DescribeMembers(IReadOnlyList<EqualityAnalysis.ReferenceMember> members)
+    private static string DescribeMembers(EqualityAnalysis.Result result)
     {
-        var named = members
+        var named = result.ReferenceMembers
             .Take(MaxNamedMembers)
-            .Select(m => $"'{m.Path}' ({m.Type.ToDisplayString(MemberTypeFormat)})");
+            .Select(m => $"'{m.Path}' ({m.Type.ToDisplayString(MemberTypeFormat)})")
+            .ToList();
         var text = string.Join(", ", named);
-        return members.Count > MaxNamedMembers
-            ? $"{text} and {members.Count - MaxNamedMembers} more"
+        return result.ReferenceMemberCount > named.Count
+            ? $"{text} and {result.ReferenceMemberCount - named.Count} more"
             : text;
     }
 
     /// <summary>
-    /// Reports GUAC0009 for every instance constructor that does not reach <c>: this()</c>, directly
-    /// or through <c>: this(...)</c> chains, when the generator emits the parameterless constructor
-    /// (the context is valid and declares no parameterless constructor itself, which is GUAC0008).
+    /// Reports GUAC0009 for an instance constructor of a [ComputingContext] class that does not reach
+    /// <c>: this()</c>, directly or through <c>: this(...)</c> chains, when the generator emits the
+    /// parameterless constructor (the context is valid and declares no parameterless constructor
+    /// itself, which is GUAC0008).
     /// </summary>
-    private static void AnalyzeConstructors(
-        SymbolAnalysisContext context,
-        INamedTypeSymbol classSymbol,
-        WellKnownTypes types,
-        ConcurrentDictionary<IMethodSymbol, ConstructorInitializer> initializers)
+    /// <remarks>
+    /// Each constructor is checked from its own body, without a symbol-end action: Roslyn does not
+    /// complete the symbol-end analysis of a type with partial constructors (C# 14). The chain is
+    /// followed through the targets' declarations (the implementation part of a partial constructor);
+    /// a <c>: this(...)</c> with arguments in another file than the analysed body cannot be bound
+    /// without that file's semantic model and gets the benefit of the doubt.
+    /// </remarks>
+    private static void AnalyzeConstructor(OperationAnalysisContext context, WellKnownTypes types)
     {
-        if (initializers.IsEmpty)
+        if (context.ContainingSymbol is not IMethodSymbol { MethodKind: MethodKind.Constructor, IsStatic: false, Parameters.Length: > 0 } constructor
+            || context.Operation.Syntax is not ConstructorDeclarationSyntax declaration
+            || constructor.ContainingType is not { TypeKind: TypeKind.Class } classSymbol
+            || !IsComputingContext(classSymbol, types))
+        {
             return;
+        }
 
+        var cancellationToken = context.CancellationToken;
         for (var type = classSymbol; type is not null; type = type.ContainingType)
         {
-            if (!ContextAnalyzer.IsPartial(type, context.CancellationToken))
+            if (!ContextAnalyzer.IsPartial(type, cancellationToken))
                 return;
         }
 
@@ -172,89 +160,77 @@ public sealed class ComputingContextAnalyzer : DiagnosticAnalyzer
             return;
 
         // A user-declared parameterless constructor is GUAC0008; chains then reach the user's
-        // constructor, not generated code. (The generated one is in generated code, so its body is
-        // not among the collected ones.)
-        if (initializers.Keys.Any(c => c.Parameters.Length == 0))
+        // constructor, not generated code.
+        if (classSymbol.InstanceConstructors.Any(c => c.Parameters.Length == 0 && !c.IsImplicitlyDeclared && !IsGenerated(c, cancellationToken)))
             return;
 
-        var reaches = new Dictionary<IMethodSymbol, bool>(SymbolEqualityComparer.Default);
-        foreach (var constructor in initializers.Keys.OrderBy(c => c.Locations.FirstOrDefault()?.SourceSpan.Start ?? 0))
+        if (!Reaches(declaration, constructor, context.Operation.SemanticModel, cancellationToken))
         {
-            context.CancellationToken.ThrowIfCancellationRequested();
-            if (!Reaches(constructor))
-            {
-                context.ReportDiagnostic(Diagnostic.Create(
-                    DiagnosticDescriptors.ConstructorMustChainToGeneratedConstructor,
-                    GetConstructorIdentifierLocation(constructor, context.CancellationToken),
-                    classSymbol.Name));
-            }
+            context.ReportDiagnostic(Diagnostic.Create(
+                DiagnosticDescriptors.ConstructorMustChainToGeneratedConstructor,
+                declaration.Identifier.GetLocation(),
+                classSymbol.Name));
         }
+    }
 
-        // Only ': this()' with zero arguments reaches the generated constructor; ': base(...)' or no
-        // initializer never does. Cycles (CS0516) count as not reaching. Targets whose bodies were
-        // not collected (a primary constructor, an unresolved call) get the benefit of the doubt.
-        bool Reaches(IMethodSymbol constructor)
+    /// <summary>
+    /// Only <c>: this()</c> with zero arguments reaches the generated constructor (in the final
+    /// compilation it is the best overload for an empty argument list); <c>: base(...)</c> or no
+    /// initializer never does. Cycles (CS0516) count as not reaching. Targets that cannot be followed
+    /// (a primary constructor, an unresolved call, a call bound in another file) get the benefit of
+    /// the doubt.
+    /// </summary>
+    private static bool Reaches(ConstructorDeclarationSyntax declaration, IMethodSymbol constructor, SemanticModel? semanticModel, CancellationToken cancellationToken)
+    {
+        var visited = new HashSet<IMethodSymbol>(SymbolEqualityComparer.Default) { Normalize(constructor) };
+        while (true)
         {
-            if (reaches.TryGetValue(constructor, out var known))
-                return known;
+            cancellationToken.ThrowIfCancellationRequested();
 
-            reaches[constructor] = false; // provisional value guards against cycles
-            var result = Evaluate(constructor);
-            reaches[constructor] = result;
-            return result;
-        }
+            var initializer = declaration.Initializer;
+            if (initializer is null || !initializer.ThisOrBaseKeyword.IsKind(SyntaxKind.ThisKeyword))
+                return false;
 
-        bool Evaluate(IMethodSymbol constructor)
-        {
-            if (!initializers.TryGetValue(constructor, out var initializer))
+            if (initializer.ArgumentList.Arguments.Count == 0)
                 return true;
 
-            return initializer.Kind switch
-            {
-                InitializerKind.ThisWithoutArguments => true,
-                InitializerKind.ThisWithArguments => initializer.Target is null || Reaches(initializer.Target),
-                _ => false,
-            };
+            if (semanticModel is null || initializer.SyntaxTree != semanticModel.SyntaxTree)
+                return true;
+
+            if (semanticModel.GetSymbolInfo(initializer, cancellationToken).Symbol is not IMethodSymbol target || target.IsImplicitlyDeclared)
+                return true;
+
+            if (!visited.Add(Normalize(target)))
+                return false;
+
+            // The body (and initializer) of a partial constructor is in its implementation part.
+            var implementation = target.PartialImplementationPart ?? target;
+            if (implementation.DeclaringSyntaxReferences.FirstOrDefault()?.GetSyntax(cancellationToken) is not ConstructorDeclarationSyntax next)
+                return true; // e.g. a primary constructor: not analysed here
+
+            declaration = next;
         }
     }
 
-    private enum InitializerKind
+    /// <summary>The definition part of a partial constructor, otherwise the constructor itself.</summary>
+    private static IMethodSymbol Normalize(IMethodSymbol constructor) => constructor.PartialDefinitionPart ?? constructor;
+
+    /// <summary>
+    /// Whether the constructor is declared only in generated code (the generator's parameterless
+    /// constructor, in a file starting with an <c>&lt;auto-generated</c> comment).
+    /// </summary>
+    private static bool IsGenerated(IMethodSymbol constructor, CancellationToken cancellationToken)
     {
-        /// <summary>No initializer, or <c>: base(...)</c>.</summary>
-        None,
-
-        /// <summary><c>: this()</c>.</summary>
-        ThisWithoutArguments,
-
-        /// <summary><c>: this(...)</c> with arguments.</summary>
-        ThisWithArguments,
-    }
-
-    private readonly record struct ConstructorInitializer(InitializerKind Kind, IMethodSymbol? Target);
-
-    private static ConstructorInitializer GetInitializer(IConstructorBodyOperation body)
-    {
-        if (body.Syntax is not ConstructorDeclarationSyntax { Initializer: { } syntax }
-            || !syntax.ThisOrBaseKeyword.IsKind(Microsoft.CodeAnalysis.CSharp.SyntaxKind.ThisKeyword))
+        foreach (var reference in constructor.DeclaringSyntaxReferences)
         {
-            return new ConstructorInitializer(InitializerKind.None, null);
+            var root = reference.SyntaxTree.GetRoot(cancellationToken);
+            if (!root.GetLeadingTrivia().Any(t => t.ToString().Contains("<auto-generated")))
+                return false;
         }
 
-        if (syntax.ArgumentList.Arguments.Count == 0)
-            return new ConstructorInitializer(InitializerKind.ThisWithoutArguments, null);
-
-        var target = (body.Initializer as IExpressionStatementOperation)?.Operation is IInvocationOperation invocation
-            ? invocation.TargetMethod
-            : null;
-        return new ConstructorInitializer(InitializerKind.ThisWithArguments, target);
+        return constructor.DeclaringSyntaxReferences.Length > 0;
     }
 
-    private static Location GetConstructorIdentifierLocation(IMethodSymbol constructor, CancellationToken cancellationToken)
-    {
-        var reference = constructor.DeclaringSyntaxReferences.FirstOrDefault();
-        if (reference?.GetSyntax(cancellationToken) is ConstructorDeclarationSyntax declaration)
-            return declaration.Identifier.GetLocation();
-
-        return constructor.Locations.FirstOrDefault() ?? Location.None;
-    }
+    private static bool IsComputingContext(INamedTypeSymbol type, WellKnownTypes types)
+        => type.GetAttributes().Any(a => SymbolEqualityComparer.Default.Equals(a.AttributeClass, types.Attribute));
 }

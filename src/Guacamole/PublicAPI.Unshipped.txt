@@ -231,7 +231,11 @@ Guacamole.EquatableArray<T>.Count.get -> int
 Guacamole.EquatableArray<T>.Equals(Guacamole.EquatableArray<T> other) -> bool
 Guacamole.EquatableArray<T>.EquatableArray() -> void
 Guacamole.EquatableArray<T>.EquatableArray(System.Collections.Immutable.ImmutableArray<T> array) -> void
-Guacamole.EquatableArray<T>.GetEnumerator() -> System.Collections.Immutable.ImmutableArray<T>.Enumerator
+Guacamole.EquatableArray<T>.Enumerator
+Guacamole.EquatableArray<T>.Enumerator.Current.get -> T
+Guacamole.EquatableArray<T>.Enumerator.Enumerator() -> void
+Guacamole.EquatableArray<T>.Enumerator.MoveNext() -> bool
+Guacamole.EquatableArray<T>.GetEnumerator() -> Guacamole.EquatableArray<T>.Enumerator
 Guacamole.EquatableArray<T>.IsEmpty.get -> bool
 Guacamole.EquatableArray<T>.this[int index].get -> T
 override Guacamole.EquatableArray<T>.Equals(object? obj) -> bool

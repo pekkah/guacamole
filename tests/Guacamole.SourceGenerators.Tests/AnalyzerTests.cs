@@ -525,6 +525,146 @@ public class AnalyzerTests
         Assert.Contains("'Module.Members' (ImmutableArray<string>) by reference", diagnostic.GetMessage(CultureInfo.InvariantCulture));
     }
 
+    // Review findings
+
+    [Fact]
+    public void PartialConstructors_AreFollowed_AndPropertiesStillAnalysed()
+    {
+        // C# 14 partial constructors: the initializer is on the implementation part, and ': this(1)'
+        // binds to the definition part. Roslyn also never completed symbol-end analysis for such a
+        // type, which used to drop every analyzer diagnostic of the context.
+        var source = Header + """
+            [ComputingContext]
+            public partial class TestContext : ComputingContextBase
+            {
+                public partial IncrementalValuesProvider<string> Items { get; }
+                public IncrementalValueProvider<Plain> Derived { get; set; }
+
+                public partial TestContext(int x);
+                public partial TestContext(int x) : base() { }
+                public TestContext(string s) : this(1) { }
+
+                public partial TestContext(double d);
+                public partial TestContext(double d) : this() { }
+                public TestContext(bool b) : this(1.0) { }
+            }
+            """;
+
+        var diagnostics = TestHelper.RunAnalyzer(source).OrderBy(d => d.Location.SourceSpan.Start).ToList();
+
+        Assert.Collection(
+            diagnostics,
+            d => AssertAt(d, "GUAC0004", source, "Derived"),
+            d => AssertConstructor(d, "public partial TestContext(int x) : base()"),
+            d => AssertConstructor(d, "public TestContext(string s) : this(1)"));
+
+        void AssertConstructor(Diagnostic diagnostic, string declaration)
+        {
+            Assert.Equal("GUAC0009", diagnostic.Id);
+            Assert.Equal(source.IndexOf(declaration, System.StringComparison.Ordinal) + declaration.IndexOf("TestContext", System.StringComparison.Ordinal), diagnostic.Location.SourceSpan.Start);
+        }
+    }
+
+    [Fact]
+    public void TypesOverridingObjectEquals_HaveValueEquality()
+    {
+        // EqualityComparer<T>.Default uses an Equals(object) override, IEquatable<T> or not.
+        var source = Header + """
+            public sealed class Bag : IEnumerable<int>
+            {
+                public override bool Equals(object? obj) => obj is Bag;
+                public override int GetHashCode() => 0;
+                public IEnumerator<int> GetEnumerator() { yield break; }
+                System.Collections.IEnumerator System.Collections.IEnumerable.GetEnumerator() => GetEnumerator();
+            }
+
+            public class Overriding
+            {
+                public override bool Equals(object? obj) => obj is Overriding;
+                public override int GetHashCode() => 0;
+            }
+
+            public sealed class DerivedOverriding : Overriding;
+
+            public record WithBag(Bag Items);
+
+            [ComputingContext]
+            public partial class TestContext : ComputingContextBase
+            {
+                public IncrementalValueProvider<WithBag> A { get; set; }
+                public IncrementalValueProvider<Overriding> B { get; set; }
+                public IncrementalValueProvider<DerivedOverriding> C { get; set; }
+                public IncrementalValueProvider<Bag> D { get; set; }
+            }
+            """;
+
+        Assert.Empty(TestHelper.RunAnalyzer(source));
+    }
+
+    [Fact]
+    public void TypesReachableAlongManyPaths_AreWalkedOnce()
+    {
+        // Seven levels of records with ten members each reach the leaf array along 10^7 paths; the
+        // analysis is memoized per type, so it stays instant, and the message counts every path.
+        var levels = string.Join("\n", Enumerable.Range(1, 7).Select(level =>
+            $"public record L{level}({string.Join(", ", Enumerable.Range(0, 10).Select(i => $"L{level + 1} M{i}"))});"));
+        var source = Header + levels + """
+
+            public record L8(int[] Leaf);
+
+            [ComputingContext]
+            public partial class TestContext : ComputingContextBase
+            {
+                public IncrementalValueProvider<L1> Root { get; set; }
+            }
+            """;
+
+        var stopwatch = System.Diagnostics.Stopwatch.StartNew();
+        var diagnostic = Assert.Single(TestHelper.RunAnalyzer(source));
+        stopwatch.Stop();
+
+        Assert.Equal("GUAC0010", diagnostic.Id);
+        var message = diagnostic.GetMessage(CultureInfo.InvariantCulture);
+        Assert.Contains("'L1.M0.M0.M0.M0.M0.M0.M0.Leaf' (int[]), ", message);
+        Assert.Contains(" and 9999995 more by reference", message);
+        Assert.True(stopwatch.Elapsed < System.TimeSpan.FromSeconds(30), $"Analysis took {stopwatch.Elapsed}");
+    }
+
+    [Fact]
+    public void TuplesOfOtherArities_UseMemberwiseEquality()
+    {
+        // The runtime compares only value tuples of two or three components structurally; a
+        // one-tuple (like a tuple of four or more) compares its components with
+        // EqualityComparer<T>.Default, so an immutable array component compares by reference.
+        var source = Header + """
+            public record WithOne(ValueTuple<ImmutableArray<int>> One);
+
+            [ComputingContext]
+            public partial class TestContext : ComputingContextBase
+            {
+                public IncrementalValueProvider<ValueTuple<ImmutableArray<int>>> One { get; set; }
+                public IncrementalValueProvider<(ImmutableArray<int>, int)> Two { get; set; }
+                public IncrementalValueProvider<(ImmutableArray<int>, int, int)> Three { get; set; }
+                public IncrementalValueProvider<(ImmutableArray<int>, int, int, int)> Four { get; set; }
+                public IncrementalValueProvider<WithOne> Record { get; set; }
+            }
+            """;
+
+        var diagnostics = TestHelper.RunAnalyzer(source).OrderBy(d => d.Location.SourceSpan.Start).ToList();
+
+        Assert.Collection(
+            diagnostics,
+            d => AssertMember(d, "One", "'Item1' (ImmutableArray<int>)"),
+            d => AssertMember(d, "Four", "'Item1' (ImmutableArray<int>)"),
+            d => AssertMember(d, "Record", "'WithOne.One.Item1' (ImmutableArray<int>)"));
+
+        void AssertMember(Diagnostic diagnostic, string property, string member)
+        {
+            AssertAt(diagnostic, "GUAC0010", source, property);
+            Assert.Contains($"compares {member} by reference", diagnostic.GetMessage(CultureInfo.InvariantCulture));
+        }
+    }
+
     private static void AssertAt(Diagnostic diagnostic, string id, string source, string propertyName)
     {
         Assert.Equal(id, diagnostic.Id);

@@ -68,7 +68,9 @@ public readonly struct EquatableArray<T> : IEquatable<EquatableArray<T>>, IReadO
     /// The element at <paramref name="index"/>.
     /// </summary>
     /// <param name="index">The zero-based index</param>
-    /// <exception cref="IndexOutOfRangeException"><paramref name="index"/> is outside the array.</exception>
+    /// <exception cref="IndexOutOfRangeException">
+    /// <paramref name="index"/> is outside the array (like <see cref="ImmutableArray{T}"/>'s indexer).
+    /// </exception>
     public T this[int index] => AsImmutableArray()[index];
 
     /// <summary>
@@ -105,11 +107,35 @@ public readonly struct EquatableArray<T> : IEquatable<EquatableArray<T>>, IReadO
     /// Returns an enumerator over the elements (allocation-free in <c>foreach</c>).
     /// </summary>
     /// <returns>The enumerator</returns>
-    public ImmutableArray<T>.Enumerator GetEnumerator() => AsImmutableArray().GetEnumerator();
+    public Enumerator GetEnumerator() => new(AsImmutableArray().GetEnumerator());
 
     IEnumerator<T> IEnumerable<T>.GetEnumerator() => ((IEnumerable<T>)AsImmutableArray()).GetEnumerator();
 
     IEnumerator IEnumerable.GetEnumerator() => ((IEnumerable)AsImmutableArray()).GetEnumerator();
+
+    /// <summary>
+    /// Enumerates the elements of an <see cref="EquatableArray{T}"/> without allocating.
+    /// </summary>
+    public struct Enumerator
+    {
+        private ImmutableArray<T>.Enumerator _inner;
+
+        internal Enumerator(ImmutableArray<T>.Enumerator inner)
+        {
+            _inner = inner;
+        }
+
+        /// <summary>
+        /// The current element.
+        /// </summary>
+        public readonly T Current => _inner.Current;
+
+        /// <summary>
+        /// Advances to the next element.
+        /// </summary>
+        /// <returns><see langword="true"/> while there is a current element</returns>
+        public bool MoveNext() => _inner.MoveNext();
+    }
 
     /// <summary>
     /// Returns the element count, for example <c>EquatableArray[3]</c>.

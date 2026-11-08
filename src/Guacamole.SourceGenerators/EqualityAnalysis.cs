@@ -12,16 +12,19 @@ namespace Guacamole.SourceGenerators;
 /// <remarks>
 /// <para>
 /// At the top level, and inside what the runtime compares structurally (<c>ImmutableArray&lt;T&gt;</c>
-/// elements, <c>ImmutableDictionary</c>/<c>ImmutableSortedDictionary</c> values, value tuples of two or
-/// three components, <c>EquatableArray&lt;T&gt;</c> elements), the runtime's default comparer applies.
-/// Inside a record (or a plain struct declared in source) without a user-written <c>Equals</c>,
-/// members are compared with <c>EqualityComparer&lt;T&gt;.Default</c>, which compares
+/// elements, <c>ImmutableDictionary</c>/<c>ImmutableSortedDictionary</c> values, the components of
+/// value tuples of exactly two or three components, <c>EquatableArray&lt;T&gt;</c> elements), the
+/// runtime's default comparer applies (<c>DefaultEqualityComparer</c>). Inside a record (or a plain
+/// struct declared in source) without its own <c>Equals</c>, and in tuples of other arities, members
+/// are compared with <c>EqualityComparer&lt;T&gt;.Default</c>, which compares
 /// <c>ImmutableArray&lt;T&gt;</c>, arrays and the other collections by reference.
 /// </para>
 /// <para>
 /// Only collections are reported inside records: a member of a class type without value equality
-/// may deliberately be compared by identity, so it is not reported. Records and tuples are followed
-/// up to <see cref="MaxDepth"/> levels; a type already on the current path is not followed again.
+/// may deliberately be compared by identity, so it is not reported. Records and structs are followed
+/// up to <see cref="MaxDepth"/> levels; a type already on the current path is not followed again, and
+/// each type is walked once per analysed property (memoized), keeping the analysis linear in the
+/// number of distinct types even when a type is reachable along exponentially many paths.
 /// </para>
 /// </remarks>
 internal sealed class EqualityAnalysis
@@ -47,6 +50,9 @@ internal sealed class EqualityAnalysis
         _compilerGenerated = compilation.GetTypeByMetadataName("System.Runtime.CompilerServices.CompilerGeneratedAttribute");
     }
 
+    /// <summary>At most this many reference members are collected (the message names five).</summary>
+    public const int MaxCollectedMembers = 5;
+
     /// <summary>
     /// A collection member compared by reference: its path from the value type (for example
     /// <c>Module.Items</c> or <c>Module.Groups[].Names</c>) and its type.
@@ -55,73 +61,94 @@ internal sealed class EqualityAnalysis
 
     /// <summary>The result for one provider value type.</summary>
     /// <param name="TypeWithoutEquality">The type lacking value equality (GUAC0004), or null.</param>
-    /// <param name="ReferenceMembers">Collection members compared by reference (GUAC0010).</param>
-    public sealed record Result(ITypeSymbol? TypeWithoutEquality, IReadOnlyList<ReferenceMember> ReferenceMembers);
+    /// <param name="ReferenceMembers">
+    /// The first <see cref="MaxCollectedMembers"/> collection members compared by reference (GUAC0010).
+    /// </param>
+    /// <param name="ReferenceMemberCount">The number of such members (paths) in total.</param>
+    public sealed record Result(ITypeSymbol? TypeWithoutEquality, IReadOnlyList<ReferenceMember> ReferenceMembers, long ReferenceMemberCount);
 
     public Result Analyze(ITypeSymbol valueType)
     {
         var walker = new Walker(this);
-        walker.Visit(valueType, path: "", structural: true, topLevel: true, depth: 0);
-        return new Result(walker.TypeWithoutEquality, walker.ReferenceMembers);
+        walker.VisitTopLevel(valueType, path: "", structural: true);
+        return new Result(walker.TypeWithoutEquality, walker.ReferenceMembers, walker.ReferenceMemberCount);
     }
 
+    /// <summary>
+    /// The reference members below one type, as path suffixes relative to it (for example
+    /// <c>.Items</c> or <c>[].Members</c>; empty for the type itself): the total count and the first
+    /// <see cref="MaxCollectedMembers"/>.
+    /// </summary>
+    private sealed class Summary
+    {
+        public static readonly Summary Empty = new();
+
+        public long Count { get; private set; }
+
+        public List<ReferenceMember> First { get; } = [];
+
+        public static Summary Single(ITypeSymbol type)
+        {
+            var summary = new Summary { Count = 1 };
+            summary.First.Add(new ReferenceMember("", type));
+            return summary;
+        }
+
+        public void Add(string prefix, Summary child)
+        {
+            Count += child.Count;
+            foreach (var member in child.First)
+            {
+                if (First.Count == MaxCollectedMembers)
+                    break;
+                First.Add(new ReferenceMember(prefix + member.Path, member.Type));
+            }
+        }
+    }
+
+    /// <summary>
+    /// Walks one provider value type. Below the top level, the result of each record or struct is
+    /// computed once (memoized), so a type reached along many paths costs one walk, and only the first
+    /// few member paths are kept: the walk is linear in the number of distinct types and members.
+    /// </summary>
     private sealed class Walker(EqualityAnalysis owner)
     {
-        private readonly HashSet<ITypeSymbol> _path = new(SymbolEqualityComparer.Default);
+        private readonly Dictionary<ITypeSymbol, Summary> _memo = new(SymbolEqualityComparer.Default);
+        private readonly HashSet<ITypeSymbol> _inProgress = new(SymbolEqualityComparer.Default);
 
         public ITypeSymbol? TypeWithoutEquality { get; private set; }
 
         public List<ReferenceMember> ReferenceMembers { get; } = [];
 
+        public long ReferenceMemberCount { get; private set; }
+
+        /// <summary>
+        /// Visits a value the runtime compares with its default comparer (at the top level, or inside
+        /// what it compares structurally): a type without value equality is GUAC0004.
+        /// </summary>
         /// <param name="type">The compared type.</param>
         /// <param name="path">The member path so far (empty at the top level).</param>
         /// <param name="structural">Whether the runtime's structural comparison applies.</param>
-        /// <param name="topLevel">Whether a type without value equality is reported (GUAC0004).</param>
-        /// <param name="depth">The number of records and tuples entered.</param>
-        public void Visit(ITypeSymbol type, string path, bool structural, bool topLevel, int depth)
+        public void VisitTopLevel(ITypeSymbol type, string path, bool structural)
         {
-            if (depth > MaxDepth)
-                return;
-
-            if (type is INamedTypeSymbol { OriginalDefinition.SpecialType: SpecialType.System_Nullable_T } nullable)
-                type = nullable.TypeArguments[0];
-
-            if (type.TypeKind is TypeKind.TypeParameter or TypeKind.Enum or TypeKind.Error or TypeKind.Dynamic or TypeKind.Pointer or TypeKind.FunctionPointer)
-                return;
-
-            // Primitives and string have value equality; object compares by its runtime type's Equals.
-            if (type.SpecialType != SpecialType.None)
+            type = Unwrap(type);
+            if (IsTrivial(type))
                 return;
 
             var named = type as INamedTypeSymbol;
 
-            if (structural && named is not null && IsDefinition(named, owner._immutableArray))
+            if (named is not null && TryGetStructuralElement(named, structural, out var element))
             {
-                Visit(named.TypeArguments[0], Element(path), structural: true, topLevel, depth);
-                return;
-            }
-
-            if (structural && named is not null
-                && (IsDefinition(named, owner._immutableDictionary) || IsDefinition(named, owner._immutableSortedDictionary)))
-            {
-                Visit(named.TypeArguments[1], Element(path), structural: true, topLevel, depth);
-                return;
-            }
-
-            if (named is not null && IsDefinition(named, owner._equatableArray))
-            {
-                // EquatableArray<T> compares its elements with the runtime's default comparer.
-                Visit(named.TypeArguments[0], Element(path), structural: true, topLevel, depth);
+                VisitTopLevel(element, Element(path), structural: true);
                 return;
             }
 
             if (named is { IsTupleType: true })
             {
-                var elements = named.TupleElements;
-                var elementsStructural = structural && elements.Length <= 3;
-                foreach (var element in elements)
+                var elementsStructural = structural && IsStructuralTuple(named);
+                foreach (var tupleElement in named.TupleElements)
                 {
-                    Visit(element.Type, Member(path, element.Name), elementsStructural, topLevel, depth + 1);
+                    VisitTopLevel(tupleElement.Type, Member(path, tupleElement.Name), elementsStructural);
                 }
 
                 return;
@@ -129,42 +156,155 @@ internal sealed class EqualityAnalysis
 
             if (IsReferenceEqualCollection(type))
             {
-                if (topLevel && !owner.HasDeclaredEquality(type))
+                if (!owner.HasDeclaredEquality(type))
                     TypeWithoutEquality ??= type;
                 else
-                    ReferenceMembers.Add(new ReferenceMember(path.Length == 0 ? type.Name : path, type));
+                    AddReferenceMembers(path.Length == 0 ? type.Name : path, Summary.Single(type));
                 return;
             }
 
             if (named is not null && owner.UsesMemberwiseEquality(named))
             {
+                // A plain struct relies on ValueType.Equals: a top-level one is GUAC0004.
                 if (named.TypeKind == TypeKind.Struct && !named.IsRecord)
                 {
-                    // A plain struct relies on ValueType.Equals: a top-level one is GUAC0004; inside a
-                    // record its fields are followed like a record's.
-                    if (topLevel)
-                    {
-                        TypeWithoutEquality ??= type;
-                        return;
-                    }
-                }
-
-                if (!_path.Add(named))
+                    TypeWithoutEquality ??= type;
                     return;
-
-                var prefix = path.Length == 0 ? named.Name : path;
-                foreach (var (name, memberType) in owner.GetComparedMembers(named))
-                {
-                    Visit(memberType, Member(prefix, name), structural: false, topLevel: false, depth + 1);
                 }
 
-                _path.Remove(named);
+                AddReferenceMembers(path.Length == 0 ? named.Name : path, MembersOf(named));
                 return;
             }
 
-            if (topLevel && !owner.HasDeclaredEquality(type))
+            if (!owner.HasDeclaredEquality(type))
                 TypeWithoutEquality ??= type;
         }
+
+        private void AddReferenceMembers(string prefix, Summary summary)
+        {
+            ReferenceMemberCount += summary.Count;
+            foreach (var member in summary.First)
+            {
+                if (ReferenceMembers.Count == MaxCollectedMembers)
+                    break;
+                ReferenceMembers.Add(new ReferenceMember(prefix + member.Path, member.Type));
+            }
+        }
+
+        /// <summary>
+        /// The reference members of a value compared as a member of a record or struct (or inside
+        /// what the runtime compares structurally below one). Types without value equality are not
+        /// reported here: a member of such a class type may be compared by identity on purpose.
+        /// </summary>
+        private Summary Visit(ITypeSymbol type, bool structural)
+        {
+            type = Unwrap(type);
+            if (IsTrivial(type))
+                return Summary.Empty;
+
+            var named = type as INamedTypeSymbol;
+
+            if (named is not null && TryGetStructuralElement(named, structural, out var element))
+            {
+                var summary = new Summary();
+                summary.Add("[]", Visit(element, structural: true));
+                return summary;
+            }
+
+            if (named is { IsTupleType: true })
+            {
+                var elementsStructural = structural && IsStructuralTuple(named);
+                var summary = new Summary();
+                foreach (var tupleElement in named.TupleElements)
+                {
+                    summary.Add("." + tupleElement.Name, Visit(tupleElement.Type, elementsStructural));
+                }
+
+                return summary;
+            }
+
+            if (IsReferenceEqualCollection(type))
+                return Summary.Single(type);
+
+            if (named is not null && owner.UsesMemberwiseEquality(named))
+                return MembersOf(named);
+
+            return Summary.Empty;
+        }
+
+        /// <summary>
+        /// The reference members of a record or struct with member-by-member equality, memoized.
+        /// A type already being walked (a recursive type) or nested more than <see cref="MaxDepth"/>
+        /// levels deep contributes nothing.
+        /// </summary>
+        private Summary MembersOf(INamedTypeSymbol type)
+        {
+            if (_memo.TryGetValue(type, out var known))
+                return known;
+
+            if (_inProgress.Count >= MaxDepth || !_inProgress.Add(type))
+                return Summary.Empty;
+
+            var summary = new Summary();
+            foreach (var (name, memberType) in owner.GetComparedMembers(type))
+            {
+                summary.Add("." + name, Visit(memberType, structural: false));
+            }
+
+            _inProgress.Remove(type);
+            _memo[type] = summary;
+            return summary;
+        }
+
+        private static ITypeSymbol Unwrap(ITypeSymbol type)
+            => type is INamedTypeSymbol { OriginalDefinition.SpecialType: SpecialType.System_Nullable_T } nullable
+                ? nullable.TypeArguments[0]
+                : type;
+
+        /// <summary>
+        /// Type parameters (unknown), enums, primitives and string (value equality), object (its
+        /// runtime type's Equals) and error types are not checked.
+        /// </summary>
+        private static bool IsTrivial(ITypeSymbol type)
+            => type.TypeKind is TypeKind.TypeParameter or TypeKind.Enum or TypeKind.Error or TypeKind.Dynamic or TypeKind.Pointer or TypeKind.FunctionPointer
+                || type.SpecialType != SpecialType.None;
+
+        /// <summary>
+        /// The element the runtime compares when it compares <paramref name="type"/> element by
+        /// element: <c>ImmutableArray&lt;T&gt;</c> elements and immutable dictionary values when
+        /// structural comparison applies, and <c>EquatableArray&lt;T&gt;</c> elements always (it
+        /// compares them with the runtime's default comparer).
+        /// </summary>
+        private bool TryGetStructuralElement(INamedTypeSymbol type, bool structural, out ITypeSymbol element)
+        {
+            if (structural && IsDefinition(type, owner._immutableArray))
+            {
+                element = type.TypeArguments[0];
+                return true;
+            }
+
+            if (structural && (IsDefinition(type, owner._immutableDictionary) || IsDefinition(type, owner._immutableSortedDictionary)))
+            {
+                element = type.TypeArguments[1];
+                return true;
+            }
+
+            if (IsDefinition(type, owner._equatableArray))
+            {
+                element = type.TypeArguments[0];
+                return true;
+            }
+
+            element = type;
+            return false;
+        }
+
+        /// <summary>
+        /// The runtime compares value tuples of two or three components component by component with
+        /// each component's default comparer. Other arities (one, four or more) use the tuple's own
+        /// Equals, which compares the components with <c>EqualityComparer&lt;T&gt;.Default</c>.
+        /// </summary>
+        private static bool IsStructuralTuple(INamedTypeSymbol tuple) => tuple.TupleElements.Length is 2 or 3;
 
         private bool IsReferenceEqualCollection(ITypeSymbol type)
         {
@@ -192,7 +332,7 @@ internal sealed class EqualityAnalysis
                 return true;
 
             // A user collection with its own Equals (or a record) is compared by that Equals.
-            return !owner.HasDeclaredEquality(type) && !type.IsRecord;
+            return !owner.HasDeclaredEquality(type);
         }
 
         private static string Element(string path) => path.Length == 0 ? path : path + "[]";
@@ -212,14 +352,13 @@ internal sealed class EqualityAnalysis
 
         return type.TypeKind == TypeKind.Struct
             && type.DeclaringSyntaxReferences.Length > 0
-            && !HasDeclaredEquality(type)
-            && !type.GetMembers("Equals").Any(m => m is IMethodSymbol { IsOverride: true, Parameters.Length: 1 } method
-                && method.Parameters[0].Type.SpecialType == SpecialType.System_Object);
+            && !HasDeclaredEquality(type);
     }
 
     /// <summary>
-    /// Records, IEquatable&lt;T&gt; implementations, types overriding <c>Equals(object)</c>,
-    /// primitives and enums have equality of their own.
+    /// Records, IEquatable&lt;T&gt; implementations, types overriding <c>Equals(object)</c> (itself or
+    /// in a base class; <c>EqualityComparer&lt;T&gt;.Default</c> uses that override), primitives and
+    /// enums have equality of their own.
     /// </summary>
     private bool HasDeclaredEquality(ITypeSymbol type)
     {
@@ -231,6 +370,23 @@ internal sealed class EqualityAnalysis
                 SymbolEqualityComparer.Default.Equals(i.TypeArguments[0], type)))
         {
             return true;
+        }
+
+        return OverridesObjectEquals(type);
+    }
+
+    private static bool OverridesObjectEquals(ITypeSymbol type)
+    {
+        for (var current = type; current is not null; current = current.BaseType)
+        {
+            if (current.SpecialType is SpecialType.System_Object or SpecialType.System_ValueType)
+                return false;
+
+            if (current.GetMembers("Equals").Any(m => m is IMethodSymbol { IsOverride: true, IsStatic: false, Parameters.Length: 1 } method
+                    && method.Parameters[0].Type.SpecialType == SpecialType.System_Object))
+            {
+                return true;
+            }
         }
 
         return false;

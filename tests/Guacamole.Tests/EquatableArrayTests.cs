@@ -74,6 +74,21 @@ public class EquatableArrayTests
     }
 
     [Fact]
+    public void Enumerator_EnumeratesTheElementsInOrder()
+    {
+        EquatableArray<int> numbers = [1, 2, 3];
+        var seen = new List<int>();
+
+        EquatableArray<int>.Enumerator enumerator = numbers.GetEnumerator();
+        while (enumerator.MoveNext())
+            seen.Add(enumerator.Current);
+
+        Assert.Equal([1, 2, 3], seen);
+        Assert.False(default(EquatableArray<int>).GetEnumerator().MoveNext());
+        Assert.False(((IEnumerable<int>)default(EquatableArray<int>)).GetEnumerator().MoveNext());
+    }
+
+    [Fact]
     public void Wrapping_DoesNotCopy()
     {
         var array = ImmutableArray.Create(1, 2, 3);
