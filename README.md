@@ -276,7 +276,7 @@ What is not:
 
 - Change notifications and output handlers run synchronously on the caller's thread with no lock held, so handlers triggered by concurrent changes can run concurrently. Make handlers thread-safe or serialize your writes.
 - Reading a provider does not lock the pipeline: two threads reading the same stale node may both compute it. Keep your lambdas pure.
-- `BeginBatch()` returns a buffer that is not thread-safe; `Commit()` applies its operations one by one, each with its own notification.
+- `BeginBatch()` returns a buffer that is not thread-safe; `Commit()` applies its operations atomically under the source's lock (all or nothing), with a single notification.
 
 ### Namespaces
 

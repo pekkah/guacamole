@@ -251,7 +251,9 @@ using (var batch = context.SourcesSource.BeginBatch())
 }
 ```
 
-- `Commit()` applies the operations one by one; each still raises its own change notification (they are not coalesced).
+- `Commit()` applies the operations in order in one step, with a single change notification (none if the source ends up unchanged, for example after a `Push` and a `Remove` of the same new item).
+- It is all or nothing: if an operation would fail (`Replace` of a missing item, or with an item that is present, at that point of the batch), `Commit()` throws and nothing is applied.
+- After `Commit()` the batch is done: adding operations throws `InvalidOperationException`.
 - `Rollback()` discards the buffered operations.
 - Disposing a batch that was neither committed nor rolled back **commits** it.
 

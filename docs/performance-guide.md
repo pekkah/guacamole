@@ -152,7 +152,7 @@ using (var batch = context.FilesSource.BeginBatch())
 } // one notification
 ```
 
-If an operation fails (`Replace` of an item that is not present), the operations before it stay applied and are notified, and the exception is rethrown.
+A batch is all or nothing: if an operation would fail (`Replace` of an item that is not present at that point of the batch, or with one that is, or a `null` item), `Commit()` throws without applying any operation and without a notification. Operations that cancel out (a `Push` of a new item and a `Remove` of it) raise no notification. A committed batch cannot be reused: `Push`/`Remove`/`Replace` after `Commit()` throw `InvalidOperationException`; begin a new batch instead.
 
 ## Memory
 

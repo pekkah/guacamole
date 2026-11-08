@@ -13,36 +13,59 @@ public interface IBatchOperation<T> : IDisposable
     /// <summary>
     /// Pushes an item in the batch. Does not trigger invalidation yet.
     /// </summary>
+    /// <exception cref="InvalidOperationException">The batch was committed.</exception>
+    /// <exception cref="ObjectDisposedException">The batch was disposed.</exception>
     void Push(T item);
 
     /// <summary>
     /// Removes an item in the batch. Does not trigger invalidation yet.
     /// </summary>
+    /// <exception cref="InvalidOperationException">The batch was committed.</exception>
+    /// <exception cref="ObjectDisposedException">The batch was disposed.</exception>
     void Remove(T item);
 
     /// <summary>
     /// Replaces an item in the batch. Does not trigger invalidation yet.
     /// </summary>
+    /// <exception cref="InvalidOperationException">The batch was committed.</exception>
+    /// <exception cref="ObjectDisposedException">The batch was disposed.</exception>
     void Replace(T oldItem, T newItem);
 
     /// <summary>
     /// Commits all batched operations with a single invalidation.
     /// </summary>
     /// <remarks>
+    /// <para>
     /// The operations are applied in the order they were added, with the same semantics as the
-    /// corresponding source methods, and the source raises a single change notification for all of
-    /// them (none if none of them changed it). If an operation fails (for example
-    /// <see cref="Replace"/> of an item that is not present), the operations before it stay applied
-    /// and are notified, the rest are discarded, and the exception is rethrown; the batch counts as
-    /// committed either way. For <see cref="IIncrementalSource{T}"/> implementations other than the
-    /// sources created by a context, the operations are applied through the source's own methods,
-    /// which notify once per change.
+    /// corresponding source methods, all or nothing, and the source raises a single change
+    /// notification if it ends up changed: none if no operation changed it, or if the operations
+    /// cancel out (for example a <see cref="Push"/> of a new item followed by a <see cref="Remove"/>
+    /// of it).
+    /// </para>
+    /// <para>
+    /// If an operation would fail (a <c>null</c> item, or <see cref="Replace"/> of an item that is
+    /// not present at that point of the batch, or with an item that is), <c>Commit</c> throws without
+    /// applying any operation and without a notification. The batch counts as committed either way:
+    /// it cannot be committed again, operations added afterwards throw
+    /// <see cref="InvalidOperationException"/>, and disposing it does nothing.
+    /// </para>
+    /// <para>
+    /// For <see cref="IIncrementalSource{T}"/> implementations other than the sources created by a
+    /// context, the operations are applied one by one through the source's own methods, which notify
+    /// once per change; a failing operation then leaves the operations before it applied.
+    /// </para>
     /// </remarks>
+    /// <exception cref="InvalidOperationException">The batch was already committed, or a
+    /// <see cref="Replace"/> would fail (nothing was applied).</exception>
+    /// <exception cref="ArgumentNullException">An item is <c>null</c> (nothing was applied).</exception>
+    /// <exception cref="ObjectDisposedException">The batch was disposed.</exception>
     void Commit();
 
     /// <summary>
-    /// Discards all batched operations without applying them.
+    /// Discards all batched operations without applying them. The batch can be used again
+    /// afterwards. Does nothing after <see cref="Commit"/> (nothing is pending then).
     /// </summary>
+    /// <exception cref="ObjectDisposedException">The batch was disposed.</exception>
     void Rollback();
 }
 
@@ -78,22 +101,21 @@ internal sealed class BatchOperation<T> : IBatchOperation<T>
         _source = source ?? throw new ArgumentNullException(nameof(source));
     }
 
-    public void Push(T item)
-    {
-        ThrowIfDisposed();
-        _operations.Add(new SourceOperation<T>(SourceOperationKind.Push, item, default!));
-    }
+    public void Push(T item) => Add(new SourceOperation<T>(SourceOperationKind.Push, item, default!));
 
-    public void Remove(T item)
-    {
-        ThrowIfDisposed();
-        _operations.Add(new SourceOperation<T>(SourceOperationKind.Remove, item, default!));
-    }
+    public void Remove(T item) => Add(new SourceOperation<T>(SourceOperationKind.Remove, item, default!));
 
-    public void Replace(T oldItem, T newItem)
+    public void Replace(T oldItem, T newItem) => Add(new SourceOperation<T>(SourceOperationKind.Replace, oldItem, newItem));
+
+    private void Add(SourceOperation<T> operation)
     {
         ThrowIfDisposed();
-        _operations.Add(new SourceOperation<T>(SourceOperationKind.Replace, oldItem, newItem));
+
+        // An operation added after Commit would never be applied
+        if (_committed)
+            throw new InvalidOperationException("Batch already committed; begin a new batch for further operations");
+
+        _operations.Add(operation);
     }
 
     public void Commit()
@@ -109,7 +131,7 @@ internal sealed class BatchOperation<T> : IBatchOperation<T>
         {
             if (_source is IncrementalSource<T> incremental)
             {
-                // All operations in one step, with a single change notification
+                // All operations in one step, all or nothing, with a single change notification
                 incremental.Apply(CollectionsMarshal.AsSpan(_operations));
             }
             else
@@ -143,6 +165,9 @@ internal sealed class BatchOperation<T> : IBatchOperation<T>
     public void Rollback()
     {
         ThrowIfDisposed();
+
+        // After Commit nothing is pending (so that a Rollback in an error handler after a failed
+        // Commit does not hide the Commit's exception)
         _operations.Clear();
     }
 
