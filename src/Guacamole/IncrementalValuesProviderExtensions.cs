@@ -22,6 +22,17 @@ public static class IncrementalValuesProviderExtensions
     /// <param name="selector">Transformation function that produces multiple results</param>
     /// <param name="metadata">Optional metadata for the new provider</param>
     /// <returns>A new provider with flattened transformed values</returns>
+    /// <remarks>
+    /// Memoized per item: when the stage is recomputed, the selector runs only for new or changed
+    /// items. Items are matched by their own equality (<c>EqualityComparer&lt;T&gt;.Default</c>,
+    /// element-wise for <see cref="ImmutableArray{T}"/> items), not by a comparer passed to the
+    /// operator: an item equal to an item of the previous computation reuses that item's result
+    /// without running the selector. So with loose equality (an <c>Equals</c> that ignores members
+    /// the selector reads), an item that differs from a previous one only in ignored members gets the
+    /// result computed for the previous one. Make the item's equality cover everything the
+    /// lambda reads, or project the items to such a type first. Items must also be immutable: an
+    /// item mutated in place still equals itself.
+    /// </remarks>
     public static IncrementalValuesProvider<TResult> SelectMany<TSource, TResult>(
         this IncrementalValuesProvider<TSource> source,
         Func<TSource, IEnumerable<TResult>> selector,
@@ -54,6 +65,17 @@ public static class IncrementalValuesProviderExtensions
     /// <param name="comparer">Custom equality comparer for result values</param>
     /// <param name="metadata">Optional metadata for the new provider</param>
     /// <returns>A new provider with flattened transformed values</returns>
+    /// <remarks>
+    /// Memoized per item: when the stage is recomputed, the selector runs only for new or changed
+    /// items. Items are matched by their own equality (<c>EqualityComparer&lt;T&gt;.Default</c>,
+    /// element-wise for <see cref="ImmutableArray{T}"/> items), not by a comparer passed to the
+    /// operator: an item equal to an item of the previous computation reuses that item's result
+    /// without running the selector. So with loose equality (an <c>Equals</c> that ignores members
+    /// the selector reads), an item that differs from a previous one only in ignored members gets the
+    /// result computed for the previous one. Make the item's equality cover everything the
+    /// lambda reads, or project the items to such a type first. Items must also be immutable: an
+    /// item mutated in place still equals itself.
+    /// </remarks>
     public static IncrementalValuesProvider<TResult> SelectMany<TSource, TResult>(
         this IncrementalValuesProvider<TSource> source,
         Func<TSource, IEnumerable<TResult>> selector,
@@ -160,6 +182,17 @@ public static class IncrementalValuesProviderExtensions
     /// <param name="selector">Transformation function</param>
     /// <param name="metadata">Optional metadata for the new provider</param>
     /// <returns>A new provider with transformed values</returns>
+    /// <remarks>
+    /// Memoized per item: when the stage is recomputed, the selector runs only for new or changed
+    /// items. Items are matched by their own equality (<c>EqualityComparer&lt;T&gt;.Default</c>,
+    /// element-wise for <see cref="ImmutableArray{T}"/> items), not by a comparer passed to the
+    /// operator: an item equal to an item of the previous computation reuses that item's result
+    /// without running the selector. So with loose equality (an <c>Equals</c> that ignores members
+    /// the selector reads), an item that differs from a previous one only in ignored members gets the
+    /// result computed for the previous one. Make the item's equality cover everything the
+    /// lambda reads, or project the items to such a type first. Items must also be immutable: an
+    /// item mutated in place still equals itself.
+    /// </remarks>
     public static IncrementalValuesProvider<TResult> Select<TSource, TResult>(
         this IncrementalValuesProvider<TSource> source,
         Func<TSource, TResult> selector,
@@ -192,6 +225,17 @@ public static class IncrementalValuesProviderExtensions
     /// <param name="comparer">Custom equality comparer for result values</param>
     /// <param name="metadata">Optional metadata for the new provider</param>
     /// <returns>A new provider with transformed values</returns>
+    /// <remarks>
+    /// Memoized per item: when the stage is recomputed, the selector runs only for new or changed
+    /// items. Items are matched by their own equality (<c>EqualityComparer&lt;T&gt;.Default</c>,
+    /// element-wise for <see cref="ImmutableArray{T}"/> items), not by a comparer passed to the
+    /// operator: an item equal to an item of the previous computation reuses that item's result
+    /// without running the selector. So with loose equality (an <c>Equals</c> that ignores members
+    /// the selector reads), an item that differs from a previous one only in ignored members gets the
+    /// result computed for the previous one. Make the item's equality cover everything the
+    /// lambda reads, or project the items to such a type first. Items must also be immutable: an
+    /// item mutated in place still equals itself.
+    /// </remarks>
     public static IncrementalValuesProvider<TResult> Select<TSource, TResult>(
         this IncrementalValuesProvider<TSource> source,
         Func<TSource, TResult> selector,
@@ -224,6 +268,17 @@ public static class IncrementalValuesProviderExtensions
     /// <param name="predicate">Filter predicate</param>
     /// <param name="metadata">Optional metadata for the new provider</param>
     /// <returns>A new provider with filtered values</returns>
+    /// <remarks>
+    /// Memoized per item: when the stage is recomputed, the predicate runs only for new or changed
+    /// items. Items are matched by their own equality (<c>EqualityComparer&lt;T&gt;.Default</c>,
+    /// element-wise for <see cref="ImmutableArray{T}"/> items), not by a comparer passed to the
+    /// operator: an item equal to an item of the previous computation reuses that item's result
+    /// without running the predicate. So with loose equality (an <c>Equals</c> that ignores members
+    /// the predicate reads), an item that differs from a previous one only in ignored members gets the
+    /// result computed for the previous one. Make the item's equality cover everything the
+    /// lambda reads, or project the items to such a type first. Items must also be immutable: an
+    /// item mutated in place still equals itself.
+    /// </remarks>
     public static IncrementalValuesProvider<T> Where<T>(
         this IncrementalValuesProvider<T> source,
         Func<T, bool> predicate,
@@ -255,6 +310,17 @@ public static class IncrementalValuesProviderExtensions
     /// <param name="comparer">Custom equality comparer for values</param>
     /// <param name="metadata">Optional metadata for the new provider</param>
     /// <returns>A new provider with filtered values</returns>
+    /// <remarks>
+    /// Memoized per item: when the stage is recomputed, the predicate runs only for new or changed
+    /// items. Items are matched by their own equality (<c>EqualityComparer&lt;T&gt;.Default</c>,
+    /// element-wise for <see cref="ImmutableArray{T}"/> items), not by a comparer passed to the
+    /// operator: an item equal to an item of the previous computation reuses that item's result
+    /// without running the predicate. So with loose equality (an <c>Equals</c> that ignores members
+    /// the predicate reads), an item that differs from a previous one only in ignored members gets the
+    /// result computed for the previous one. Make the item's equality cover everything the
+    /// lambda reads, or project the items to such a type first. Items must also be immutable: an
+    /// item mutated in place still equals itself.
+    /// </remarks>
     public static IncrementalValuesProvider<T> Where<T>(
         this IncrementalValuesProvider<T> source,
         Func<T, bool> predicate,

@@ -47,6 +47,20 @@ Collection operators (`Select`, `Where`, `SelectMany` on `IncrementalValuesProvi
 - The memo holds one entry per distinct item of the latest computation and is updated in place when a computation completes; if a lambda throws, the stage returns an error and keeps its previous memo.
 - `null` items are not memoized; the lambda runs for them whenever the stage walks its items (see below).
 - Items must be immutable (records are ideal): an item mutated in place still equals itself, so its stale result would be reused.
+- Items are matched by **their own equality**, not by a comparer passed to the operator (that one only decides whether the stage's results changed). An item equal to any item of the previous computation reuses that item's result without running the lambda. With loose equality, for example an `Equals` that compares only an `Id`, an item that differs from a previous one only in the members its equality ignores gets the result computed for the previous one, even when the lambda reads those members:
+
+```csharp
+record Doc(int Id, string Text)
+{
+    public virtual bool Equals(Doc? other) => other is not null && Id == other.Id; // ignores Text
+    public override int GetHashCode() => Id;
+}
+
+var lengths = docs.Select(d => d.Text.Length); // a new Doc with the same Id as one of the
+                                               // previous computation reuses that Doc's length
+```
+
+  Make the item's equality cover everything the lambda reads (the default record equality does), or project the items to such a type in an earlier stage (`docs.Select(d => (d.Id, d.Text))`). The same equality is what collection sources use for their set semantics, so a loosely equal item is a duplicate there as well (`Push` ignores it, `Replace(a, b)` with `b` equal to `a` is not a change).
 - After a few item changes, a stage does not even walk the collection: it applies its input's item-level delta to its previous output (see [Item-level deltas](#item-level-deltas)). When no delta is available it walks the whole collection (one comparison per unchanged item, and a new result array unless every result is unchanged), saving only the lambda calls and the memo bookkeeping for unchanged items.
 - Memoization is per item. A lambda that also depends on a combined value (`values.Combine(value)`) sees a new input for every item when that value changes; see [cross-item lookups](#cross-item-lookups-eg-symbol-tables) for keeping such inputs equal.
 
