@@ -4,7 +4,7 @@ Auto-generated from all feature plans. Last updated: 2025-09-27
 
 ## Active Technologies
 - C# 15 (`LangVersion=latest`) / .NET 11 RC3 SDK, pinned in `global.json` (11.0.100-rc.3.26522.148)
-- Runtime (`src/Guacamole`, net11.0): Microsoft.Extensions.DependencyInjection, System.Collections.Immutable; in-memory computation graph with LRU value cache and version-based lazy cache validation
+- Runtime (`src/Guacamole`, net11.0): System.Collections.Immutable (no package dependencies; no DI helpers, register contexts with your container directly); in-memory computation graph with LRU value cache and version-based lazy cache validation
 - Source generator (`src/Guacamole.SourceGenerators`, netstandard2.0): Microsoft.CodeAnalysis.CSharp 5.9.0, incremental generator using `ForAttributeWithMetadataName`; diagnostics GUAC0003-GUAC0009 (keep `AnalyzerReleases.*.md` and `DiagnosticDescriptors.cs` in sync)
 - Tests: xUnit v3 on Microsoft.Testing.Platform (selected in `global.json`); generator snapshot tests use Verify.SourceGenerators and Verify.XunitV3 33.x; Verify 33's SponsorCheck gate (SC021) is satisfied by `Verify_SponsorshipExemption=OpenSource` with `Verify_SponsorshipExemptionUntil=2027-11` (format yyyy-MM, max 12 months out) in the test csproj, which must be renewed before November 2027 or the build fails
 - Benchmarks: BenchmarkDotNet (`benchmarks/Guacamole.Benchmarks`)
