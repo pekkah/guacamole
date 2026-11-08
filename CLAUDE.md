@@ -29,7 +29,7 @@ cd benchmarks/Guacamole.Benchmarks && dotnet run -c Release
 ```
 
 ## Code Style
-C# 15 / .NET 11.0 RC3: Follow standard conventions. LF line endings on every platform (`.gitattributes` `* text=auto eol=lf`, `.editorconfig` `end_of_line = lf`); CI runs `dotnet format guacamole.sln --verify-no-changes` on Linux and Windows
+C# 15 / .NET 11.0 RC3: Follow standard conventions. LF line endings on every platform (`.gitattributes` `* text=auto eol=lf`, `.editorconfig` `end_of_line = lf`); CI runs `dotnet format guacamole.sln --verify-no-changes` on Linux and Windows. Format only sees source generator output for the configuration it evaluates (Debug unless `Configuration` is set) and only if that configuration was built, so CI sets `Configuration=Release` for its format step after the Release build (#72). Reproduce CI with `dotnet build guacamole.sln -c Release && Configuration=Release dotnet format guacamole.sln --verify-no-changes --no-restore` (see `docs/ci-cd.md`, Format check)
 
 ## Recent Changes
 - 010-property-genration-current: Added C# 15 / .NET 11.0 RC3 + Microsoft.CodeAnalysis.CSharp (Roslyn source generators), Microsoft.Extensions.DependencyInjection, System.Collections.Immutable

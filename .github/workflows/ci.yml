@@ -67,7 +67,16 @@ jobs:
 
       # .editorconfig requires LF and .gitattributes (`* text=auto eol=lf`) checks files
       # out with LF on every OS, so the format check runs on Windows too.
+      # dotnet format loads the solution into an MSBuildWorkspace without building it, and
+      # with no Configuration set it evaluates Debug. The [ComputingContext] generator is a
+      # ProjectReference analyzer, so its DLL is taken from bin/<Configuration>/ and only the
+      # Release one exists here; without it the workspace has no generated members and code
+      # such as `var batch = context.ItemsSource.BeginBatch()` fails with CS1503 (#72).
+      # MSBuild reads environment variables as properties, so this makes format evaluate
+      # the Release build made above. dotnet format has no option for MSBuild properties.
       - name: Check formatting
+        env:
+          Configuration: Release
         run: dotnet format guacamole.sln --verify-no-changes --no-restore
 
       - name: Run tests
