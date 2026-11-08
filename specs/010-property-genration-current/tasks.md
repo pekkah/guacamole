@@ -270,7 +270,7 @@
   - Check: All code examples use new convention
   - **Output**: Documentation is consistent
 
-- [ ] **T028** Run dotnet format — open: `dotnet format --verify-no-changes` is not clean (line endings: `.editorconfig` `crlf` vs `.gitattributes` LF, plus a few whitespace fixes)
+- [x] **T028** Run dotnet format — done: `.editorconfig` now uses `end_of_line = lf` (matching the LF that `.gitattributes` stores), `dotnet format --verify-no-changes` is clean, and CI runs it on Linux (`.github/workflows/ci.yml`)
   - Command: `dotnet format`
   - **Expected**: No formatting changes (code already formatted)
   - **If changes**: Commit formatting updates

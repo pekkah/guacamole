@@ -39,7 +39,7 @@ public partial class SourceOrderTests
         using var context = new OrderContext();
         context.ItemsSource.PushRange(ManyItems.Take(100));
 
-        using (var batch = context.ItemsSource.BeginBatch())
+        using (IBatchOperation<string> batch = context.ItemsSource.BeginBatch())
         {
             foreach (var item in ManyItems.Skip(100))
                 batch.Push(item);
