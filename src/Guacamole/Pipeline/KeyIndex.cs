@@ -53,7 +53,13 @@ internal abstract class KeyIndex
     /// <param name="cacheable">Whether the result is cached (see <see cref="GraphEvaluator.FailedReads"/>)</param>
     /// <param name="version">The node's output version for this result</param>
     /// <param name="changed">Whether the version was incremented (the result differs from the previous one)</param>
-    public abstract void OnCommit(SharedGraphState state, CachedResultKind kind, object? stored, bool cacheable, long version, bool changed);
+    /// <returns>
+    /// The revision that the key change advanced <see cref="SharedGraphState.Revision"/> to, if the
+    /// commit changed tracked keys (see <see cref="SharedGraphState.MarkKeysChanged"/>); 0 otherwise.
+    /// The committing pass accounts for its own key change with it (see
+    /// <see cref="GraphEvaluator.AccountForOwnKeyChange"/>).
+    /// </returns>
+    public abstract long OnCommit(SharedGraphState state, CachedResultKind kind, object? stored, bool cacheable, long version, bool changed);
 }
 
 /// <summary>
@@ -166,14 +172,14 @@ internal sealed class KeyIndex<TKey, TValue> : KeyIndex
     }
 
     /// <inheritdoc />
-    public override void OnCommit(SharedGraphState state, CachedResultKind kind, object? stored, bool cacheable, long version, bool changed)
+    public override long OnCommit(SharedGraphState state, CachedResultKind kind, object? stored, bool cacheable, long version, bool changed)
     {
         var current = cacheable && kind == CachedResultKind.Value ? stored as ImmutableDictionary<TKey, TValue> : null;
         if (!changed)
         {
             // Equal to the committed result (by the node's comparer): nothing changed for any key
             _committed ??= current;
-            return;
+            return 0;
         }
 
         var previous = _committed;
@@ -207,8 +213,7 @@ internal sealed class KeyIndex<TKey, TValue> : KeyIndex
             }
         }
 
-        if (changedKeys != null)
-            state.MarkKeysChanged(changedKeys);
+        return changedKeys is null ? 0 : state.MarkKeysChanged(changedKeys);
 
         void Changed(KeyHandle<TKey, TValue> handle)
         {

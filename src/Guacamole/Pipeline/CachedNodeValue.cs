@@ -152,9 +152,10 @@ internal sealed class CachedNodeValue
     /// without checking its dependencies.
     /// </summary>
     /// <remarks>
-    /// A stamp is only recorded by an evaluation pass during which no source change was in
-    /// progress (see <see cref="GraphEvaluator.CanStamp"/>). That guarantees that every change the
-    /// stamp counts had finished marking the nodes it reaches before the value was verified.
+    /// A stamp is only recorded by an evaluation pass during which no change was in progress other
+    /// than the pass's own key changes, which had ended before the evaluation began (see
+    /// <see cref="GraphEvaluator.CanStamp"/>). That guarantees that every change the stamp counts had
+    /// finished marking the nodes it reaches before the value was verified.
     /// </remarks>
     public long Stamp => Volatile.Read(ref _stamp);
 
