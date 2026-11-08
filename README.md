@@ -286,7 +286,7 @@ For each `[ComputingContext]` class the generator emits one file containing:
 - The implementation of each partial provider property (returns the source's provider)
 - A `{Property}Source` accessor typed `IIncrementalSource<T>` or `IIncrementalValueSource<T>`
 
-The generator also reports diagnostics (GUAC0003-GUAC0009) for invalid declarations; see [Generated Code Reference](https://github.com/pekkah/guacamole/blob/main/docs/generated-code-reference.md#diagnostics).
+The generator reports errors (GUAC0003, GUAC0005-GUAC0008) for invalid declarations, and the analyzer in the same package reports warnings (GUAC0004, GUAC0009) that can be suppressed with `#pragma warning disable`, `[SuppressMessage]` or `.editorconfig`; see [Generated Code Reference](https://github.com/pekkah/guacamole/blob/main/docs/generated-code-reference.md#diagnostics).
 
 ### Output Handlers
 

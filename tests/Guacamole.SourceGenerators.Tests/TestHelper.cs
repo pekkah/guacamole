@@ -4,9 +4,11 @@ using System.Collections.Immutable;
 using System.IO;
 using System.Linq;
 using System.Runtime.CompilerServices;
+using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp;
+using Microsoft.CodeAnalysis.Diagnostics;
 using VerifyXunit;
 using Xunit;
 
@@ -39,6 +41,32 @@ public static class TestHelper
         driver = driver.RunGeneratorsAndUpdateCompilation(compilation, out var outputCompilation, out var generatorDiagnostics);
         return new GeneratorTestResult(driver, outputCompilation, generatorDiagnostics);
     }
+
+    /// <summary>
+    /// Runs the generator, then <see cref="ComputingContextAnalyzer"/> on the compilation including
+    /// the generated sources, the way a build does, and returns the analyzer's diagnostics after
+    /// suppressions (<c>#pragma</c>, <c>[SuppressMessage]</c>) and severity configuration are applied.
+    /// </summary>
+    /// <param name="sources">The sources (<c>Test0.cs</c>, <c>Test1.cs</c>, ...)</param>
+    /// <param name="editorConfig">
+    /// Optional .editorconfig text, applied to every source as if it were in the same directory.
+    /// </param>
+    public static ImmutableArray<Diagnostic> RunAnalyzer(string[] sources, string? editorConfig = null)
+    {
+        var result = Run(sources);
+        var compilation = result.OutputCompilation;
+        if (editorConfig is not null)
+        {
+            compilation = compilation.WithOptions(compilation.Options.WithSyntaxTreeOptionsProvider(
+                new EditorConfigOptionsProvider(editorConfig)));
+        }
+
+        var withAnalyzers = compilation.WithAnalyzers([new ComputingContextAnalyzer()]);
+        return withAnalyzers.GetAnalyzerDiagnosticsAsync(TestContext.Current.CancellationToken).GetAwaiter().GetResult();
+    }
+
+    public static ImmutableArray<Diagnostic> RunAnalyzer(string source, string? editorConfig = null)
+        => RunAnalyzer([source], editorConfig);
 
     public static CSharpCompilation CreateCompilation(params string[] sources)
     {
@@ -101,4 +129,27 @@ public sealed class GeneratorTestResult(GeneratorDriver driver, Compilation outp
 
     public IReadOnlyList<Diagnostic> CompilationErrors
         => OutputCompilation.GetDiagnostics().Where(d => d.Severity == DiagnosticSeverity.Error).ToList();
+}
+
+/// <summary>
+/// Applies .editorconfig diagnostic severities (<c>dotnet_diagnostic.ID.severity</c>) the way the
+/// compiler does, treating every syntax tree as located next to the .editorconfig file.
+/// </summary>
+internal sealed class EditorConfigOptionsProvider(string editorConfig) : SyntaxTreeOptionsProvider
+{
+    private const string ConfigDirectory = "/src/";
+
+    private readonly AnalyzerConfigSet _set = AnalyzerConfigSet.Create(
+        ImmutableArray.Create(AnalyzerConfig.Parse(editorConfig, ConfigDirectory + ".editorconfig")));
+
+    public override GeneratedKind IsGenerated(SyntaxTree tree, CancellationToken cancellationToken) => GeneratedKind.Unknown;
+
+    public override bool TryGetDiagnosticValue(SyntaxTree tree, string diagnosticId, CancellationToken cancellationToken, out ReportDiagnostic severity)
+        => _set.GetOptionsForSourcePath(ConfigDirectory + Path.GetFileName(tree.FilePath)).TreeOptions.TryGetValue(diagnosticId, out severity);
+
+    public override bool TryGetGlobalDiagnosticValue(string diagnosticId, CancellationToken cancellationToken, out ReportDiagnostic severity)
+    {
+        severity = ReportDiagnostic.Default;
+        return false;
+    }
 }

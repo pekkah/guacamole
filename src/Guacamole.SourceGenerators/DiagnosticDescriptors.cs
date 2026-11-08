@@ -4,14 +4,22 @@ using Microsoft.CodeAnalysis;
 namespace Guacamole.SourceGenerators;
 
 /// <summary>
-/// All diagnostics reported by the Guacamole source generator.
-/// Keep AnalyzerReleases.Unshipped.md in sync when adding or changing rules.
+/// All diagnostics of the Guacamole source generator package. Keep AnalyzerReleases.Unshipped.md
+/// in sync when adding or changing rules.
 /// </summary>
 /// <remarks>
+/// <para>
+/// Diagnostics that decide whether code can be generated (GUAC0003, GUAC0005-GUAC0008, all errors)
+/// are reported by <see cref="ComputingContextGenerator"/>. Warnings a user may want to suppress
+/// (GUAC0004, GUAC0009) are reported by <see cref="ComputingContextAnalyzer"/>: Roslyn does not
+/// apply <c>#pragma warning disable</c> or <c>[SuppressMessage]</c> to generator diagnostics.
+/// </para>
+/// <para>
 /// GUAC0001 (duplicate property name) and GUAC0002 (conflicting type parameters) were removed:
 /// they analysed only properties declared directly on the context class, where C# already forbids
 /// duplicate member names (CS0102), so they could never be reported. Their IDs are retired and
 /// must not be reused.
+/// </para>
 /// </remarks>
 internal static class DiagnosticDescriptors
 {

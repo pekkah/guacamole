@@ -5,7 +5,7 @@ using Xunit;
 namespace Guacamole.SourceGenerators.Tests;
 
 /// <summary>
-/// Tests that the generator reports its GUAC diagnostics at the right source locations.
+/// Tests that the generator and the analyzer report their GUAC diagnostics at the right source locations.
 /// </summary>
 public class DiagnosticTests
 {
@@ -98,10 +98,14 @@ public class DiagnosticTests
             """;
 
         var result = TestHelper.Run(source);
+        var diagnostics = TestHelper.RunAnalyzer(source);
+
+        // Reported by the analyzer (suppressible), not by the generator (#107).
+        Assert.Empty(result.GeneratorDiagnostics);
 
         // Only Person-typed properties (input and user-managed) are reported.
         Assert.Collection(
-            result.GeneratorDiagnostics.OrderBy(d => d.Location.SourceSpan.Start),
+            diagnostics.OrderBy(d => d.Location.SourceSpan.Start),
             d => AssertDiagnostic(d, "GUAC0004", DiagnosticSeverity.Warning, source, "People"),
             d => AssertDiagnostic(d, "GUAC0004", DiagnosticSeverity.Warning, source, "Selected"));
 
@@ -138,8 +142,12 @@ public class DiagnosticTests
             """;
 
         var result = TestHelper.Run(source);
+        var diagnostics = TestHelper.RunAnalyzer(source);
 
+        // Reported by the analyzer (suppressible), not by the generator (#107).
         Assert.Empty(result.GeneratorDiagnostics);
+
+        Assert.Empty(diagnostics);
         Assert.Empty(result.CompilationErrors);
     }
 
@@ -175,9 +183,13 @@ public class DiagnosticTests
             """;
 
         var result = TestHelper.Run(source);
+        var diagnostics = TestHelper.RunAnalyzer(source);
+
+        // Reported by the analyzer (suppressible), not by the generator (#107).
+        Assert.Empty(result.GeneratorDiagnostics);
 
         Assert.Collection(
-            result.GeneratorDiagnostics.OrderBy(d => d.Location.SourceSpan.Start),
+            diagnostics.OrderBy(d => d.Location.SourceSpan.Start),
             d => AssertValueType(d, "Input", "Test.Plain"),
             d => AssertValueType(d, "Table", "Test.Plain"),
             d => AssertValueType(d, "Tables", "Test.Plain"),
@@ -287,6 +299,7 @@ public class DiagnosticTests
         var result = TestHelper.Run(source);
 
         Assert.Empty(result.GeneratorDiagnostics);
+        Assert.Empty(TestHelper.RunAnalyzer(source));
         TestHelper.AssertCompilesCleanly(result);
     }
 
@@ -321,6 +334,9 @@ public class DiagnosticTests
         Assert.DoesNotContain("public TestContext()", generated);
         Assert.Contains("ItemsSource", generated);
         Assert.Empty(result.CompilationErrors);
+
+        // Chains to ': this()' reach the user's constructor: no GUAC0009 on top of GUAC0008.
+        Assert.Empty(TestHelper.RunAnalyzer(source));
     }
 
     [Fact]
@@ -349,6 +365,7 @@ public class DiagnosticTests
         var result = TestHelper.Run(source);
 
         Assert.Empty(result.GeneratorDiagnostics);
+        Assert.Empty(TestHelper.RunAnalyzer(source));
         TestHelper.AssertCompilesCleanly(result);
     }
 
@@ -373,8 +390,12 @@ public class DiagnosticTests
             """;
 
         var result = TestHelper.Run(source);
+        var diagnostics = TestHelper.RunAnalyzer(source);
 
-        var diagnostic = Assert.Single(result.GeneratorDiagnostics);
+        // Reported by the analyzer (suppressible), not by the generator (#107).
+        Assert.Empty(result.GeneratorDiagnostics);
+
+        var diagnostic = Assert.Single(diagnostics);
         AssertDiagnostic(diagnostic, "GUAC0009", DiagnosticSeverity.Warning, source, "TestContext", occurrence: 1);
         Assert.Equal("Constructor of computing context 'TestContext' must chain to ': this()' so generated sources are initialized", diagnostic.GetMessage());
         Assert.Empty(result.CompilationErrors);
@@ -401,8 +422,12 @@ public class DiagnosticTests
             """;
 
         var result = TestHelper.Run(source);
+        var diagnostics = TestHelper.RunAnalyzer(source);
 
-        var diagnostic = Assert.Single(result.GeneratorDiagnostics);
+        // Reported by the analyzer (suppressible), not by the generator (#107).
+        Assert.Empty(result.GeneratorDiagnostics);
+
+        var diagnostic = Assert.Single(diagnostics);
         AssertDiagnostic(diagnostic, "GUAC0009", DiagnosticSeverity.Warning, source, "TestContext", occurrence: 1);
         Assert.Empty(result.CompilationErrors);
     }
@@ -434,6 +459,7 @@ public class DiagnosticTests
         var result = TestHelper.Run(source);
 
         Assert.Empty(result.GeneratorDiagnostics);
+        Assert.Empty(TestHelper.RunAnalyzer(source));
         TestHelper.AssertCompilesCleanly(result);
     }
 
@@ -466,9 +492,13 @@ public class DiagnosticTests
             """;
 
         var result = TestHelper.Run(source);
+        var diagnostics = TestHelper.RunAnalyzer(source);
+
+        // Reported by the analyzer (suppressible), not by the generator (#107).
+        Assert.Empty(result.GeneratorDiagnostics);
 
         Assert.Collection(
-            result.GeneratorDiagnostics.OrderBy(d => d.Location.SourceSpan.Start),
+            diagnostics.OrderBy(d => d.Location.SourceSpan.Start),
             d => AssertDiagnostic(d, "GUAC0009", DiagnosticSeverity.Warning, source, "TestContext", occurrence: 1),
             d => AssertDiagnostic(d, "GUAC0009", DiagnosticSeverity.Warning, source, "TestContext", occurrence: 2));
         Assert.Empty(result.CompilationErrors);

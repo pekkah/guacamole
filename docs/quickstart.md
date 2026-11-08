@@ -296,7 +296,7 @@ context.OptionsSource.Set(new BuildOptions("Release"));
 context.OptionsSource.Set(new BuildOptions("Release"));   // equal record: no change, no notification
 ```
 
-Change detection uses equality everywhere (source contents, computed values, output handlers). Use records or types implementing `IEquatable<T>`; the generator warns (GUAC0004) when an input's item type lacks value equality.
+Change detection uses equality everywhere (source contents, computed values, output handlers). Use records or types implementing `IEquatable<T>`; the analyzer warns (GUAC0004) when a provider's item type lacks value equality.
 
 ## Output Handlers
 
