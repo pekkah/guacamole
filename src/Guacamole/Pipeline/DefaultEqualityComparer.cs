@@ -9,12 +9,17 @@ namespace Guacamole.Pipeline;
 /// <list type="bullet">
 /// <item><see cref="ImmutableArray{T}"/> is compared element-wise, in order
 /// (<see cref="ImmutableArrayEqualityComparer{T}"/>), with the default comparer of its item type;</item>
+/// <item><see cref="ImmutableDictionary{TKey, TValue}"/> and <see cref="ImmutableSortedDictionary{TKey, TValue}"/>
+/// are compared entry by entry (<see cref="ImmutableDictionaryEqualityComparer{TKey, TValue}"/>,
+/// <see cref="ImmutableSortedDictionaryEqualityComparer{TKey, TValue}"/>): equal key comparers, the
+/// same count, and for each key an equal value by the default comparer of the value type;</item>
 /// <item>value tuples of two or three components (as produced by <c>Combine</c>) are compared
 /// component-wise with each component's default comparer when at least one component needs
 /// structural comparison, for example <c>(ImmutableArray&lt;int&gt;, string)</c>.</item>
 /// </list>
-/// These rules apply recursively (an immutable array of tuples, a tuple of tuples). Other types,
-/// including lists, dictionaries and other collections, keep their own equality; pass a comparer
+/// These rules apply recursively (an immutable array of tuples, a tuple of tuples, a dictionary of
+/// immutable arrays). Other types, including lists, other dictionaries and other collections, keep
+/// their own equality; pass a comparer
 /// to the operator for them. The comparer is built once per type.
 /// </summary>
 /// <typeparam name="T">The compared type</typeparam>
@@ -47,6 +52,12 @@ internal static class DefaultEqualityComparer
 
         if (definition == typeof(ImmutableArray<>))
             return StaticProperty(typeof(ImmutableArrayEqualityComparer<>).MakeGenericType(arguments), nameof(ImmutableArrayEqualityComparer<object>.Default));
+
+        if (definition == typeof(ImmutableDictionary<,>))
+            return StaticProperty(typeof(ImmutableDictionaryEqualityComparer<,>).MakeGenericType(arguments), nameof(ImmutableDictionaryEqualityComparer<object, object>.Default));
+
+        if (definition == typeof(ImmutableSortedDictionary<,>))
+            return StaticProperty(typeof(ImmutableSortedDictionaryEqualityComparer<,>).MakeGenericType(arguments), nameof(ImmutableSortedDictionaryEqualityComparer<object, object>.Default));
 
         Type? tupleComparer = null;
         if (definition == typeof(ValueTuple<,>))

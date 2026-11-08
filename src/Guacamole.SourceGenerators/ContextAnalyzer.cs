@@ -72,8 +72,10 @@ internal static class ContextAnalyzer
 
         var valueProvider = compilation.GetTypeByMetadataName(ValueProviderName);
         var valuesProvider = compilation.GetTypeByMetadataName(ValuesProviderName);
-        var equatableType = compilation.GetTypeByMetadataName("System.IEquatable`1");
-        var immutableDictionaryType = compilation.GetTypeByMetadataName("System.Collections.Immutable.ImmutableDictionary`2");
+        var equalityTypes = new EqualityTypes(
+            compilation.GetTypeByMetadataName("System.IEquatable`1"),
+            compilation.GetTypeByMetadataName("System.Collections.Immutable.ImmutableDictionary`2"),
+            compilation.GetTypeByMetadataName("System.Collections.Immutable.ImmutableSortedDictionary`2"));
 
         var sourceProperties = new List<SourcePropertyModel>();
 
@@ -125,18 +127,16 @@ internal static class ContextAnalyzer
             }
 
             // Both input and user-managed providers benefit from item types with value equality.
-            // A user-managed single-value provider of an ImmutableDictionary is what
-            // CollectToDictionary returns, and that operator compares its dictionaries itself.
-            var isCollectedDictionary = hasSetter
-                && !isCollection
-                && immutableDictionaryType is not null
-                && SymbolEqualityComparer.Default.Equals(itemType!.OriginalDefinition, immutableDictionaryType);
-            if (!isCollectedDictionary && RequiresEqualityCheck(itemType!) && !HasProperEquality(itemType!, equatableType))
+            // Immutable dictionaries are compared entry by entry by the runtime's default comparer,
+            // so they have value equality when their value type has it; the type reported is the
+            // one lacking it (the value type of a dictionary).
+            var typeWithoutEquality = FindTypeWithoutEquality(itemType!, equalityTypes);
+            if (typeWithoutEquality is not null)
             {
                 diagnostics.Add(CreateDiagnostic(
                     DiagnosticDescriptors.MissingEqualityImplementation,
                     location,
-                    itemType!.ToDisplayString(),
+                    typeWithoutEquality.ToDisplayString(),
                     property.Name));
             }
         }
@@ -362,6 +362,34 @@ internal static class ContextAnalyzer
     /// Type parameters are skipped because their equality depends on the type argument.
     /// Everything else needs checking.
     /// </summary>
+    /// <summary>
+    /// The well-known types the GUAC0004 check needs (null when the compilation lacks them).
+    /// </summary>
+    private sealed record EqualityTypes(
+        INamedTypeSymbol? Equatable,
+        INamedTypeSymbol? ImmutableDictionary,
+        INamedTypeSymbol? ImmutableSortedDictionary);
+
+    /// <summary>
+    /// Returns the type that makes <paramref name="type"/> lack value equality, or null when it has
+    /// value equality. <c>ImmutableDictionary&lt;TKey, TValue&gt;</c> and
+    /// <c>ImmutableSortedDictionary&lt;TKey, TValue&gt;</c> are compared entry by entry by the
+    /// runtime's default comparer (keys with the dictionary's key comparer, values with the value
+    /// type's default comparer), so they have value equality exactly when <c>TValue</c> has it;
+    /// for them the result is the offending (possibly nested) value type.
+    /// </summary>
+    private static ITypeSymbol? FindTypeWithoutEquality(ITypeSymbol type, EqualityTypes types)
+    {
+        if (type is INamedTypeSymbol { IsGenericType: true, TypeArguments.Length: 2 } named
+            && (SymbolEqualityComparer.Default.Equals(named.OriginalDefinition, types.ImmutableDictionary)
+                || SymbolEqualityComparer.Default.Equals(named.OriginalDefinition, types.ImmutableSortedDictionary)))
+        {
+            return FindTypeWithoutEquality(named.TypeArguments[1], types);
+        }
+
+        return RequiresEqualityCheck(type) && !HasProperEquality(type, types.Equatable) ? type : null;
+    }
+
     private static bool RequiresEqualityCheck(ITypeSymbol type)
     {
         if (type.TypeKind == TypeKind.TypeParameter)
