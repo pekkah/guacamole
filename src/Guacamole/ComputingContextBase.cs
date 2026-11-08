@@ -363,7 +363,7 @@ public abstract partial class ComputingContextBase : IDisposable
             _handler = handler;
             // Use the provider's custom comparer (e.g. Select(selector, comparer)) to decide
             // whether a new value is a change worth reporting
-            _comparer = provider.Node is IHasComparer<T> withComparer ? withComparer.Comparer : EqualityComparer<T>.Default;
+            _comparer = provider.Node is IHasComparer<T> withComparer ? withComparer.Comparer : DefaultEqualityComparer<T>.Instance;
         }
 
         public void Execute(ComputingContextBase context)
@@ -405,7 +405,7 @@ public abstract partial class ComputingContextBase : IDisposable
             _provider = provider;
             _handler = handler;
             // Compare items with the provider's custom comparer, if it has one
-            _comparer = provider.Node is IHasComparer<T> withComparer ? withComparer.Comparer : EqualityComparer<T>.Default;
+            _comparer = provider.Node is IHasComparer<T> withComparer ? withComparer.Comparer : DefaultEqualityComparer<T>.Instance;
         }
 
         public void Execute(ComputingContextBase context)

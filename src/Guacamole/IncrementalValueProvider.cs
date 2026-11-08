@@ -24,8 +24,11 @@ namespace Guacamole;
 /// </list>
 /// <para>
 /// Similar to Roslyn's incremental generators, the framework uses EqualityComparer&lt;T&gt;.Default
-/// to compare old and new values. Only when values differ will dependent computations be invalidated
-/// and output handlers be triggered.
+/// to compare old and new values, unless a comparer is passed to the operator. As an exception,
+/// <see cref="System.Collections.Immutable.ImmutableArray{T}"/> results (whose default equality
+/// compares the underlying array reference) are compared element-wise, and value tuples of two or
+/// three components containing one are compared component-wise. Only when values differ will
+/// dependent computations be invalidated and output handlers be triggered.
 /// </para>
 /// </summary>
 /// <typeparam name="T">Type of the value (should implement proper equality for optimal performance)</typeparam>
@@ -162,7 +165,9 @@ public readonly record struct IncrementalValueProvider<T>
 /// <item><description>Implement IEquatable&lt;T&gt; for custom reference types</description></item>
 /// </list>
 /// <para>
-/// Collection changes are detected using SequenceEqual with EqualityComparer&lt;T&gt;.Default.
+/// Collection changes are detected item by item with the operator's comparer, by default
+/// EqualityComparer&lt;T&gt;.Default (element-wise for <see cref="System.Collections.Immutable.ImmutableArray{T}"/>
+/// items, see <see cref="IncrementalValueProvider{T}"/>).
 /// Output handlers are only triggered when the collection contents actually change.
 /// </para>
 /// </summary>

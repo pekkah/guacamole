@@ -127,7 +127,14 @@ var names = context.People.Select(p => p.Name, StringComparer.OrdinalIgnoreCase)
 ```
 
 - `Collect()` compares its result element by element, in order (with `EqualityComparer<T>.Default`, or the comparer passed to `Collect(comparer)`): a re-collect with the same items in the same order keeps its version, so the stages below it stay cached and its output handlers do not fire. A different order counts as a change.
-- Other collection types such as `ImmutableArray<T>`, `List<T>`, arrays or dictionaries returned by a `Select` compare **by reference**. Such a stage counts as changed every time it is recomputed, which disables the cut-off below it and fires its output handlers. Map collections to a type with structural equality, or pass a comparer, where that matters.
+- Any stage whose result is an `ImmutableArray<T>` compares it the same way by default, element by element and in order (a single-value `Select` returning one, or collection items that are immutable arrays). Value tuples of two or three components that contain one, such as the `(ImmutableArray<T>, TOther)` produced by `Combine`, are compared component by component. Nesting works too (an immutable array of tuples, a tuple of tuples). A comparer passed to the operator always takes precedence.
+- Other collection types such as `List<T>`, arrays, `ImmutableList<T>` or dictionaries returned by a `Select` compare **by reference** (or by their own `Equals`), and so do tuples of four or more components. Such a stage counts as changed every time it is recomputed, which disables the cut-off below it and fires its output handlers. Return an `ImmutableArray<T>`, map the result to a type with structural equality, or pass a comparer where that matters:
+
+```csharp
+var lookup = context.Settings.Select(
+    s => s.ToDictionary(x => x.Key, x => x.Value),
+    new DictionaryComparer<string, string>()); // your IEqualityComparer<Dictionary<string, string>>
+```
 
 ## Batching
 

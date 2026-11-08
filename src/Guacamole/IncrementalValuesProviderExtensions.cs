@@ -82,7 +82,8 @@ public static class IncrementalValuesProviderExtensions
     /// </summary>
     /// <remarks>
     /// A recomputed array with the same items in the same order as the previous one (compared with
-    /// <see cref="EqualityComparer{T}.Default"/>) counts as unchanged: the stages downstream of it
+    /// <see cref="EqualityComparer{T}.Default"/>, or element-wise for items that are themselves
+    /// immutable arrays) counts as unchanged: the stages downstream of it
     /// stay cached and output handlers registered on it are not called. Use
     /// <see cref="Collect{T}(IncrementalValuesProvider{T}, IEqualityComparer{T}, ProviderMetadata)"/>
     /// to compare the items with another comparer.
@@ -477,7 +478,7 @@ internal sealed class SelectManyValuesNode<TSource, TResult> : ICollectionComput
     public string Id { get; }
     public Type OutputType => typeof(IEnumerable<TResult>);
     public ImmutableHashSet<string> Dependencies { get; }
-    public IEqualityComparer<TResult> Comparer => _comparer ?? EqualityComparer<TResult>.Default;
+    public IEqualityComparer<TResult> Comparer => _comparer ?? DefaultEqualityComparer<TResult>.Instance;
 
     public Result<IEnumerable<TResult>, ComputationError> Compute(ComputationContext context)
     {
@@ -572,7 +573,7 @@ internal sealed class SelectValuesNode<TSource, TResult> : ICollectionComputatio
     public string Id { get; }
     public Type OutputType => typeof(IEnumerable<TResult>);
     public ImmutableHashSet<string> Dependencies { get; }
-    public IEqualityComparer<TResult> Comparer => _comparer ?? EqualityComparer<TResult>.Default;
+    public IEqualityComparer<TResult> Comparer => _comparer ?? DefaultEqualityComparer<TResult>.Instance;
 
     public Result<IEnumerable<TResult>, ComputationError> Compute(ComputationContext context)
     {
@@ -619,7 +620,7 @@ internal sealed class WhereValuesNode<T> : ICollectionComputationNode<T>, IHasCo
     public string Id { get; }
     public Type OutputType => typeof(IEnumerable<T>);
     public ImmutableHashSet<string> Dependencies { get; }
-    public IEqualityComparer<T> Comparer => _comparer ?? EqualityComparer<T>.Default;
+    public IEqualityComparer<T> Comparer => _comparer ?? DefaultEqualityComparer<T>.Instance;
 
     public Result<IEnumerable<T>, ComputationError> Compute(ComputationContext context)
     {
@@ -670,7 +671,7 @@ internal sealed class CombineValuesWithValueNode<TLeft, TRight> : ICollectionCom
     public string Id { get; }
     public Type OutputType => typeof(IEnumerable<(TLeft, TRight)>);
     public ImmutableHashSet<string> Dependencies { get; }
-    public IEqualityComparer<(TLeft, TRight)> Comparer => EqualityComparer<(TLeft, TRight)>.Default;
+    public IEqualityComparer<(TLeft, TRight)> Comparer => DefaultEqualityComparer<(TLeft, TRight)>.Instance;
 
     public Result<IEnumerable<(TLeft, TRight)>, ComputationError> Compute(ComputationContext context)
     {
