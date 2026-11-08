@@ -59,7 +59,7 @@ public class ProviderExtensionCachingTests
     /// Helper for collection nodes.
     /// Now delegates to the IncrementalValuesProvider.GetValues() orchestration layer.
     /// </summary>
-    private static Result<IEnumerable<T>, ComputationError> ComputeWithCaching<T>(
+    private static Result<IReadOnlyList<T>, ComputationError> ComputeWithCaching<T>(
         ICollectionComputationNode<T> node,
         ComputationGraph graph)
     {

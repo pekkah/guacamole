@@ -307,7 +307,7 @@ public abstract partial class ComputingContextBase : IDisposable
     /// <exception cref="ObjectDisposedException">The context has been disposed.</exception>
     public void RegisterOutput<T>(
         IncrementalValuesProvider<T> provider,
-        Action<IEnumerable<T>, ComputingContextBase> handler)
+        Action<IReadOnlyList<T>, ComputingContextBase> handler)
     {
         ArgumentNullException.ThrowIfNull(handler);
 
@@ -421,12 +421,12 @@ public abstract partial class ComputingContextBase : IDisposable
     private sealed class CollectionOutputRegistration<T> : IOutputRegistration
     {
         private readonly IncrementalValuesProvider<T> _provider;
-        private readonly Action<IEnumerable<T>, ComputingContextBase> _handler;
+        private readonly Action<IReadOnlyList<T>, ComputingContextBase> _handler;
         private readonly IEqualityComparer<T> _comparer;
-        private IEnumerable<T>? _lastValue;
+        private IReadOnlyList<T>? _lastValue;
         private bool _hasExecuted;
 
-        public CollectionOutputRegistration(IncrementalValuesProvider<T> provider, Action<IEnumerable<T>, ComputingContextBase> handler)
+        public CollectionOutputRegistration(IncrementalValuesProvider<T> provider, Action<IReadOnlyList<T>, ComputingContextBase> handler)
         {
             _provider = provider;
             _handler = handler;

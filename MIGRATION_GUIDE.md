@@ -18,6 +18,12 @@ An architecture review of the public API before 1.0 removed dead members and mad
 
 `GenerateAsyncMethods`, `GenerateBatchMethods` and `Name` were left over from the mutation-based design: the source generator never read them. Remove the arguments: `[ComputingContext(GenerateAsyncMethods = false)]` becomes `[ComputingContext]`. Generated code is unchanged.
 
+### Collection values are `IReadOnlyList<T>`
+
+`IncrementalValuesProvider<T>.GetValues()` returns `Result<IReadOnlyList<T>, ComputationError>` (was `Result<IEnumerable<T>, ComputationError>`), `.Values` returns `IReadOnlyList<T>` (was `IEnumerable<T>`), and the collection `RegisterOutput` handler is an `Action<IReadOnlyList<T>, ComputingContextBase>` (was `Action<IEnumerable<T>, ComputingContextBase>`). The values were already a read-only list view of the cached array (#69); now the type says so, so you can use `Count` and the indexer without LINQ. Cached reads still return the same view without allocating.
+
+Code that assigns the values to `IEnumerable<T>` keeps compiling. Explicitly typed lambdas (`(IEnumerable<T> items, ComputingContextBase ctx) => ...`) and variables of type `Result<IEnumerable<T>, ComputationError>` need the new type.
+
 ## Namespace Consolidation
 
 All public types used to be spread over `Guacamole`, `Guacamole.Sources`, `Guacamole.Exceptions` and several `Guacamole.Core.*` namespaces. They now live in `Guacamole`, plus `Guacamole.Diagnostics` for metrics, and the `Core` segment is gone. Infrastructure types moved to `Guacamole.Pipeline` and `Guacamole.Caching` and are now internal (see [Internal types and members](#internal-types-and-members)). A typical application needs only:
