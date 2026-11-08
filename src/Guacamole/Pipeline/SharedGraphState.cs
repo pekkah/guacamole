@@ -63,6 +63,111 @@ internal sealed class SharedGraphState
     /// </summary>
     public void AdvanceRevision() => Interlocked.Increment(ref _revision);
 
+    // Source changes in progress: the low bits count active changes, the high bits count the
+    // changes started so far. One atomic read tells whether a change was active or has started
+    // since an earlier read (see ChangeState and GraphEvaluator.CanStamp).
+    private const long ChangeStarted = (1L << ActiveChangeBits) + 1;
+    private const int ActiveChangeBits = 24;
+
+    /// <summary>
+    /// The bits of <see cref="ChangeState"/> that count the source changes in progress.
+    /// </summary>
+    public const long ActiveChangesMask = (1L << ActiveChangeBits) - 1;
+
+    private long _changeState;
+    private long _propagationIds;
+
+    /// <summary>
+    /// The source-change state: equal values (read at two points in time) with no active changes
+    /// (<c>(state &amp; <see cref="ActiveChangesMask"/>) == 0</c>) mean that no source change was in
+    /// progress at any point in between.
+    /// </summary>
+    public long ChangeState => Volatile.Read(ref _changeState);
+
+    // Per-thread scratch space for propagations (a propagation runs no user code, so it never nests)
+    [ThreadStatic]
+    private static Stack<NodeState>? t_pending;
+
+    [ThreadStatic]
+    private static List<NodeHandle>? t_dependents;
+
+    /// <summary>
+    /// Records that the source <paramref name="sourceId"/> changed: increments its version, marks
+    /// it and every node that (transitively) read it dirty (see <see cref="NodeState"/>), then
+    /// advances <see cref="Revision"/>.
+    /// </summary>
+    /// <remarks>
+    /// Marking walks only the nodes downstream of the source, so its cost is proportional to them,
+    /// and verifying the graph afterwards only has to look into the marked nodes. Thread-safe;
+    /// changes may run concurrently with each other and with evaluation passes.
+    /// </remarks>
+    public void MarkSourceChanged(string sourceId)
+    {
+        BeginSourceChange();
+        try
+        {
+            var source = Versions.GetState(sourceId);
+
+            // The version first: a pass that sees a dirty mark also sees the new version.
+            source.IncrementVersion();
+            MarkDependentsDirty(source);
+
+            // Advance the revision after the version, so that a value verified at the new revision
+            // has seen the new version.
+            AdvanceRevision();
+        }
+        finally
+        {
+            EndSourceChange();
+        }
+    }
+
+    /// <summary>
+    /// Records that a source change has started (see <see cref="ChangeState"/>). Every call must be
+    /// followed by <see cref="EndSourceChange"/>; internal so tests can interleave reads with a change.
+    /// </summary>
+    internal void BeginSourceChange() => Interlocked.Add(ref _changeState, ChangeStarted);
+
+    /// <summary>
+    /// Records that a source change started by <see cref="BeginSourceChange"/> has finished.
+    /// </summary>
+    internal void EndSourceChange() => Interlocked.Decrement(ref _changeState);
+
+    private void MarkDependentsDirty(NodeState source)
+    {
+        var pending = t_pending ??= new Stack<NodeState>();
+        var dependents = t_dependents ??= new List<NodeHandle>();
+        var propagation = Interlocked.Increment(ref _propagationIds);
+
+        try
+        {
+            source.TryVisit(propagation);
+            source.MarkDirty();
+            pending.Push(source);
+
+            while (pending.TryPop(out var state))
+            {
+                state.CopyDependentsTo(dependents);
+                foreach (var dependent in dependents)
+                {
+                    var dependentState = dependent.State;
+                    if (dependentState.TryVisit(propagation))
+                    {
+                        dependentState.MarkDirty();
+                        pending.Push(dependentState);
+                    }
+                }
+
+                dependents.Clear();
+            }
+        }
+        finally
+        {
+            pending.Clear();
+            dependents.Clear();
+        }
+    }
+
     /// <summary>
     /// Lock that makes comparing a computed value with the cached one, assigning its output
     /// version and storing it a single atomic step.

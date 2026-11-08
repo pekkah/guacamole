@@ -23,6 +23,12 @@ namespace Guacamole.Pipeline;
 /// seen as a change on the next read.
 /// </para>
 /// <para>
+/// A source change also marks every node downstream of the source dirty (see <see cref="NodeState"/>).
+/// A cached value whose stamp still matches its node's dirty counter is valid without verifying
+/// its dependencies, so after a change only the marked nodes are verified dependency by dependency;
+/// unchanged subtrees cost one check each.
+/// </para>
+/// <para>
 /// An evaluator is used by one thread for one provider read and is then discarded.
 /// </para>
 /// </remarks>
@@ -43,8 +49,27 @@ internal sealed class GraphEvaluator
         Graph = graph;
         State = graph.SharedState;
         Revision = State.Revision;
+        _changeState = State.ChangeState;
         Context = new ComputationContext(NoCachedValues) { Evaluator = this };
     }
+
+    // The source-change state when this pass started (read after Revision)
+    private readonly long _changeState;
+
+    /// <summary>
+    /// Whether this pass may record stamps (<see cref="CachedNodeValue.Stamp"/>): no source change
+    /// was in progress when it started, and none has started since. Read after the verification or
+    /// computation whose result would be stamped.
+    /// </summary>
+    /// <remarks>
+    /// A stamp says that no change has reached the node since its value was verified. That holds only
+    /// if every change already counted by the node's dirty counter had finished marking all the nodes
+    /// it reaches (after incrementing its source's version) before the verification looked at them:
+    /// a change still in progress may have marked this node but not yet the nodes between it and the
+    /// source. Passes overlapping a change still verify correctly; they just do not record stamps.
+    /// </remarks>
+    public bool CanStamp =>
+        (_changeState & SharedGraphState.ActiveChangesMask) == 0 && State.ChangeState == _changeState;
 
     // Number of node computations in progress on this thread (nested when a computation reads a
     // provider that has to be computed itself)
@@ -82,21 +107,25 @@ internal sealed class GraphEvaluator
     {
         Result<T, ComputationError> result;
         long version;
+        NodeState state;
         WeakReference<NodeHandle>? handle = null;
 
         if (node.Dependencies.IsEmpty)
         {
-            version = State.Versions.GetOutputVersion(node.Id);
+            // A root's version is read before its value (see the class remarks)
+            state = State.Versions.GetState(node.Id);
+            version = state.Version;
             result = node.Compute(Context);
         }
         else
         {
             var typed = ValueNodeHandle<T>.For(node, Graph);
+            state = typed.State;
             handle = typed.WeakSelf;
             result = typed.Evaluate(this, out version);
         }
 
-        _reads.Add(new DependencyVersion(node.Id, version, handle));
+        _reads.Add(new DependencyVersion(state, version, handle));
         return result;
     }
 
@@ -107,21 +136,25 @@ internal sealed class GraphEvaluator
     {
         Result<IEnumerable<T>, ComputationError> result;
         long version;
+        NodeState state;
         WeakReference<NodeHandle>? handle = null;
 
         if (node.Dependencies.IsEmpty)
         {
-            version = State.Versions.GetOutputVersion(node.Id);
+            // A root's version is read before its value (see the class remarks)
+            state = State.Versions.GetState(node.Id);
+            version = state.Version;
             result = node.Compute(Context);
         }
         else
         {
             var typed = CollectionNodeHandle<T>.For(node, Graph);
+            state = typed.State;
             handle = typed.WeakSelf;
             result = typed.Evaluate(this, out version);
         }
 
-        _reads.Add(new DependencyVersion(node.Id, version, handle));
+        _reads.Add(new DependencyVersion(state, version, handle));
         return result;
     }
 
@@ -166,10 +199,16 @@ internal sealed class GraphEvaluator
 /// </summary>
 internal abstract class NodeHandle
 {
-    protected NodeHandle()
+    protected NodeHandle(NodeState state)
     {
+        State = state;
         WeakSelf = new WeakReference<NodeHandle>(this);
     }
+
+    /// <summary>
+    /// The node's change-tracking state (output version, dirty counter, dependents).
+    /// </summary>
+    public NodeState State { get; }
 
     /// <summary>
     /// A weak reference to this handle, shared by all cached values that record it as a dependency.
@@ -195,7 +234,12 @@ internal abstract class NodeHandle<TResult> : NodeHandle
 {
     private readonly bool _isRoot;
 
-    protected NodeHandle(IComputationNode node)
+    // The dependencies whose dependents this handle has been added to (see RegisterWithDependencies);
+    // replaced under SharedGraphState.CommitLock
+    private NodeState[] _registeredWith = [];
+
+    protected NodeHandle(IComputationNode node, NodeState state)
+        : base(state)
     {
         Id = node.Id;
         _isRoot = node.Dependencies.IsEmpty;
@@ -248,29 +292,45 @@ internal abstract class NodeHandle<TResult> : NodeHandle
         if (evaluator.TryGetUncachedResult(Id, out Result<TResult, ComputationError> uncached, out version))
             return uncached;
 
-        if (TryGetEntry(evaluator.Graph, out var entry)
-            && (entry.VerifiedAtRevision >= evaluator.Revision || IsUpToDate(entry, evaluator)))
+        // Read before verifying: a change that marks the node after this point makes the stamp
+        // recorded below stale, so the value is verified again.
+        var dirty = State.Dirty;
+
+        if (TryGetEntry(evaluator.Graph, out var entry))
         {
-            entry.MarkVerified(evaluator.Revision);
-            version = entry.OutputVersion;
-            return ToResult(entry);
+            // Verified since the last source change, or no source upstream has changed since it was
+            if (entry.VerifiedAtRevision >= evaluator.Revision || entry.Stamp == dirty)
+            {
+                entry.MarkVerified(evaluator.Revision);
+                version = entry.OutputVersion;
+                return ToResult(entry);
+            }
+
+            if (IsUpToDate(entry, evaluator))
+            {
+                entry.MarkVerified(evaluator.Revision);
+                if (evaluator.CanStamp)
+                    entry.SetStamp(dirty);
+
+                version = entry.OutputVersion;
+                return ToResult(entry);
+            }
         }
 
-        return Recompute(evaluator, out version, metadata);
+        return Recompute(evaluator, dirty, entry, out version, metadata);
     }
 
     private bool IsUpToDate(CachedNodeValue entry, GraphEvaluator evaluator)
     {
-        var versions = evaluator.State.Versions;
         if (_isRoot)
-            return entry.OutputVersion == versions.GetOutputVersion(Id);
+            return entry.OutputVersion == State.Version;
 
         foreach (var dependency in entry.Dependencies)
         {
             long current;
             if (dependency.Handle is null)
             {
-                current = versions.GetOutputVersion(dependency.Id);
+                current = dependency.State.Version;
             }
             else if (dependency.Handle.TryGetTarget(out var handle))
             {
@@ -289,11 +349,11 @@ internal abstract class NodeHandle<TResult> : NodeHandle
         return true;
     }
 
-    private Result<TResult, ComputationError> Recompute(GraphEvaluator evaluator, out long version, ProviderMetadata? metadata)
+    private Result<TResult, ComputationError> Recompute(GraphEvaluator evaluator, long dirty, CachedNodeValue? previous, out long version, ProviderMetadata? metadata)
     {
         // A root's version is read before its value: a change racing with the read leaves the
         // value marked with the older version, so it is recomputed on the next read.
-        var versionBefore = _isRoot ? evaluator.State.Versions.GetOutputVersion(Id) : 0;
+        var versionBefore = _isRoot ? State.Version : 0;
 
         var frame = evaluator.BeginFrame();
         Result<TResult, ComputationError> result;
@@ -317,7 +377,7 @@ internal abstract class NodeHandle<TResult> : NodeHandle
             dependencies = evaluator.EndFrame(frame);
         }
 
-        return Commit(evaluator, result, dependencies, versionBefore, out version);
+        return Commit(evaluator, result, dependencies, versionBefore, dirty, previous, out version);
     }
 
     /// <summary>
@@ -326,11 +386,18 @@ internal abstract class NodeHandle<TResult> : NodeHandle
     /// are not cached and always count as a change. A root keeps the version it had before it was
     /// read (root versions are advanced by <see cref="ComputationGraph.MarkSourceChanged"/>).
     /// </summary>
+    /// <remarks>
+    /// The node is added to the dependents of what it read before the stamp is decided: a change
+    /// whose marking missed the new edge started before that point, so
+    /// <see cref="GraphEvaluator.CanStamp"/> is false and the value is stored without a stamp.
+    /// </remarks>
     private Result<TResult, ComputationError> Commit(
         GraphEvaluator evaluator,
         Result<TResult, ComputationError> result,
         DependencyVersion[] dependencies,
         long versionBefore,
+        long dirty,
+        CachedNodeValue? previous,
         out long version)
     {
         var graph = evaluator.Graph;
@@ -343,10 +410,13 @@ internal abstract class NodeHandle<TResult> : NodeHandle
 
         lock (state.CommitLock)
         {
+            // Also for results that are not cached: changes must reach the nodes downstream of this one
+            RegisterWithDependencies(dependencies);
+
             if (!cacheable)
             {
                 graph.ValueCache.Remove(Id);
-                version = _isRoot ? versionBefore : state.Versions.IncrementOutputVersion(Id);
+                version = _isRoot ? versionBefore : State.IncrementVersion();
             }
             else
             {
@@ -356,16 +426,20 @@ internal abstract class NodeHandle<TResult> : NodeHandle
                 }
                 else
                 {
-                    var current = state.Versions.GetOutputVersion(Id);
-                    var unchanged = TryGetEntry(graph, out var previous)
+                    // `previous` is the entry this pass found before computing. If another commit
+                    // replaced it meanwhile with a different value, the version moved on and the
+                    // result counts as changed; at worst that costs downstream an extra recompute.
+                    var current = State.Version;
+                    var unchanged = previous is not null
                         && previous.OutputVersion == current
                         && previous.IsNone == result.IsNone
                         && (result.IsNone || StoredEquals(previous.Value!, stored!));
 
-                    version = unchanged ? current : state.Versions.IncrementOutputVersion(Id);
+                    version = unchanged ? current : State.IncrementVersion();
                 }
 
-                graph.ValueCache.Set(Id, new CachedNodeValue(stored, result.IsNone, version, dependencies, evaluator.Revision));
+                var stamp = evaluator.CanStamp ? dirty : CachedNodeValue.NoStamp;
+                graph.ValueCache.Set(Id, new CachedNodeValue(stored, result.IsNone, version, dependencies, evaluator.Revision, stamp));
             }
         }
 
@@ -376,6 +450,23 @@ internal abstract class NodeHandle<TResult> : NodeHandle
         }
 
         return stored is null ? result : Result<TResult, ComputationError>.Success(Load(stored));
+    }
+
+    /// <summary>
+    /// Adds this node to the dependents of each dependency it has not been added to yet, so that
+    /// source changes mark it dirty. Called with <see cref="SharedGraphState.CommitLock"/> held.
+    /// </summary>
+    private void RegisterWithDependencies(DependencyVersion[] dependencies)
+    {
+        foreach (var dependency in dependencies)
+        {
+            var dependencyState = dependency.State;
+            if (Array.IndexOf(_registeredWith, dependencyState) >= 0)
+                continue;
+
+            dependencyState.AddDependent(WeakSelf);
+            _registeredWith = [.. _registeredWith, dependencyState];
+        }
     }
 
     private bool TryGetEntry(ComputationGraph graph, out CachedNodeValue entry)
@@ -406,8 +497,8 @@ internal sealed class ValueNodeHandle<T> : NodeHandle<T>
     private readonly IComputationNode<T> _node;
     private readonly IEqualityComparer<T> _comparer;
 
-    private ValueNodeHandle(IComputationNode<T> node)
-        : base(node)
+    private ValueNodeHandle(IComputationNode<T> node, NodeState state)
+        : base(node, state)
     {
         _node = node;
         _comparer = node is IHasComparer<T> withComparer ? withComparer.Comparer : EqualityComparer<T>.Default;
@@ -427,12 +518,10 @@ internal sealed class ValueNodeHandle<T> : NodeHandle<T>
             return typed;
 
         graph.RegisterNodeIfNeeded(node);
-        return handles.GetValue(node, s_create) as ValueNodeHandle<T>
-            ?? new ValueNodeHandle<T>(node); // a node implementing several node interfaces: not shared
+        var versions = graph.SharedState.Versions;
+        return handles.GetValue(node, n => new ValueNodeHandle<T>((IComputationNode<T>)n, versions.GetState(n.Id))) as ValueNodeHandle<T>
+            ?? new ValueNodeHandle<T>(node, versions.GetState(node.Id)); // a node implementing several node interfaces: not shared
     }
-
-    private static readonly ConditionalWeakTable<IComputationNode, NodeHandle>.CreateValueCallback s_create =
-        static node => new ValueNodeHandle<T>((IComputationNode<T>)node);
 
     protected override Result<T, ComputationError> ComputeCore(ComputationContext context) => _node.Compute(context);
 
@@ -456,8 +545,8 @@ internal sealed class CollectionNodeHandle<T> : NodeHandle<IEnumerable<T>>
     private readonly ICollectionComputationNode<T> _node;
     private readonly IEqualityComparer<T> _comparer;
 
-    private CollectionNodeHandle(ICollectionComputationNode<T> node)
-        : base(node)
+    private CollectionNodeHandle(ICollectionComputationNode<T> node, NodeState state)
+        : base(node, state)
     {
         _node = node;
         _comparer = node is IHasComparer<T> withComparer ? withComparer.Comparer : EqualityComparer<T>.Default;
@@ -477,12 +566,10 @@ internal sealed class CollectionNodeHandle<T> : NodeHandle<IEnumerable<T>>
             return typed;
 
         graph.RegisterNodeIfNeeded(node);
-        return handles.GetValue(node, s_create) as CollectionNodeHandle<T>
-            ?? new CollectionNodeHandle<T>(node); // a node implementing several node interfaces: not shared
+        var versions = graph.SharedState.Versions;
+        return handles.GetValue(node, n => new CollectionNodeHandle<T>((ICollectionComputationNode<T>)n, versions.GetState(n.Id))) as CollectionNodeHandle<T>
+            ?? new CollectionNodeHandle<T>(node, versions.GetState(node.Id)); // a node implementing several node interfaces: not shared
     }
-
-    private static readonly ConditionalWeakTable<IComputationNode, NodeHandle>.CreateValueCallback s_create =
-        static node => new CollectionNodeHandle<T>((ICollectionComputationNode<T>)node);
 
     protected override Result<IEnumerable<T>, ComputationError> ComputeCore(ComputationContext context) => _node.Compute(context);
 

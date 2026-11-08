@@ -6,17 +6,18 @@ This guide explains how Guacamole decides what to recompute, and how to structur
 
 ### Sources and versions
 
-Every node in a context's graph has an output version. Pushing to a source (`Push`, `Remove`, `Replace`, `Clear`, `Set`) that actually changes it increments that source's version and nothing else: no cache is cleared and no dependent node is touched eagerly. Operations that do not change the source (pushing an item that is already present, setting an equal value, removing a missing item) raise no notification at all.
+Every node in a context's graph has an output version. Pushing to a source (`Push`, `Remove`, `Replace`, `Clear`, `Set`) that actually changes it increments that source's version and marks the stages downstream of it as possibly changed ("dirty"); no cache is cleared and nothing is recomputed eagerly. Marking walks only the stages that have read the source, directly or through other stages. Operations that do not change the source (pushing an item that is already present, setting an equal value, removing a missing item) raise no notification at all.
 
 ### Lazy validation on read
 
 When you read a provider (`GetValue()`/`GetValues()`, `.Value`/`.Values`, or an output handler reading it), the provider:
 
 1. Returns its cached value right away if no source has changed since that value was last verified.
-2. Otherwise verifies it: each input the value was computed from (in the order it was read) is first brought up to date itself, recursively, using the input's own cached value if that is still valid and recomputing the input if not. If every input still has the version recorded when the value was computed, the cached value is valid and is returned. No lambda of this stage runs.
-3. Otherwise recomputes, records the versions of the inputs it read, and stores the result. Its own version is incremented **only if the new value is not equal** to the previous one (using the stage's comparer).
+2. Returns it right away, too, if none of the sources it depends on has changed since it was last verified (the stage is not marked dirty).
+3. Otherwise verifies it: each input the value was computed from (in the order it was read) is first brought up to date itself, recursively, using the input's own cached value if that is still valid and recomputing the input if not. If every input still has the version recorded when the value was computed, the cached value is valid and is returned. No lambda of this stage runs.
+4. Otherwise recomputes, records the versions of the inputs it read, and stores the result. Its own version is incremented **only if the new value is not equal** to the previous one (using the stage's comparer).
 
-Step 3 is the equality cut-off: when a stage's recomputed value did not change, the stages downstream of it remain valid and are not recomputed.
+Step 2 keeps verification proportional to what changed: after one source change, only the stages on the paths from that source to the provider are verified input by input, and every other input costs a single check. Step 4 is the equality cut-off: when a stage's recomputed value did not change, the stages downstream of it remain valid and are not recomputed.
 
 ### Every stage is cached
 
