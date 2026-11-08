@@ -67,6 +67,12 @@ internal sealed class GraphEvaluator
         return false;
     }
 
+    /// <summary>
+    /// Counts a read of a result kept only for this pass (see <see cref="TryGetUncachedResult{TResult}"/>)
+    /// as a failed read, so that the reading node's result is not cached either.
+    /// </summary>
+    internal void NoteUncachedRead() => _failedReads++;
+
     public GraphEvaluator(ComputationGraph graph)
     {
         Graph = graph;
@@ -450,7 +456,13 @@ internal abstract class NodeHandle<TResult> : NodeHandle
     public Result<TResult, ComputationError> Evaluate(GraphEvaluator evaluator, out long version, ProviderMetadata? metadata = null)
     {
         if (evaluator.TryGetUncachedResult(Id, out Result<TResult, ComputationError> uncached, out version))
+        {
+            // This result was not cached because it depends on a failed read. A node reading it
+            // depends on that failure too, so it must not be cached either: count the hit as a
+            // failed read of the reader.
+            evaluator.NoteUncachedRead();
             return uncached;
+        }
 
         // Read before verifying: a change that marks the node after this point makes the stamp
         // recorded below stale, so the value is verified again.
