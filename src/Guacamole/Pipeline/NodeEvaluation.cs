@@ -1,3 +1,4 @@
+using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 using Guacamole.Diagnostics;
 
@@ -67,7 +68,7 @@ internal sealed class GraphEvaluator
     {
         Result<T, ComputationError> result;
         long version;
-        NodeHandle? handle = null;
+        WeakReference<NodeHandle>? handle = null;
 
         if (node.Dependencies.IsEmpty)
         {
@@ -77,7 +78,7 @@ internal sealed class GraphEvaluator
         else
         {
             var typed = ValueNodeHandle<T>.For(node, Graph);
-            handle = typed;
+            handle = typed.WeakSelf;
             result = typed.Evaluate(this, out version);
         }
 
@@ -92,7 +93,7 @@ internal sealed class GraphEvaluator
     {
         Result<IEnumerable<T>, ComputationError> result;
         long version;
-        NodeHandle? handle = null;
+        WeakReference<NodeHandle>? handle = null;
 
         if (node.Dependencies.IsEmpty)
         {
@@ -102,7 +103,7 @@ internal sealed class GraphEvaluator
         else
         {
             var typed = CollectionNodeHandle<T>.For(node, Graph);
-            handle = typed;
+            handle = typed.WeakSelf;
             result = typed.Evaluate(this, out version);
         }
 
@@ -151,6 +152,16 @@ internal sealed class GraphEvaluator
 /// </summary>
 internal abstract class NodeHandle
 {
+    protected NodeHandle()
+    {
+        WeakSelf = new WeakReference<NodeHandle>(this);
+    }
+
+    /// <summary>
+    /// A weak reference to this handle, shared by all cached values that record it as a dependency.
+    /// </summary>
+    public WeakReference<NodeHandle> WeakSelf { get; }
+
     /// <summary>
     /// The node this handle evaluates.
     /// </summary>
@@ -242,9 +253,20 @@ internal abstract class NodeHandle<TResult> : NodeHandle
 
         foreach (var dependency in entry.Dependencies)
         {
-            var current = dependency.Handle is { } handle
-                ? handle.Refresh(evaluator)
-                : versions.GetOutputVersion(dependency.Id);
+            long current;
+            if (dependency.Handle is null)
+            {
+                current = versions.GetOutputVersion(dependency.Id);
+            }
+            else if (dependency.Handle.TryGetTarget(out var handle))
+            {
+                current = handle.Refresh(evaluator);
+            }
+            else
+            {
+                // The dependency no longer exists (only possible for a value whose node is gone too)
+                return false;
+            }
 
             if (current != dependency.Version)
                 return false;
@@ -385,18 +407,16 @@ internal sealed class ValueNodeHandle<T> : NodeHandle<T>
     public static ValueNodeHandle<T> For(IComputationNode<T> node, ComputationGraph graph)
     {
         var handles = graph.SharedState.Handles;
-        if (handles.TryGetValue(node.Id, out var existing)
-            && existing is ValueNodeHandle<T> typed
-            && ReferenceEquals(typed._node, node))
-        {
+        if (handles.TryGetValue(node, out var existing) && existing is ValueNodeHandle<T> typed)
             return typed;
-        }
 
-        var created = new ValueNodeHandle<T>(node);
         graph.RegisterNodeIfNeeded(node);
-        handles[node.Id] = created;
-        return created;
+        return handles.GetValue(node, s_create) as ValueNodeHandle<T>
+            ?? new ValueNodeHandle<T>(node); // a node implementing several node interfaces: not shared
     }
+
+    private static readonly ConditionalWeakTable<IComputationNode, NodeHandle>.CreateValueCallback s_create =
+        static node => new ValueNodeHandle<T>((IComputationNode<T>)node);
 
     protected override Result<T, ComputationError> ComputeCore(ComputationContext context) => _node.Compute(context);
 
@@ -437,18 +457,16 @@ internal sealed class CollectionNodeHandle<T> : NodeHandle<IEnumerable<T>>
     public static CollectionNodeHandle<T> For(ICollectionComputationNode<T> node, ComputationGraph graph)
     {
         var handles = graph.SharedState.Handles;
-        if (handles.TryGetValue(node.Id, out var existing)
-            && existing is CollectionNodeHandle<T> typed
-            && ReferenceEquals(typed._node, node))
-        {
+        if (handles.TryGetValue(node, out var existing) && existing is CollectionNodeHandle<T> typed)
             return typed;
-        }
 
-        var created = new CollectionNodeHandle<T>(node);
         graph.RegisterNodeIfNeeded(node);
-        handles[node.Id] = created;
-        return created;
+        return handles.GetValue(node, s_create) as CollectionNodeHandle<T>
+            ?? new CollectionNodeHandle<T>(node); // a node implementing several node interfaces: not shared
     }
+
+    private static readonly ConditionalWeakTable<IComputationNode, NodeHandle>.CreateValueCallback s_create =
+        static node => new CollectionNodeHandle<T>((ICollectionComputationNode<T>)node);
 
     protected override Result<IEnumerable<T>, ComputationError> ComputeCore(ComputationContext context) => _node.Compute(context);
 

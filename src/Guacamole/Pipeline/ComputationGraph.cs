@@ -221,8 +221,17 @@ internal sealed class ComputationGraph
     /// </summary>
     public bool TryGetRuntimeNode(string nodeId, out IComputationNode? node)
     {
-        return _sharedState.RuntimeNodes.TryGetValue(nodeId, out node);
+        node = null;
+        return _sharedState.RuntimeNodes.TryGetValue(nodeId, out var weakNode) && weakNode.TryGetTarget(out node);
     }
+
+    /// <summary>
+    /// Removes the registry entries, cached values and version records of runtime nodes that have
+    /// been garbage-collected, and releases the node-reuse cache's references to the remaining
+    /// nodes. See <see cref="SharedGraphState.TrimUnusedNodes"/>.
+    /// </summary>
+    /// <returns>The number of nodes removed</returns>
+    public int TrimUnusedNodes() => _sharedState.TrimUnusedNodes(ValueCache);
 
     /// <summary>
     /// Marks a source node as changed by incrementing its version.

@@ -17,6 +17,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **`ComputingContextBase.TrimUnusedNodes()`** (#41): removes pipeline nodes that are no longer referenced by any provider, output registration or downstream node from the context's graph, together with their cached values and version records, and returns how many it removed. The runtime node registry, the evaluation handles and cached values no longer keep nodes alive by themselves; the node-reuse cache keeps operator nodes alive until the next trim (and again whenever an identical call requests them). Pipelines built dynamically (capturing lambdas, per-request pipelines) therefore stay bounded when trimmed periodically. A node that is still referenced, and the nodes it reads, are never removed; a removed node requested again by an identical operator call is recreated with an empty cache.
 - **Configurable cache capacity**: override `ComputingContextBase.CacheCapacity` (default `ComputingContextBase.DefaultCacheCapacity`, 10,000) to size a context's value cache; it was hardcoded before.
 - **Computation metrics**: providers record `GuacamoleMetrics.ComputationsTotal`, `ComputationDuration` and `ComputationErrors` whenever they compute a value (cache hits excluded), controlled by `MetricsConfiguration.EnableComputationMetrics`, with optional `tracking.name`/`pipeline.stage` dimensions.
 - **Cross-item lookup guidance** (#25): new "Cross-item lookups (e.g. symbol tables)" sections in the [Performance Guide](docs/performance-guide.md#cross-item-lookups-eg-symbol-tables) and Quickstart, and a runnable [`examples/CrossFileSymbolsExample`](examples/CrossFileSymbolsExample/): compute data shared across items with `Collect()` and a deterministic merge into a type with structural equality, `Combine` it with each item, and optionally narrow it per item, instead of accumulating it as a side effect of a per-item lambda (whose results depend on processing order).
@@ -59,6 +60,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **`ComputingContextBase.TrimUnusedNodes()`** (#41): removes pipeline nodes that are no longer referenced by any provider, output registration or downstream node from the context's graph, together with their cached values and version records, and returns how many it removed. The runtime node registry, the evaluation handles and cached values no longer keep nodes alive by themselves; the node-reuse cache keeps operator nodes alive until the next trim (and again whenever an identical call requests them). Pipelines built dynamically (capturing lambdas, per-request pipelines) therefore stay bounded when trimmed periodically. A node that is still referenced, and the nodes it reads, are never removed; a removed node requested again by an identical operator call is recreated with an empty cache.
 - Initial source generator implementation
 - ComputingContextBase with change tracking
 - IncrementalValueProvider and IncrementalValuesProvider

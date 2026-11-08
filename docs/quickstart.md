@@ -167,7 +167,7 @@ if (nonEmpty.Select(code => code.Split(' ')).TryGetValue(out var words))
 Every operator call creates a **new node with a unique ID**, and cached values are stored per node. So:
 
 - Build each pipeline **once** (in a constructor or at startup) and keep the provider.
-- Avoid building pipelines in property getters, per request or in a loop. Identical operator calls are reused: calling the same operator on the same input with an equal delegate (a non-capturing lambda, a lambda that only captures `this`, or a method group on the same instance) returns the existing node. Lambdas that capture locals allocate a new closure per call, so they never match and create a new node each time. New nodes start with an empty cache and stay registered in the context's graph.
+- Avoid building pipelines in property getters, per request or in a loop. Identical operator calls are reused: calling the same operator on the same input with an equal delegate (a non-capturing lambda, a lambda that only captures `this`, or a method group on the same instance) returns the existing node. Lambdas that capture locals allocate a new closure per call, so they never match and create a new node each time. New nodes start with an empty cache and stay registered in the context's graph until `TrimUnusedNodes()` removes them (see the [Performance Guide](performance-guide.md#build-pipelines-once)).
 
 ### Derived properties on the context
 

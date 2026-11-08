@@ -79,7 +79,23 @@ With this structure, editing one file reruns its own parse and declaration extra
 Every distinct operator call creates a new node with a unique ID, and the cache is keyed by node ID. Identical operator calls are reused: calling the same operator on the same input with an equal delegate (a non-capturing lambda, a lambda that only captures `this`, or a method group on the same instance) returns the existing node. Lambdas that capture locals allocate a new closure per call, so they never match and create a new node each time.
 
 - Build pipelines once, in a constructor (chaining to the generated `this()`) or at startup, and keep the providers.
-- Avoid building pipelines in property getters, per request or inside loops, especially with capturing lambdas: each non-matching call starts with an empty cache and adds nodes to the context's graph, which are never removed.
+- Avoid building pipelines in property getters, per request or inside loops, especially with capturing lambdas: each non-matching call starts with an empty cache and adds nodes to the context's graph (each with a cached value and a version record).
+- If you do build pipelines dynamically, call `context.TrimUnusedNodes()` periodically (for example after each batch of requests). It removes the nodes that are no longer referenced, with their cached values and version records:
+  - A node stays alive while a provider, an output registration or a downstream node references it, and it is never removed while it is alive, so trimming never changes results.
+  - The context also keeps the nodes created by operator calls alive, so that identical calls (for example in a property getter) keep sharing one node and its cache. `TrimUnusedNodes()` releases those references: unreferenced nodes can then be garbage-collected, and the next call removes them. A node requested again by an identical call in between is kept.
+  - It returns the number of nodes removed. Since removal waits for the garbage collector, memory stays bounded across repeated calls rather than shrinking in a single one.
+  - A removed node that an identical operator call requests later is recreated with an empty cache.
+
+```csharp
+foreach (var request in requests)
+{
+    var threshold = request.Threshold; // captured: a new node per request
+    var matches = context.Items.Where(item => item.Score > threshold).Collect();
+    Respond(request, matches.Value);
+}
+
+context.TrimUnusedNodes(); // the per-request nodes are removed once they have been collected
+```
 
 ## Equality
 
@@ -110,7 +126,7 @@ var names = context.People.Select(p => p.Name, StringComparer.OrdinalIgnoreCase)
       // ...
   }
   ```
-- Nodes created by operator calls stay registered in the graph for the lifetime of the context (another reason to build pipelines once).
+- Nodes created by operator calls stay registered in the graph until `TrimUnusedNodes()` removes the ones nothing references anymore (see [Build Pipelines Once](#build-pipelines-once)).
 - `Dispose()` unsubscribes the context from its sources and drops its output registrations.
 
 ## Thread Safety and Performance

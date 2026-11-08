@@ -31,4 +31,17 @@ internal sealed class VersionTracker
     /// <returns>The new version number after incrementing</returns>
     public long IncrementOutputVersion(string nodeId) =>
         _outputVersions.AddOrUpdate(nodeId, 1, (_, v) => v + 1);
+
+    /// <summary>
+    /// Forgets the version of a node that no longer exists (see
+    /// <see cref="SharedGraphState.TrimUnusedNodes"/>). Must not be called for a node that can
+    /// still be evaluated: its version would restart at 0.
+    /// </summary>
+    /// <param name="nodeId">The removed node's unique identifier</param>
+    public void Remove(string nodeId) => _outputVersions.TryRemove(nodeId, out _);
+
+    /// <summary>
+    /// The number of nodes with a version record (for diagnostics and tests).
+    /// </summary>
+    public int Count => _outputVersions.Count;
 }

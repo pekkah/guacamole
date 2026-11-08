@@ -8,9 +8,10 @@ namespace Guacamole.Pipeline;
 /// <param name="Handle">
 /// Evaluates the dependency when the reading node is verified; <c>null</c> for a root node
 /// (a source), whose version is advanced by <see cref="ComputationGraph.MarkSourceChanged"/>
-/// and is compared directly.
+/// and is compared directly. Held weakly, so a cached value does not keep the nodes it was
+/// computed from alive (the reading node does, as long as it is alive itself).
 /// </param>
-internal readonly record struct DependencyVersion(string Id, long Version, NodeHandle? Handle);
+internal readonly record struct DependencyVersion(string Id, long Version, WeakReference<NodeHandle>? Handle);
 
 /// <summary>
 /// A node's cached result together with the version information it was computed with. Stored as a
