@@ -73,6 +73,7 @@ internal static class ContextAnalyzer
         var valueProvider = compilation.GetTypeByMetadataName(ValueProviderName);
         var valuesProvider = compilation.GetTypeByMetadataName(ValuesProviderName);
         var equatableType = compilation.GetTypeByMetadataName("System.IEquatable`1");
+        var immutableDictionaryType = compilation.GetTypeByMetadataName("System.Collections.Immutable.ImmutableDictionary`2");
 
         var sourceProperties = new List<SourcePropertyModel>();
 
@@ -124,7 +125,13 @@ internal static class ContextAnalyzer
             }
 
             // Both input and user-managed providers benefit from item types with value equality.
-            if (RequiresEqualityCheck(itemType!) && !HasProperEquality(itemType!, equatableType))
+            // A user-managed single-value provider of an ImmutableDictionary is what
+            // CollectToDictionary returns, and that operator compares its dictionaries itself.
+            var isCollectedDictionary = hasSetter
+                && !isCollection
+                && immutableDictionaryType is not null
+                && SymbolEqualityComparer.Default.Equals(itemType!.OriginalDefinition, immutableDictionaryType);
+            if (!isCollectedDictionary && RequiresEqualityCheck(itemType!) && !HasProperEquality(itemType!, equatableType))
             {
                 diagnostics.Add(CreateDiagnostic(
                     DiagnosticDescriptors.MissingEqualityImplementation,

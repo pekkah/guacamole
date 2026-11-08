@@ -417,11 +417,24 @@ internal sealed class CombineValueNode<TFirst, TSecond> : IComputationNode<(TFir
     }
 }
 
-internal sealed class SelectManyFromValueNode<TSource, TResult> : ICollectionComputationNode<TResult>, IHasComparer<TResult>
+/// <summary>
+/// Flattens the results of a lambda over a single value. The lambda reruns on the whole value, so
+/// the node has no structural knowledge of what changed; it diffs each new output against the
+/// previous one (<see cref="ArrayDelta.Diff"/>: common prefix and suffix of identical items) and
+/// records the delta when the changed middle is small, so that the collection stages after it update
+/// only the changed items (see the design note in Pipeline/ArrayDelta.cs).
+/// </summary>
+internal sealed class SelectManyFromValueNode<TSource, TResult> : ICollectionComputationNode<TResult>, IHasComparer<TResult>, IDeltaSource<TResult>
 {
+    // A diff with more edits than this (or than half the items) is not recorded
+    private const int MinMaxEdits = 32;
+
     private readonly IComputationNode<TSource> _source;
     private readonly Func<TSource, IEnumerable<TResult>> _selector;
     private readonly IEqualityComparer<TResult>? _comparer;
+    private readonly DeltaHistory<TResult> _deltas = new();
+    private TResult[]? _output;
+    private int _deltaComputations;
 
     public SelectManyFromValueNode(IComputationNode<TSource> source, Func<TSource, IEnumerable<TResult>> selector, IEqualityComparer<TResult>? comparer)
     {
@@ -452,17 +465,46 @@ internal sealed class SelectManyFromValueNode<TSource, TResult> : ICollectionCom
                 return Result<IEnumerable<TResult>, ComputationError>.Error(sourceResult.ErrorValue!);
 
             // No value (filtered out by Where) means no items
+            TResult[] materialized;
             if (sourceResult.IsNone)
-                return Result<IEnumerable<TResult>, ComputationError>.Success(Array.Empty<TResult>());
+            {
+                materialized = [];
+            }
+            else
+            {
+                // Materialize the selector result to avoid multiple enumerations when cached
+                var results = _selector(sourceResult.ValueOrDefault!);
+                materialized = results as TResult[] ?? results.ToArray();
+            }
 
-            // Materialize the selector result to avoid multiple enumerations when cached
-            var results = _selector(sourceResult.ValueOrDefault!);
-            var materialized = results as TResult[] ?? results.ToArray();
+            RecordDelta(materialized);
             return Result<IEnumerable<TResult>, ComputationError>.Success(materialized);
         }
         catch (Exception ex)
         {
             return Result<IEnumerable<TResult>, ComputationError>.Error(ComputationError.FromException(ex));
+        }
+    }
+
+    internal int DeltaComputations => Volatile.Read(ref _deltaComputations);
+
+    public ArrayDelta<TResult>? GetDelta(TResult[] from, TResult[] to) => _deltas.Get(from, to);
+
+    private void RecordDelta(TResult[] output)
+    {
+        var previous = Interlocked.Exchange(ref _output, output);
+        if (previous is null || ReferenceEquals(previous, output))
+            return;
+
+        var maxEdits = Math.Max(MinMaxEdits, Math.Max(previous.Length, output.Length) / 2);
+        if (ArrayDelta.Diff(previous, output, maxEdits) is { } delta)
+        {
+            Interlocked.Increment(ref _deltaComputations);
+            _deltas.Record(delta);
+        }
+        else
+        {
+            _deltas.Clear();
         }
     }
 }

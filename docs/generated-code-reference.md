@@ -136,7 +136,7 @@ Each generated file has a hint name that is unique per type: namespace, containi
 | ID | Severity | Category | Reported when |
 |----|----------|----------|---------------|
 | GUAC0003 | Error | Guacamole.SourceGenerator | A get-only provider property is not `partial`. Make it `partial` (input) or add a setter (user-managed). |
-| GUAC0004 | Warning | Guacamole.Performance | A provider property's item type does not have value equality (not a record, does not implement `IEquatable<T>`, not a primitive, `string` or enum; type parameters are not checked). Applies to input and user-managed properties. Every recomputation will look like a change. |
+| GUAC0004 | Warning | Guacamole.Performance | A provider property's item type does not have value equality (not a record, does not implement `IEquatable<T>`, not a primitive, `string` or enum; type parameters are not checked). Applies to input and user-managed properties, except user-managed `IncrementalValueProvider<ImmutableDictionary<TKey, TValue>>` properties (what `CollectToDictionary` returns; the operator compares its dictionaries itself). Every recomputation will look like a change. |
 | GUAC0005 | Error | Guacamole.SourceGenerator | A `partial` provider property has a setter. User-managed properties must not be `partial`. |
 | GUAC0006 | Error | Guacamole.SourceGenerator | The context class, or a type that contains it, is not `partial`. No code is generated. |
 | GUAC0007 | Error | Guacamole.SourceGenerator | A class marked `[ComputingContext]` does not derive from `Guacamole.ComputingContextBase`. No code is generated. |

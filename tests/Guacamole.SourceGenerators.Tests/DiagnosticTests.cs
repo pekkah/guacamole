@@ -110,6 +110,36 @@ public class DiagnosticTests
     }
 
     [Fact]
+    public void ImmutableDictionary_ReportsGUAC0004ExceptForUserManagedValueProviders()
+    {
+        // A user-managed IncrementalValueProvider<ImmutableDictionary<,>> is what CollectToDictionary
+        // returns, which compares its dictionaries itself; inputs and collections are still reported.
+        var source = """
+            using System.Collections.Immutable;
+            using Guacamole;
+
+            namespace Test
+            {
+                [ComputingContext]
+                public partial class TestContext : ComputingContextBase
+                {
+                    public partial IncrementalValueProvider<ImmutableDictionary<string, int>> Input { get; }
+                    public IncrementalValueProvider<ImmutableDictionary<string, int>> Table { get; set; }
+                    public IncrementalValuesProvider<ImmutableDictionary<string, int>> Tables { get; set; }
+                }
+            }
+            """;
+
+        var result = TestHelper.Run(source);
+
+        Assert.Collection(
+            result.GeneratorDiagnostics.OrderBy(d => d.Location.SourceSpan.Start),
+            d => AssertDiagnostic(d, "GUAC0004", DiagnosticSeverity.Warning, source, "Input"),
+            d => AssertDiagnostic(d, "GUAC0004", DiagnosticSeverity.Warning, source, "Tables"));
+        Assert.Empty(result.CompilationErrors);
+    }
+
+    [Fact]
     public void NonPartialContext_ReportsGUAC0006AndGeneratesNothing()
     {
         var source = """

@@ -1,3 +1,4 @@
+using System.Collections.Immutable;
 using Guacamole;
 
 namespace CrossFileSymbolsExample;
@@ -12,7 +13,7 @@ public partial class CompilerContext : ComputingContextBase
 
     // Derived pipeline, built once
     public IncrementalValuesProvider<ParsedFile> Parsed { get; private set; }
-    public IncrementalValueProvider<SymbolTable> Symbols { get; private set; }
+    public IncrementalValueProvider<ImmutableDictionary<string, string>> Symbols { get; private set; }
     public IncrementalValuesProvider<TypeCheckedFile> TypeChecked { get; private set; }
 
     /// <summary>How many times a file was type checked (to show what reruns).</summary>
@@ -25,24 +26,27 @@ public partial class CompilerContext : ComputingContextBase
     {
         Parsed = Files.Select(ParsedFile.Parse);
 
-        // Cross-file data is computed from ALL files at once: per-file declarations, collected and
-        // merged in a deterministic (path) order into a table with structural equality.
+        // Cross-file data is computed from ALL files at once: each file's (name, path) declarations,
+        // collected into a dictionary from name to declaring file. When several files declare a
+        // name, the smallest path (ordinal) wins, so the table depends only on the files, not on the
+        // order they were pushed or processed in. CollectToDictionary updates the table from the
+        // changed files only, and keeps the same table instance (and version) when no entry changed.
         Symbols = Parsed
-            .Select(FileDeclarations.Extract)
-            .Collect()
-            .Select(SymbolTable.Merge);
+            .SelectMany(Declaration.Extract)
+            .CollectToDictionary(d => d.Name, d => d.Path, conflictComparer: StringComparer.Ordinal);
 
         // Type checking is a pure function of (file, table). Restricting the table to the names the
         // file uses keeps the input equal when unrelated declarations change, so the per-item memo
         // of the next Select skips the file.
         var inputs = Parsed.Combine(Symbols);
-        TypeChecked = (restrictTables
-                ? inputs.Select(pair => (pair.Left, pair.Right.Restrict(pair.Left.Uses)))
-                : inputs)
-            .Select(pair => TypeCheck(pair.Item1, pair.Item2));
+        TypeChecked = restrictTables
+            ? inputs
+                .Select(pair => (File: pair.Left, Table: SymbolTable.Restrict(pair.Right, pair.Left.Uses)))
+                .Select(pair => TypeCheck(pair.File, pair.Table.Symbols))
+            : inputs.Select(pair => TypeCheck(pair.Left, pair.Right));
     }
 
-    private TypeCheckedFile TypeCheck(ParsedFile file, SymbolTable table)
+    private TypeCheckedFile TypeCheck(ParsedFile file, IReadOnlyDictionary<string, string> table)
     {
         Interlocked.Increment(ref _typeChecks);
 
@@ -50,7 +54,7 @@ public partial class CompilerContext : ComputingContextBase
         var errors = new List<string>();
         foreach (var name in file.Uses)
         {
-            if (table.Symbols.TryGetValue(name, out var declaringFile))
+            if (table.TryGetValue(name, out var declaringFile))
                 resolved.Add($"{name} -> {declaringFile}");
             else
                 errors.Add($"unknown symbol '{name}'");

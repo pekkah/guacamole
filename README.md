@@ -132,6 +132,10 @@ values.SelectMany(x => x.Children, customComparer)
 values.Collect()  // Returns IncrementalValueProvider<ImmutableArray<T>>, compared element-wise
 values.Collect(customComparer)  // Compares the collected items with customComparer
 
+// Collect to an immutable dictionary, updated from the changed items only
+values.CollectToDictionary(x => x.Name, x => x.Path)  // IncrementalValueProvider<ImmutableDictionary<TKey, TValue>>
+values.CollectToDictionary(x => x.Name, x => x.Path, conflictComparer: StringComparer.Ordinal)  // smallest value wins a duplicate key
+
 // Combine with single value
 values.Combine(singleValue)  // Pairs each value with the single value
 
@@ -144,7 +148,7 @@ arrays.Flatten()   // IncrementalValuesProvider<ImmutableArray<T>> -> Incrementa
 nested.Flatten()   // IncrementalValueProvider<ImmutableArray<ImmutableArray<T>>> -> IncrementalValuesProvider<T>
 ```
 
-`Flatten()` is shorthand for `SelectMany(array => array)`: on a collection of arrays it is as incremental as `SelectMany` (only new or changed arrays are flattened again); on a single nested array it flattens the whole value whenever it changes. `Merge` collects both inputs, so any change to either re-concatenates both; prefer a single source with `Where` when the inputs are large and change often.
+`Flatten()` is shorthand for `SelectMany(array => array)`: on a collection of arrays it is as incremental as `SelectMany` (only new or changed arrays are flattened again); on a single nested array it flattens the whole value whenever it changes. `Merge` concatenates both inputs into a new array whenever either changes (a memory copy), and passes on their item-level deltas, so the stages after it only rerun for the changed items.
 
 How these behave:
 
@@ -152,7 +156,7 @@ How these behave:
 - **Every stage is cached.** Each stage of a pipeline caches its result together with the versions of the inputs it read, whether or not you read that stage directly. Reading a provider first brings the stages it was computed from up to date (recursively), so a stage reruns only when one of its own inputs actually changed.
 - **Version-based invalidation** - a source change only increments that source's version; cached values are revalidated lazily on the next read. A stage whose recomputed value equals its previous value (by its comparer) keeps its version, so the stages downstream of it stay valid and are not recomputed. This equality cut-off applies at every stage, including intermediate stages that are never read themselves.
 - **Per-item memoization** - a recomputed collection `Select`/`Where`/`SelectMany` runs its lambda only for new or changed items; items equal to ones seen in the previous computation reuse the previous result (the same instance). Items should be immutable.
-- **Cross-item lookups** (e.g. a symbol table built from all files) - compute shared data with `Collect()` and a deterministic merge into a type with structural equality, then `Combine` it with each item; never accumulate it in a lambda, which makes results depend on processing order. See [Cross-item lookups](docs/performance-guide.md#cross-item-lookups-eg-symbol-tables).
+- **Cross-item lookups** (e.g. a symbol table built from all files) - compute shared data from all items, with `CollectToDictionary` for a lookup table (updated in proportion to the changed items, with a deterministic rule for duplicate keys) or `Collect()` and a deterministic merge into a type with structural equality, then `Combine` it with each item; never accumulate it in a lambda, which makes results depend on processing order. See [Cross-item lookups](docs/performance-guide.md#cross-item-lookups-eg-symbol-tables).
 - **Custom equality comparers** decide whether a recomputed value counts as changed. Use records or `IEquatable<T>` types; without value equality every recomputation looks like a change.
 - **Errors are values** - exceptions thrown by your lambdas become failed `Result`s; `GetValue()`/`GetValues()` do not throw them (`.Value`/`.Values` and `TryGetValue` do, as `InvalidOperationException`). Downstream stages pass the error on without running their lambdas. Failed results (and `null` values) are cached like values: a failing stage runs again only when one of its inputs changes, and an error equal to the previous one (same messages, inner errors, location and diagnostic ID) keeps the stages downstream of it cached. See [Every stage is cached](docs/performance-guide.md#every-stage-is-cached).
 - **A filtered-out single value is "no value", not an error.** When a single-value `Where` rejects its input, `GetValue()` returns a `Result` with `IsNone == true` (`IsSuccess` and `IsError` are false). Downstream `Select`/`Where`/`Combine` propagate "no value" without running their lambdas; `SelectMany` and collection `Combine` produce no items; output handlers are not called. `.Value` throws `InvalidOperationException`; use `TryGetValue(out value)`, which returns `false` for no value (and throws only if the computation failed).
@@ -210,7 +214,7 @@ The [`examples/`](examples/) directory contains runnable console projects. They 
 - [`examples/BasicSourceUsage`](examples/BasicSourceUsage/) - Pushing items, `Where`/`Collect`/`Select`, output handlers
 - [`examples/FileWatcherExample`](examples/FileWatcherExample/) - Simulated file watcher pushing file changes
 - [`examples/DataPipelineExample`](examples/DataPipelineExample/) - Multi-stage data transformation pipeline
-- [`examples/CrossFileSymbolsExample`](examples/CrossFileSymbolsExample/) - Cross-file symbol resolution with `Collect`, a deterministic merge and `Combine`
+- [`examples/CrossFileSymbolsExample`](examples/CrossFileSymbolsExample/) - Cross-file symbol resolution with `CollectToDictionary` and `Combine`
 
 Run an example with:
 ```bash

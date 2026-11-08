@@ -6,7 +6,7 @@ using var context = new CompilerContext(restrictTables: true);
 
 // Print the symbol table whenever it changes. (Every stage is cached and keeps its version when
 // its recomputed value is unchanged, whether or not it has an output handler.)
-context.RegisterOutput(context.Symbols, (table, _) => Console.WriteLine($"[symbols] {table}"));
+context.RegisterOutput(context.Symbols, (table, _) => Console.WriteLine($"[symbols] {SymbolTable.Format(table)}"));
 context.RegisterOutput(context.TypeChecked, (files, _) =>
 {
     foreach (var file in files.OrderBy(f => f.Path, StringComparer.Ordinal))

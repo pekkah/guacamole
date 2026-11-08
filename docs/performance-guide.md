@@ -66,15 +66,17 @@ var lengths = docs.Select(d => d.Text.Length); // a new Doc with the same Id as 
 
 ### Item-level deltas
 
-Collection sources record which items each change inserted, removed or replaced, and the collection stages `Select`, `Where`, `SelectMany` and `values.Combine(value)` pass that on: each derives its new output from its previous output and the edits of its input (copying the unchanged items in bulk and running its lambda only for the edited ones), and records the edits of its output for the next stage. The change check of a stage (is the new output equal to the cached one, so that the stages after it stay cached?) and of `Collect()` then compares only the replaced items. After K item changes in an N-item source, the per-item work of such a pipeline is O(K).
+Collection sources record which items each change inserted, removed or replaced, and the collection stages `Select`, `Where`, `SelectMany`, `values.Combine(value)` and `Merge` pass that on: each derives its new output from its previous output and the edits of its input (copying the unchanged items in bulk and running its lambda only for the edited ones), and records the edits of its output for the next stage. The change check of a stage (is the new output equal to the cached one, so that the stages after it stay cached?) and of `Collect()` then compares only the replaced items. After K item changes in an N-item source, the per-item work of such a pipeline is O(K).
 
 What is still O(N) per read: each stage allocates a new output array and copies the unchanged items into it (a memory copy, about 1 ns per item), the source copies its snapshot the same way, and whatever consumes a `Collect()`ed array (a sum, building a dictionary) walks all of it. `Collect()` itself wraps its input's array without copying.
 
+Each source and stage keeps the deltas of its last 8 outputs (holding the arrays they describe only weakly, so they keep no extra arrays alive). A stage whose input moved on several times since the stage last computed, for example a provider read rarely while another pipeline on the same source is read after every change, gets the composition of the deltas in between, at a cost proportional to their edits. `Merge` concatenates the deltas of its two inputs. A single-value `SelectMany` (and `Flatten()` of a single value) reruns its lambda on the whole value, so it compares its new output with the previous one, trimming the common prefix and suffix of identical items (one reference comparison per item), and passes on a delta when the changed part is small: the stages after it then update only the changed items.
+
 A stage falls back to walking its whole input (the behaviour described above) when no delta from the input it last read is available:
 
-- the first computation, or the input recomputed more than once since the stage last read it (only the latest delta is kept; for example a provider read rarely while another pipeline on the same source is read after every change);
+- the first computation, or the input recomputed more than 8 times since the stage last read it;
 - more changes between two reads than about half the source's items, `Clear()`, and occasionally after many removals (when the source compacts its storage);
-- an input that does not record deltas: custom nodes, single-value operators, `Merge`, or a stage reading an error;
+- an input that does not record deltas: custom nodes, single-value operators other than `SelectMany`, a single-value `SelectMany` whose output changed in more than about half its items (or whose lambda creates new instances for unchanged items), or a stage reading an error;
 - concurrent recomputations of the same stage (one of them walks).
 
 The results are the same either way; only the cost differs.
@@ -83,30 +85,33 @@ The results are the same either way; only the cost differs.
 
 Some per-item computations need data from *other* items: a compiler type-checking one file needs the declarations of every file. Do **not** accumulate that data as a side effect of a per-item lambda (for example a mutable symbol builder that each file adds its declarations to while it is checked). Such a lambda only sees the items processed before it, so its result depends on processing order; it also breaks per-item memoization and lazy evaluation, since lambdas may be skipped, rerun or run concurrently.
 
-Instead, make the per-item computation a pure function of (item, table), and compute the table from all items:
+Instead, make the per-item computation a pure function of (item, table), and compute the table from all items. When the table is a lookup (a key per entry), build it with `CollectToDictionary`:
 
 ```csharp
 // 1. Per item: extract what other items need (pure, memoized per file)
-var declarations = Parsed.Select(FileDeclarations.Extract);
+var declarations = Parsed.SelectMany(Declaration.Extract); // (Name, Path) per declaration
 
-// 2. All items: merge into one table, in a deterministic order, with structural equality
-IncrementalValueProvider<SymbolTable> symbols = declarations.Collect().Select(SymbolTable.Merge);
+// 2. All items: one table, the first declaration in path order winning a duplicate name
+IncrementalValueProvider<ImmutableDictionary<string, string>> symbols =
+    declarations.CollectToDictionary(d => d.Name, d => d.Path, conflictComparer: StringComparer.Ordinal);
 
 // 3. Per item again: pair each file with the table
 var typeChecked = Parsed.Combine(symbols).Select(pair => TypeCheck(pair.Left, pair.Right));
 ```
 
-- **Merge in a defined order.** Sources enumerate in insertion order, so `Collect()` is deterministic for a given sequence of pushes, but results should not depend on push order either. Sort inside the merge (for example by path, `StringComparer.Ordinal`) and resolve conflicts explicitly (for example "first declaration wins").
-- **Give the table structural equality** (an immutable sorted dictionary wrapped in a type implementing `IEquatable<T>`, or a record with a custom `Equals`). `Collect()` compares the collected declarations element by element, so the merge reruns only when they changed, and if the merged table is equal to the previous one, the table keeps its version and the type checks are not rerun. (If a file's comments changed but not its declarations, the extracted declarations are already equal, so not even the merge reruns.)
+- **`CollectToDictionary` is incremental.** After K of N items change, it updates the dictionary from the collection's [item-level delta](#item-level-deltas) with O(K) dictionary operations, instead of merging all N items again (see the [benchmark](#benchmark-results)). It rebuilds the dictionary from all items only when no delta is available. It keeps a memo of each item's (key, value) pair, the candidate values of each key and the dictionary (see [Memory](#memory)).
+- **Resolve duplicates deterministically.** Several items can map to the same key. Items that agree on the value count once; for different values, `conflictComparer` picks the smallest (an ordinal path comparer gives "first declaration in path order wins"), and without it the result is an error naming a conflicting key until the conflict goes away. The table therefore depends only on the items: not on their order, the order of the changes, or when it is read. The enumeration order of an `ImmutableDictionary` is unspecified (string hash codes vary between runs), so sort its keys when the order matters, for example when printing it.
+- **The table is compared for you.** When no entry changed (for example a file's comments changed but not its declarations, so the extracted pairs are equal), the result is the previous dictionary instance and keeps its version, so the type checks are not rerun; a changed dictionary is recognized as changed without comparing it entry by entry.
+- **For other merges, use `Collect()` and merge in a defined order.** When the shared data is not a lookup table (a sum, a graph, a sorted list), compute it with `Collect().Select(merge)`. Sources enumerate in insertion order, so `Collect()` is deterministic for a given sequence of pushes, but results should not depend on push order either: sort inside the merge (for example by path, `StringComparer.Ordinal`) and resolve conflicts explicitly. Give the result structural equality (a type implementing `IEquatable<T>`, or a record with a custom `Equals`) so that an equal result keeps its version. `Collect()` compares the collected items element by element, so the merge reruns only when they changed, but the merge itself walks all N items.
 - **Narrow the table per item** when one item changing the table should not rerun every other item. `Combine` pairs every item with the new table, so every item's input changes when the table does. Restricting the table to what the item references keeps the input equal for unaffected items, and the next stage's per-item memo skips them:
 
   ```csharp
   var typeChecked = Parsed.Combine(symbols)
-      .Select(pair => (File: pair.Left, Symbols: pair.Right.Restrict(pair.Left.ReferencedNames))) // cheap, reruns per file
-      .Select(pair => TypeCheck(pair.File, pair.Symbols));                                    // expensive, memoized
+      .Select(pair => (File: pair.Left, Symbols: SymbolTable.Restrict(pair.Right, pair.Left.ReferencedNames))) // cheap, reruns per file
+      .Select(pair => TypeCheck(pair.File, pair.Symbols));                                                 // expensive, memoized
   ```
 
-With this structure, editing one file reruns its own parse and declaration extraction, one merge, and the type checks of the files whose (narrowed) inputs changed. See [`examples/CrossFileSymbolsExample`](../examples/CrossFileSymbolsExample/) for a runnable version and `tests/Guacamole.Tests/Regressions/Issue25CrossFileSymbolLookupTests.cs` for the order-dependence it avoids.
+With this structure, editing one file reruns its own parse and declaration extraction, an update of the table for its declarations, and the type checks of the files whose (narrowed) inputs changed. See [`examples/CrossFileSymbolsExample`](../examples/CrossFileSymbolsExample/) for a runnable version and `tests/Guacamole.Tests/Regressions/Issue25CrossFileSymbolLookupTests.cs` for the order-dependence it avoids.
 
 ## Build Pipelines Once
 
@@ -199,6 +204,7 @@ A batch is all or nothing: if an operation would fail (`Replace` of an item that
       // ...
   }
   ```
+- `CollectToDictionary` keeps a memo of each distinct item's (key, value) pair, the candidate values of each key and its latest dictionary (and the one before it): three N-entry structures, updated in place, so a change allocates only the dictionary nodes it replaces.
 - Outside the cache, collection `Select`, `Where` and `SelectMany` stages keep their per-item memo (the latest input and results), and `Where`, `SelectMany` and `values.Combine(value)` also keep their latest output for [item-level deltas](#item-level-deltas) (`SelectMany` also an offset per item, `Combine` its latest input). That is about one or two N-element arrays per collection stage, released when the node is trimmed.
 - Nodes created by operator calls stay registered in the graph until `TrimUnusedNodes()` (called explicitly, or automatically with `AutoTrimInterval`) removes the ones nothing references anymore (see [Build Pipelines Once](#build-pipelines-once)).
 - `Dispose()` unsubscribes the context from its sources and drops its output registrations; reading its providers or changing its sources afterwards throws `ObjectDisposedException` (a single volatile read on each provider read).
@@ -220,6 +226,8 @@ The repository contains BenchmarkDotNet benchmarks in [`benchmarks/Guacamole.Ben
 | `IncrementalUpdateBenchmarks` | Reading a total over N sources (a binary reduction tree) after one source changed, for N = 16, 256, 4,096, against recomputing the total directly |
 | `CollectionChangeBenchmarks` | Replacing K of N items, then reading `Items.Select(work).Collect().Select(Sum)`, against recomputing all N items directly |
 | `CollectionPipelineBenchmarks` | Replacing K of 10,000 items, then reading a longer pipeline (`Combine` with a value, `Select`, `Where`, `SelectMany`, `Collect`, sum), against recomputing directly |
+| `SymbolTableBenchmarks` | A symbol table over 10,000 files after K of them changed: `Collect().Select(merge)` against `CollectToDictionary` |
+| `DeltaPropagationBenchmarks` | Item-level deltas for a stage that lags behind its input (4 changes, each read by another pipeline, before it reads) and through `Merge` (10,000 items, one replaced per read) |
 | `MemoryOverheadBenchmarks` | Building a context over N items and reading the total, against computing the results directly (time and allocations) |
 | `SourceFanOutBenchmarks` | 100 changes to a source read by N stages, then a read (time per change), against one change and a read |
 | `GraphConstructionBenchmarks` | Building a chain of N nodes with `ComputationGraph.AddNode` |
@@ -262,6 +270,25 @@ The incremental variant allocated 17 KB per change and read at 1,000 items and 1
 | 100 | 309 µs | 507 µs | 1.42 ms |
 
 It allocates about 420 KB per change and read (each stage's output array; the `Combine` tuples go to the large object heap), the same as before.
+
+**A symbol table over 10,000 files** (`SymbolTableBenchmarks`, modelled on the cross-file symbols example: each file declares 3 names, one of them shared with 99 other files; K files get a new declaration before each read):
+
+| K | `CollectToDictionary` | `Collect().Select(merge)` |
+|--:|----------------------:|--------------------------:|
+| 1 | 0.39 ms, 668 KB | 9.4 ms, 1.45 MB |
+| 10 | 0.62 ms, 688 KB | 8.6 ms, 1.45 MB |
+| 100 | 1.6 ms, 830 KB | 8.8 ms, 1.47 MB |
+
+The merge sorts the 10,000 files by path and folds their 30,000 declarations into a sorted dictionary on every change. `CollectToDictionary` updates the K files' entries; what remains is mostly the `SelectMany` before it, which copies its 30,000 (name, path) pairs into a new array on every change (a large-object-heap allocation, hence the gen2 collections), and the source snapshot.
+
+**Stages that do not read after every change** (`DeltaPropagationBenchmarks`, 10,000 items, one item replaced per change; before #80 in parentheses):
+
+| Scenario | Time | Allocated |
+|----------|-----:|----------:|
+| 4 changes, each read by a cheap pipeline, then a read of `Select(work).Collect().Select(Sum)` | 106 µs (171 µs) | 553 KB (551 KB) |
+| `first.Merge(second).Select(work).Collect().Select(Sum)`, one change in `first` | 39 µs (104 µs) | 197 KB (197 KB) |
+
+Before #80 a stage kept only its latest delta, so the lagging `Select` walked all 10,000 items, and `Merge` recorded no delta, so the `Select` after it did too. `CollectionChangeBenchmarks` and `CollectionPipelineBenchmarks` were unchanged by #80 within the error margins.
 
 **Many changes between two reads** (`SourceFanOutBenchmarks`, one source read by N stages): 100 changes and then a read cost 0.18 µs / 0.44 µs / 3.8 µs per change for N = 100 / 1,000 / 10,000, one walk over the stages for the first change plus a constant for each further one; a single change and a read cost 3.9 µs / 29 µs / 0.36 ms. Before #71 every change walked all N stages: 3.0 µs / 28 µs / 0.38 ms per change.
 

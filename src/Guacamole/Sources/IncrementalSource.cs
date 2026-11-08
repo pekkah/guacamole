@@ -30,8 +30,9 @@ namespace Guacamole;
 /// <para>
 /// Mutations also log the slots they change. The next snapshot is built from the previous one by
 /// copying the unchanged runs between the logged slots, and comes with an
-/// <see cref="ArrayDelta{T}"/> from the previous snapshot, which the stages reading the source use
-/// to update their results item by item (see the design note in ArrayDelta.cs). The log holds at
+/// <see cref="ArrayDelta{T}"/> from the previous snapshot, kept in a short history, which the stages
+/// reading the source use to update their results item by item (see the design note in
+/// ArrayDelta.cs). The log holds at
 /// most about half as many slots as there are items; past that, and after <see cref="Clear"/> or a
 /// compaction, it is dropped and the next snapshot is built from the slots, without a delta.
 /// </para>
@@ -69,11 +70,11 @@ internal sealed class IncrementalSource<T> : IIncrementalSource<T>
     private T[]? _snapshot = [];
 
     // The last snapshot built (still the current items while _snapshot is not null), the slot of
-    // each of its items (null when item i is in slot i) and the delta from the snapshot before it
-    // (null if unknown)
+    // each of its items (null when item i is in slot i) and the deltas of the latest snapshots
+    // (empty if unknown)
     private T[] _built = [];
     private int[]? _builtSlots;
-    private ArrayDelta<T>? _delta;
+    private readonly DeltaHistory<T> _deltas = new();
 
     // The slots changed since _built was built, possibly with duplicates; null when the log was
     // dropped (the next snapshot is then built from the slots, without a delta)
@@ -204,7 +205,7 @@ internal sealed class IncrementalSource<T> : IIncrementalSource<T>
 
             // Every touched item ends up present or absent as before: the order may be unchanged too
             var before = membershipChanged ? null : BuildSnapshot();
-            var beforeDelta = _delta;
+            var beforeDeltas = _deltas.Save();
 
             foreach (var operation in operations)
             {
@@ -235,7 +236,7 @@ internal sealed class IncrementalSource<T> : IIncrementalSource<T>
                 if (!changed)
                 {
                     _built = before;
-                    Volatile.Write(ref _delta, beforeDelta);
+                    _deltas.Restore(beforeDeltas);
                     Volatile.Write(ref _snapshot, before);
                 }
             }
@@ -383,7 +384,7 @@ internal sealed class IncrementalSource<T> : IIncrementalSource<T>
             _built = [];
             _builtSlots = null;
             _changedSlots = new();
-            Volatile.Write(ref _delta, null);
+            _deltas.Clear();
             Volatile.Write(ref _snapshot, _built);
         }
 
@@ -429,13 +430,13 @@ internal sealed class IncrementalSource<T> : IIncrementalSource<T>
         if (log is null)
         {
             snapshot = BuildFromSlots();
-            Volatile.Write(ref _delta, null);
+            _deltas.Clear();
             log = new List<int>();
         }
-        else if (BuildFromLog(log) is { } delta)
+        else if (BuildFromLog(log, out var items) is { } delta)
         {
-            snapshot = delta.To;
-            Volatile.Write(ref _delta, delta);
+            snapshot = items;
+            _deltas.Record(delta);
         }
         else
         {
@@ -473,9 +474,9 @@ internal sealed class IncrementalSource<T> : IIncrementalSource<T>
     }
 
     /// <summary>
-    /// Builds the snapshot from the last one and the slots changed since, returning the delta from
-    /// the last snapshot to the new one, or <c>null</c> when the items are the identical ones
-    /// (nothing to build). Lock held.
+    /// Builds the snapshot (<paramref name="snapshot"/>) from the last one and the slots changed
+    /// since, returning the delta from the last snapshot to the new one, or <c>null</c> when the items
+    /// are the identical ones (nothing to build). Lock held.
     /// </summary>
     /// <remarks>
     /// Slots are never reused (until <see cref="Clear"/> or a compaction, which drop the log), so
@@ -484,8 +485,9 @@ internal sealed class IncrementalSource<T> : IIncrementalSource<T>
     /// (filled and emptied in between, or refilled with the identical item). The items between
     /// changed slots are unchanged runs, copied from the last snapshot.
     /// </remarks>
-    private ArrayDelta<T>? BuildFromLog(List<int> log)
+    private ArrayDelta<T>? BuildFromLog(List<int> log, out T[] snapshot)
     {
+        snapshot = _built;
         var previous = _built;
         var previousSlots = _builtSlots;
         var count = _slotByItem.Count;
@@ -541,6 +543,7 @@ internal sealed class IncrementalSource<T> : IIncrementalSource<T>
 
         CopyRun(previous.Length - from);
         _builtSlots = slots;
+        snapshot = items;
         return new ArrayDelta<T>(previous, items, [.. edits!]);
 
         void Set(int slot)
@@ -744,7 +747,6 @@ internal sealed class IncrementalSource<T> : IIncrementalSource<T>
             return Result<IEnumerable<T>, ComputationError>.Success(_source.GetItems());
         }
 
-        public ArrayDelta<T>? GetDelta(T[] from, T[] to) =>
-            Volatile.Read(ref _source._delta) is { } delta && delta.Describes(from, to) ? delta : null;
+        public ArrayDelta<T>? GetDelta(T[] from, T[] to) => _source._deltas.Get(from, to);
     }
 }

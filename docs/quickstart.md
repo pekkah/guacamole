@@ -276,17 +276,16 @@ When a per-item stage needs data from other items (type checking a file needs ev
 
 ```csharp
 var symbols = Parsed
-    .Select(FileDeclarations.Extract)   // per file
-    .Collect()                          // all files
-    .Select(SymbolTable.Merge);         // sort by path inside Merge; SymbolTable has structural equality
+    .SelectMany(Declaration.Extract)    // per file: (Name, Path) of each declaration
+    .CollectToDictionary(d => d.Name, d => d.Path, conflictComparer: StringComparer.Ordinal); // all files; first path wins
 
 var typeChecked = Parsed
     .Combine(symbols)
-    .Select(pair => (File: pair.Left, Symbols: pair.Right.Restrict(pair.Left.ReferencedNames))) // optional narrowing
+    .Select(pair => (File: pair.Left, Symbols: SymbolTable.Restrict(pair.Right, pair.Left.ReferencedNames))) // optional narrowing
     .Select(pair => TypeCheck(pair.File, pair.Symbols));
 ```
 
-An edit that leaves the table equal (for example a comment) does not rerun other files' type checks, and the optional `Restrict` keeps unaffected files' inputs equal when unrelated declarations change. See [Cross-item lookups](performance-guide.md#cross-item-lookups-eg-symbol-tables) and [`examples/CrossFileSymbolsExample`](../examples/CrossFileSymbolsExample/).
+`CollectToDictionary` updates the table from the changed files only. An edit that leaves the table equal (for example a comment) does not rerun other files' type checks, and the optional `Restrict` keeps unaffected files' inputs equal when unrelated declarations change. See [Cross-item lookups](performance-guide.md#cross-item-lookups-eg-symbol-tables) and [`examples/CrossFileSymbolsExample`](../examples/CrossFileSymbolsExample/).
 
 ### Equality matters
 

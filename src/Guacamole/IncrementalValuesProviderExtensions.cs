@@ -159,6 +159,93 @@ public static class IncrementalValuesProviderExtensions
         return CreateCollectProvider(source, collectNode, metadata);
     }
 
+    /// <summary>
+    /// Collects all values into an immutable dictionary, mapping each value to a key and a value, and
+    /// keeps it up to date in proportion to the changed items rather than to the whole collection.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Use it instead of <c>Collect().Select(merge)</c> to build a lookup table over a collection
+    /// (for example a symbol table: name to declaring file). After K items of an N-item collection
+    /// change, the dictionary is updated from the collection's item-level delta in O(K) dictionary
+    /// operations; the selectors run only for new and changed items (they are memoized per item,
+    /// like <c>Select</c>). When no delta is available (the first computation, more changes than about
+    /// half the items, an input that records no deltas) the dictionary is rebuilt from all items.
+    /// </para>
+    /// <para>
+    /// <b>Duplicates and conflicts.</b> Several items may map to the same key (sources have set
+    /// semantics, but stages after <c>Select</c> or <c>SelectMany</c> can produce duplicates). Items
+    /// that agree on the value (by <see cref="EqualityComparer{T}.Default"/>, element-wise for
+    /// immutable arrays) count once. When items map a key to different values, the smallest by
+    /// <paramref name="conflictComparer"/> wins (for example <c>StringComparer.Ordinal</c> over file
+    /// paths: the first declaration in path order); without a comparer the result is an error naming
+    /// a conflicting key, until the conflict goes away. The comparer must order distinct values
+    /// strictly: which of two values it considers equal is kept is unspecified.
+    /// </para>
+    /// <para>
+    /// <b>Determinism.</b> The dictionary's contents depend only on the items, not on their order, on
+    /// the order of the changes, or on when the provider is read (whether it was updated from deltas
+    /// or rebuilt). The enumeration order of an <see cref="ImmutableDictionary{TKey, TValue}"/> is
+    /// unspecified (it depends on the keys' hash codes, which vary between runs for strings): sort the
+    /// keys when the order matters, for example in output.
+    /// </para>
+    /// <para>
+    /// <b>Change detection.</b> When no key was added or removed and no key's value changed (by
+    /// <see cref="EqualityComparer{T}.Default"/>, element-wise for immutable arrays), the result is the
+    /// previous dictionary instance and counts as unchanged: the stages downstream of it stay cached
+    /// and output handlers registered on it are not called. A changed dictionary is a new instance,
+    /// recognized as changed without comparing it entry by entry. A key whose value is replaced by an
+    /// equal one keeps the previous value instance. An error in the input (or a selector that throws)
+    /// makes the result an error; the previous state is kept, so the next change is again applied in
+    /// O(K). Identical calls (same input, delegates and comparers) reuse their node.
+    /// </para>
+    /// </remarks>
+    /// <typeparam name="T">Value type of the collection</typeparam>
+    /// <typeparam name="TKey">Key type</typeparam>
+    /// <typeparam name="TValue">Dictionary value type</typeparam>
+    /// <param name="source">Source values provider</param>
+    /// <param name="keySelector">Maps a value to its key (must not return <c>null</c>)</param>
+    /// <param name="valueSelector">Maps a value to its dictionary value</param>
+    /// <param name="conflictComparer">Chooses among different values for the same key: the smallest
+    /// wins. When <c>null</c>, such a key makes the result an error.</param>
+    /// <param name="keyComparer">Equality comparer for the keys (default: <see cref="EqualityComparer{T}.Default"/>,
+    /// element-wise for immutable arrays); also the comparer of the resulting dictionary</param>
+    /// <param name="metadata">Optional metadata for the new provider</param>
+    /// <returns>A value provider of the dictionary</returns>
+    /// <example>
+    /// A symbol table over parsed files, the first declaration in path order winning:
+    /// <code>
+    /// IncrementalValueProvider&lt;ImmutableDictionary&lt;string, string&gt;&gt; symbols = parsedFiles
+    ///     .SelectMany(file =&gt; file.Declarations.Select(name =&gt; (Name: name, file.Path)))
+    ///     .CollectToDictionary(d =&gt; d.Name, d =&gt; d.Path, conflictComparer: StringComparer.Ordinal);
+    /// </code>
+    /// </example>
+    public static IncrementalValueProvider<ImmutableDictionary<TKey, TValue>> CollectToDictionary<T, TKey, TValue>(
+        this IncrementalValuesProvider<T> source,
+        Func<T, TKey> keySelector,
+        Func<T, TValue> valueSelector,
+        IComparer<TValue>? conflictComparer = null,
+        IEqualityComparer<TKey>? keyComparer = null,
+        ProviderMetadata metadata = default)
+        where TKey : notnull
+    {
+        ArgumentNullException.ThrowIfNull(keySelector);
+        ArgumentNullException.ThrowIfNull(valueSelector);
+
+        // Reuse the node of an identical earlier call (same inputs, delegates and comparers)
+        // so pipelines built repeatedly (e.g. in property getters) share one node and cache.
+        var node = source.Graph.GetOrCreateNode(
+            new NodeReuseKey(typeof(CollectToDictionaryNode<T, TKey, TValue>), [source.Node.Id], keySelector, valueSelector, conflictComparer, keyComparer),
+            () => new CollectToDictionaryNode<T, TKey, TValue>(source.Node, keySelector, valueSelector, conflictComparer, keyComparer));
+
+        // Preserve metadata from source if no metadata is explicitly provided
+        var finalMetadata = metadata == default
+            ? source.Metadata
+            : metadata;
+
+        return new IncrementalValueProvider<ImmutableDictionary<TKey, TValue>>(node, source.Graph, finalMetadata);
+    }
+
     private static IncrementalValueProvider<ImmutableArray<T>> CreateCollectProvider<T>(
         IncrementalValuesProvider<T> source,
         CollectValuesNode<T> collectNode,
@@ -376,7 +463,6 @@ public static class IncrementalValuesProviderExtensions
 
     /// <summary>
     /// Merges two values providers into a single provider containing all values from both collections.
-    /// This is a convenience method that combines Collect + Combine + SelectMany operations.
     /// </summary>
     /// <typeparam name="T">Value type</typeparam>
     /// <param name="first">First values provider</param>
@@ -386,15 +472,13 @@ public static class IncrementalValuesProviderExtensions
     /// <remarks>
     /// <para>
     /// This method merges two separate value collections into one. The order is first collection followed by second collection.
+    /// The values are compared with <see cref="EqualityComparer{T}.Default"/> (element-wise for immutable arrays) to decide
+    /// whether the merged collection changed. Identical calls (same inputs) reuse their node.
     /// </para>
     /// <para>
-    /// <strong>Performance Note:</strong> This operation has overhead from collecting both providers into arrays
-    /// before merging. Each time either input changes, both collections are re-collected and concatenated.
-    /// For frequently changing inputs with large collections, consider alternative architectures.
-    /// </para>
-    /// <para>
-    /// <strong>Implementation:</strong>
-    /// Equivalent to: <c>first.Collect().Combine(second.Collect()).SelectMany(tuple => tuple.Item1.Concat(tuple.Item2))</c>
+    /// <strong>Performance:</strong> the merged collection is a new array (a memory copy of both inputs) whenever either
+    /// input changes. When the inputs record item-level deltas (sources and the collection operators do), the merge passes
+    /// them on, so the stages after it update only the changed items (see the performance guide, "Item-level deltas").
     /// </para>
     /// </remarks>
     /// <example>
@@ -415,20 +499,8 @@ public static class IncrementalValuesProviderExtensions
     public static IncrementalValuesProvider<T> Merge<T>(
         this IncrementalValuesProvider<T> first,
         IncrementalValuesProvider<T> second,
-        ProviderMetadata metadata = default)
-    {
-        // Collect both providers to immutable arrays
-        var firstCollected = first.Collect();
-        var secondCollected = second.Collect();
-
-        // Combine into a tuple
-        var combined = firstCollected.Combine(secondCollected);
-
-        // SelectMany to flatten both arrays into a single collection
-        return combined.SelectMany(
-            tuple => tuple.Item1.Concat(tuple.Item2),
-            metadata);
-    }
+        ProviderMetadata metadata = default) =>
+        CreateMerge(first, second, null, metadata);
 
     /// <summary>
     /// Merges two values providers into a single provider containing all values from both collections,
@@ -437,15 +509,12 @@ public static class IncrementalValuesProviderExtensions
     /// <typeparam name="T">Value type</typeparam>
     /// <param name="first">First values provider</param>
     /// <param name="second">Second values provider</param>
-    /// <param name="comparer">Custom equality comparer for values: used to decide whether either input,
-    /// and the merged result, changed</param>
+    /// <param name="comparer">Custom equality comparer for values: used to decide whether the merged collection changed</param>
     /// <param name="metadata">Optional metadata for the new provider</param>
     /// <returns>A new values provider with all values from both inputs (first, then second)</returns>
     /// <remarks>
-    /// Equivalent to
-    /// <c>first.Collect(comparer).Combine(second.Collect(comparer)).SelectMany(tuple =&gt; tuple.Item1.Concat(tuple.Item2), comparer)</c>;
-    /// see <see cref="Merge{T}(IncrementalValuesProvider{T}, IncrementalValuesProvider{T}, ProviderMetadata)"/>.
-    /// Identical calls (same inputs and comparer) reuse their nodes.
+    /// See <see cref="Merge{T}(IncrementalValuesProvider{T}, IncrementalValuesProvider{T}, ProviderMetadata)"/>.
+    /// Identical calls (same inputs and comparer) reuse their node.
     /// </remarks>
     public static IncrementalValuesProvider<T> Merge<T>(
         this IncrementalValuesProvider<T> first,
@@ -454,13 +523,27 @@ public static class IncrementalValuesProviderExtensions
         ProviderMetadata metadata = default)
     {
         ArgumentNullException.ThrowIfNull(comparer);
+        return CreateMerge(first, second, comparer, metadata);
+    }
 
-        var combined = first.Collect(comparer).Combine(second.Collect(comparer));
+    private static IncrementalValuesProvider<T> CreateMerge<T>(
+        IncrementalValuesProvider<T> first,
+        IncrementalValuesProvider<T> second,
+        IEqualityComparer<T>? comparer,
+        ProviderMetadata metadata)
+    {
+        // Reuse the node of an identical earlier call (same inputs, delegates and comparer)
+        // so pipelines built repeatedly (e.g. in property getters) share one node and cache.
+        var mergeNode = first.Graph.GetOrCreateNode(
+            new NodeReuseKey(typeof(MergeValuesNode<T>), [first.Node.Id, second.Node.Id], comparer),
+            () => new MergeValuesNode<T>(first.Node, second.Node, comparer));
 
-        return combined.SelectMany(
-            tuple => tuple.Item1.Concat(tuple.Item2),
-            comparer,
-            metadata);
+        // Preserve metadata from the first provider if no metadata is explicitly provided
+        var finalMetadata = metadata == default
+            ? first.Metadata
+            : metadata;
+
+        return new IncrementalValuesProvider<T>(mergeNode, first.Graph, finalMetadata);
     }
 
     /// <summary>
@@ -558,9 +641,9 @@ public static class IncrementalValuesProviderExtensions
 
 // Supporting node implementations for extensions
 //
-// Select, Where, SelectMany and values.Combine(value) record the delta of each output they derive
-// from their previous output and their input's delta, and Collect compares through its input's
-// delta (see the design note in Pipeline/ArrayDelta.cs). Each of them counts the computations that
+// Select, Where, SelectMany, values.Combine(value) and Merge record the delta of each output they
+// derive from their previous output and their inputs' deltas, and Collect compares through its
+// input's delta (see the design note in Pipeline/ArrayDelta.cs). Each of them counts the computations that
 // used a delta (DeltaComputations, for tests).
 
 internal sealed class SelectManyValuesNode<TSource, TResult> : ICollectionComputationNode<TResult>, IHasComparer<TResult>, IDeltaSource<TResult>
@@ -575,7 +658,7 @@ internal sealed class SelectManyValuesNode<TSource, TResult> : ICollectionComput
     private sealed record State(TSource[] Input, TResult[][] PerItem, int[] Offsets, TResult[] Output);
 
     private State? _state;
-    private ArrayDelta<TResult>? _delta;
+    private readonly DeltaHistory<TResult> _deltas = new();
     private int _deltaComputations;
 
     public SelectManyValuesNode(ICollectionComputationNode<TSource> source, Func<TSource, IEnumerable<TResult>> selector, IEqualityComparer<TResult>? comparer)
@@ -595,7 +678,7 @@ internal sealed class SelectManyValuesNode<TSource, TResult> : ICollectionComput
     internal int DeltaComputations => Volatile.Read(ref _deltaComputations);
 
     public ArrayDelta<TResult>? GetDelta(TResult[] from, TResult[] to) =>
-        Volatile.Read(ref _delta) is { } delta && delta.Describes(from, to) ? delta : null;
+        _deltas.Get(from, to);
 
     public Result<IEnumerable<TResult>, ComputationError> Compute(ComputationContext context)
     {
@@ -627,12 +710,12 @@ internal sealed class SelectManyValuesNode<TSource, TResult> : ICollectionComput
                 Interlocked.Increment(ref _deltaComputations);
                 output = ApplyDelta(delta.Edits, state, perItem, out offsets, out var edits);
                 if (!ReferenceEquals(output, state.Output))
-                    Volatile.Write(ref _delta, new ArrayDelta<TResult>(state.Output, output, edits));
+                    _deltas.Record(new ArrayDelta<TResult>(state.Output, output, edits));
             }
             else
             {
                 output = Flatten(perItem, out offsets);
-                Volatile.Write(ref _delta, null);
+                _deltas.Clear();
             }
 
             Volatile.Write(ref _state, new State(input, perItem, offsets, output));
@@ -830,7 +913,7 @@ internal sealed class SelectValuesNode<TSource, TResult> : ICollectionComputatio
     private readonly Func<TSource, TResult> _selector;
     private readonly IEqualityComparer<TResult>? _comparer;
     private readonly ItemMemo<TSource, TResult> _memo = new();
-    private ArrayDelta<TResult>? _delta;
+    private readonly DeltaHistory<TResult> _deltas = new();
     private int _deltaComputations;
 
     public SelectValuesNode(ICollectionComputationNode<TSource> source, Func<TSource, TResult> selector, IEqualityComparer<TResult>? comparer)
@@ -850,7 +933,7 @@ internal sealed class SelectValuesNode<TSource, TResult> : ICollectionComputatio
     internal int DeltaComputations => Volatile.Read(ref _deltaComputations);
 
     public ArrayDelta<TResult>? GetDelta(TResult[] from, TResult[] to) =>
-        Volatile.Read(ref _delta) is { } delta && delta.Describes(from, to) ? delta : null;
+        _deltas.Get(from, to);
 
     public Result<IEnumerable<TResult>, ComputationError> Compute(ComputationContext context)
     {
@@ -879,12 +962,12 @@ internal sealed class SelectValuesNode<TSource, TResult> : ICollectionComputatio
                 {
                     var previous = step.PreviousValues!;
                     var edits = Array.FindAll(delta.Edits, e => e.From < 0 || e.To < 0 || !Identity<TResult>.Same(previous[e.From], results[e.To]));
-                    Volatile.Write(ref _delta, new ArrayDelta<TResult>(previous, results, edits));
+                    _deltas.Record(new ArrayDelta<TResult>(previous, results, edits));
                 }
             }
             else
             {
-                Volatile.Write(ref _delta, null);
+                _deltas.Clear();
             }
 
             return Result<IEnumerable<TResult>, ComputationError>.Success(results);
@@ -907,7 +990,7 @@ internal sealed class WhereValuesNode<T> : ICollectionComputationNode<T>, IHasCo
     private sealed record State(T[] Input, bool[] Keep, T[] Output);
 
     private State? _state;
-    private ArrayDelta<T>? _delta;
+    private readonly DeltaHistory<T> _deltas = new();
     private int _deltaComputations;
 
     public WhereValuesNode(ICollectionComputationNode<T> source, Func<T, bool> predicate, IEqualityComparer<T>? comparer)
@@ -927,7 +1010,7 @@ internal sealed class WhereValuesNode<T> : ICollectionComputationNode<T>, IHasCo
     internal int DeltaComputations => Volatile.Read(ref _deltaComputations);
 
     public ArrayDelta<T>? GetDelta(T[] from, T[] to) =>
-        Volatile.Read(ref _delta) is { } delta && delta.Describes(from, to) ? delta : null;
+        _deltas.Get(from, to);
 
     public Result<IEnumerable<T>, ComputationError> Compute(ComputationContext context)
     {
@@ -958,12 +1041,12 @@ internal sealed class WhereValuesNode<T> : ICollectionComputationNode<T>, IHasCo
                 Interlocked.Increment(ref _deltaComputations);
                 output = ApplyDelta(delta.Edits, state, items, keep, out var edits);
                 if (!ReferenceEquals(output, state.Output))
-                    Volatile.Write(ref _delta, new ArrayDelta<T>(state.Output, output, edits));
+                    _deltas.Record(new ArrayDelta<T>(state.Output, output, edits));
             }
             else
             {
                 output = Filter(items, keep);
-                Volatile.Write(ref _delta, null);
+                _deltas.Clear();
             }
 
             Volatile.Write(ref _state, new State(items, keep, output));
@@ -1082,7 +1165,7 @@ internal sealed class CombineValuesWithValueNode<TLeft, TRight> : ICollectionCom
     private sealed record State(TLeft[] Left, TRight Right, (TLeft, TRight)[] Output);
 
     private State? _state;
-    private ArrayDelta<(TLeft, TRight)>? _delta;
+    private readonly DeltaHistory<(TLeft, TRight)> _deltas = new();
     private int _deltaComputations;
 
     public CombineValuesWithValueNode(ICollectionComputationNode<TLeft> left, IComputationNode<TRight> right)
@@ -1101,7 +1184,7 @@ internal sealed class CombineValuesWithValueNode<TLeft, TRight> : ICollectionCom
     internal int DeltaComputations => Volatile.Read(ref _deltaComputations);
 
     public ArrayDelta<(TLeft, TRight)>? GetDelta((TLeft, TRight)[] from, (TLeft, TRight)[] to) =>
-        Volatile.Read(ref _delta) is { } delta && delta.Describes(from, to) ? delta : null;
+        _deltas.Get(from, to);
 
     public Result<IEnumerable<(TLeft, TRight)>, ComputationError> Compute(ComputationContext context)
     {
@@ -1127,7 +1210,7 @@ internal sealed class CombineValuesWithValueNode<TLeft, TRight> : ICollectionCom
             if (rightResult.IsNone)
             {
                 Volatile.Write(ref _state, null);
-                Volatile.Write(ref _delta, null);
+                _deltas.Clear();
                 return Result<IEnumerable<(TLeft, TRight)>, ComputationError>.Success(Array.Empty<(TLeft, TRight)>());
             }
 
@@ -1143,7 +1226,7 @@ internal sealed class CombineValuesWithValueNode<TLeft, TRight> : ICollectionCom
             {
                 Interlocked.Increment(ref _deltaComputations);
                 combined = ApplyDelta(delta.Edits, state.Output, left, right);
-                Volatile.Write(ref _delta, new ArrayDelta<(TLeft, TRight)>(state.Output, combined, delta.Edits));
+                _deltas.Record(new ArrayDelta<(TLeft, TRight)>(state.Output, combined, delta.Edits));
             }
             else
             {
@@ -1151,7 +1234,7 @@ internal sealed class CombineValuesWithValueNode<TLeft, TRight> : ICollectionCom
                 combined = new (TLeft, TRight)[left.Length];
                 for (var i = 0; i < left.Length; i++)
                     combined[i] = (left[i], right);
-                Volatile.Write(ref _delta, null);
+                _deltas.Clear();
             }
 
             Volatile.Write(ref _state, new State(left, right, combined));
@@ -1190,6 +1273,125 @@ internal sealed class CombineValuesWithValueNode<TLeft, TRight> : ICollectionCom
         }
 
         Array.Copy(previous, from, output, to, previous.Length - from);
+        return output;
+    }
+}
+
+/// <summary>
+/// Concatenates two collections (first, then second). When both inputs recorded the deltas from the
+/// arrays the previous output was built from (or did not change), the output's delta is their
+/// concatenation, the second's edits shifted past the first's items.
+/// </summary>
+internal sealed class MergeValuesNode<T> : ICollectionComputationNode<T>, IHasComparer<T>, IDeltaSource<T>
+{
+    private readonly ICollectionComputationNode<T> _first;
+    private readonly ICollectionComputationNode<T> _second;
+    private readonly IEqualityComparer<T>? _comparer;
+
+    // The latest output and the input arrays it concatenates
+    private sealed record State(T[] First, T[] Second, T[] Output);
+
+    private State? _state;
+    private readonly DeltaHistory<T> _deltas = new();
+    private int _deltaComputations;
+
+    public MergeValuesNode(ICollectionComputationNode<T> first, ICollectionComputationNode<T> second, IEqualityComparer<T>? comparer)
+    {
+        _first = first ?? throw new ArgumentNullException(nameof(first));
+        _second = second ?? throw new ArgumentNullException(nameof(second));
+        _comparer = comparer;
+        Id = NodeIdGenerator.Generate("Merge");
+        Dependencies = ImmutableHashSet.Create(_first.Id, _second.Id);
+    }
+
+    public string Id { get; }
+    public Type OutputType => typeof(IEnumerable<T>);
+    public ImmutableHashSet<string> Dependencies { get; }
+    public IEqualityComparer<T> Comparer => _comparer ?? DefaultEqualityComparer<T>.Instance;
+
+    internal int DeltaComputations => Volatile.Read(ref _deltaComputations);
+
+    public ArrayDelta<T>? GetDelta(T[] from, T[] to) => _deltas.Get(from, to);
+
+    public Result<IEnumerable<T>, ComputationError> Compute(ComputationContext context)
+    {
+        // Check cache first
+        if (context.CachedValues.TryGetValue(Id, out var cachedValue) && cachedValue is IEnumerable<T> cached)
+        {
+            return Result<IEnumerable<T>, ComputationError>.Success(cached);
+        }
+
+        try
+        {
+            var firstResult = context.Read(_first);
+            if (!firstResult.IsSuccess)
+                return firstResult;
+
+            var secondResult = context.Read(_second);
+            if (!secondResult.IsSuccess)
+                return secondResult;
+
+            var first = firstResult.ValueOrDefault as T[] ?? firstResult.ValueOrDefault!.ToArray();
+            var second = secondResult.ValueOrDefault as T[] ?? secondResult.ValueOrDefault!.ToArray();
+
+            var state = Volatile.Read(ref _state);
+            T[] output;
+            if (state != null && ReferenceEquals(state.First, first) && ReferenceEquals(state.Second, second))
+            {
+                output = state.Output;
+            }
+            else
+            {
+                output = Concat(first, second);
+                if (state != null
+                    && InputEdits(_first, state.First, first) is { } firstEdits
+                    && InputEdits(_second, state.Second, second) is { } secondEdits)
+                {
+                    Interlocked.Increment(ref _deltaComputations);
+                    var edits = new ItemEdit[firstEdits.Length + secondEdits.Length];
+                    firstEdits.CopyTo(edits, 0);
+                    for (var k = 0; k < secondEdits.Length; k++)
+                    {
+                        var edit = secondEdits[k];
+                        edits[firstEdits.Length + k] = new ItemEdit(
+                            edit.From >= 0 ? edit.From + state.First.Length : -1,
+                            edit.To >= 0 ? edit.To + first.Length : -1);
+                    }
+
+                    if (!ReferenceEquals(output, state.Output))
+                        _deltas.Record(new ArrayDelta<T>(state.Output, output, edits));
+                }
+                else
+                {
+                    _deltas.Clear();
+                }
+            }
+
+            Volatile.Write(ref _state, new State(first, second, output));
+            return Result<IEnumerable<T>, ComputationError>.Success(output);
+        }
+        catch (Exception ex)
+        {
+            return Result<IEnumerable<T>, ComputationError>.Error(ComputationError.FromException(ex));
+        }
+    }
+
+    // The edits of an input from the array the previous output was built from: none if it is the
+    // same array, the input's recorded delta otherwise (null if there is none)
+    private static ItemEdit[]? InputEdits(ICollectionComputationNode<T> input, T[] previous, T[] current) =>
+        ReferenceEquals(previous, current) ? [] : ArrayDelta.Get(input, previous, current)?.Edits;
+
+    // An empty input contributes nothing: the other (immutable) array is the output
+    private static T[] Concat(T[] first, T[] second)
+    {
+        if (second.Length == 0)
+            return first;
+        if (first.Length == 0)
+            return second;
+
+        var output = new T[first.Length + second.Length];
+        first.CopyTo(output, 0);
+        second.CopyTo(output, first.Length);
         return output;
     }
 }
