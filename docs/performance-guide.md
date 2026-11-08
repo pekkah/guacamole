@@ -185,7 +185,7 @@ A batch is all or nothing: if an operation would fail (`Replace` of an item that
   ```
 - Outside the cache, collection `Select`, `Where` and `SelectMany` stages keep their per-item memo (the latest input and results), and `Where`, `SelectMany` and `values.Combine(value)` also keep their latest output for [item-level deltas](#item-level-deltas) (`SelectMany` also an offset per item, `Combine` its latest input). That is about one or two N-element arrays per collection stage, released when the node is trimmed.
 - Nodes created by operator calls stay registered in the graph until `TrimUnusedNodes()` (called explicitly, or automatically with `AutoTrimInterval`) removes the ones nothing references anymore (see [Build Pipelines Once](#build-pipelines-once)).
-- `Dispose()` unsubscribes the context from its sources and drops its output registrations.
+- `Dispose()` unsubscribes the context from its sources and drops its output registrations; reading its providers or changing its sources afterwards throws `ObjectDisposedException` (a single volatile read on each provider read).
 
 ## Thread Safety and Performance
 

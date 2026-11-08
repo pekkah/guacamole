@@ -151,11 +151,26 @@ public abstract partial class ComputingContextBase : IDisposable
     /// Calling it again does nothing.
     /// </summary>
     /// <remarks>
-    /// The source accessors keep accepting changes, but the context no longer tracks them: its
-    /// output handlers do not run, and its providers are not invalidated, so reading them may return
-    /// values computed before the change. Do not use a disposed context's providers.
-    /// <see cref="RegisterOutput{T}(IncrementalValueProvider{T}, Action{T, ComputingContextBase})"/>
-    /// and <see cref="TrimUnusedNodes"/> throw <see cref="ObjectDisposedException"/> afterwards.
+    /// <para>
+    /// A disposed context no longer tracks source changes, so it refuses to be used rather than
+    /// return stale values. Afterwards:
+    /// </para>
+    /// <list type="bullet">
+    /// <item><description>reading any of its providers (<see cref="IncrementalValueProvider{T}.GetValue"/>,
+    /// <see cref="IncrementalValueProvider{T}.Value"/>, <see cref="IncrementalValueProvider{T}.TryGetValue"/>,
+    /// <see cref="IncrementalValuesProvider{T}.GetValues"/>, <see cref="IncrementalValuesProvider{T}.Values"/>),
+    /// including pipelines built from them, throws <see cref="ObjectDisposedException"/>;</description></item>
+    /// <item><description>changing its sources (<c>Set</c>, <c>Push</c>, <c>PushRange</c>, <c>Remove</c>,
+    /// <c>Replace</c>, <c>Clear</c>, batch <c>Commit</c>) throws <see cref="ObjectDisposedException"/>;
+    /// reading a source's own current value (<c>GetValue</c>, <c>GetSnapshot</c>) still works;</description></item>
+    /// <item><description><see cref="RegisterOutput{T}(IncrementalValueProvider{T}, Action{T, ComputingContextBase})"/>
+    /// and <see cref="TrimUnusedNodes"/> throw <see cref="ObjectDisposedException"/>, and output handlers
+    /// no longer run.</description></item>
+    /// </list>
+    /// <para>
+    /// Reads and changes already in progress on other threads when <c>Dispose</c> is called may still
+    /// complete.
+    /// </para>
     /// </remarks>
     public virtual void Dispose()
     {
@@ -166,6 +181,9 @@ public abstract partial class ComputingContextBase : IDisposable
                 return;
 
             _disposed = true;
+
+            // Providers and sources of this context throw from now on (they share the graph state)
+            Graph.SharedState.MarkDisposed();
             unsubscriptions = _sourceUnsubscriptions.ToArray();
             _sourceUnsubscriptions.Clear();
             foreach (var registration in _outputRegistrations)
@@ -383,6 +401,11 @@ public abstract partial class ComputingContextBase : IDisposable
             try
             {
                 registration.Execute(this);
+            }
+            catch (ObjectDisposedException) when (_disposed)
+            {
+                // The context was disposed while this change was being delivered: its providers
+                // throw now, and its handlers are no longer called
             }
             catch (Exception ex)
             {

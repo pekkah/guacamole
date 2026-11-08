@@ -64,7 +64,7 @@ public partial class ComputingContextBaseTests
     }
 
     [Fact]
-    public void Dispose_ThenSourceChanges_DoesNotThrowOrTriggerOutputs()
+    public void Dispose_ThenSourceChanges_ThrowAndDoNotTriggerOutputs()
     {
         var context = new LifecycleTestContext();
         var source = context.NameSource;
@@ -75,8 +75,8 @@ public partial class ComputingContextBaseTests
 
         context.Dispose();
 
-        // The disposed context must have unsubscribed from its sources
-        source.Set("after");
+        // The source refuses changes, and the disposed context has unsubscribed from it
+        Assert.Throws<ObjectDisposedException>(() => source.Set("after"));
         Assert.Equal(1, handlerCalls);
     }
 

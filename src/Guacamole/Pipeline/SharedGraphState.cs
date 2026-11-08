@@ -45,6 +45,32 @@ internal sealed class SharedGraphState
     /// </summary>
     public ConditionalWeakTable<IComputationNode, NodeHandle> Handles { get; } = new();
 
+    private volatile bool _disposed;
+
+    /// <summary>
+    /// Whether the context owning this graph has been disposed (see
+    /// <see cref="ComputingContextBase.Dispose"/>). Once set, providers of the graph and the sources
+    /// owned by the context throw <see cref="ObjectDisposedException"/>: the context no longer tracks
+    /// source changes, so its cached values could be stale. One volatile read.
+    /// </summary>
+    public bool IsDisposed => _disposed;
+
+    /// <summary>
+    /// Sets <see cref="IsDisposed"/>. Called once by <see cref="ComputingContextBase.Dispose"/>.
+    /// </summary>
+    public void MarkDisposed() => _disposed = true;
+
+    /// <summary>
+    /// Throws <see cref="ObjectDisposedException"/> for a read or a source change after
+    /// <see cref="MarkDisposed"/>. Kept out of line so that callers' hot paths stay small.
+    /// </summary>
+    [System.Diagnostics.CodeAnalysis.DoesNotReturn]
+    [MethodImpl(MethodImplOptions.NoInlining)]
+    public static void ThrowDisposed(string? name) =>
+        throw new ObjectDisposedException(
+            name,
+            "The computing context that owns this provider or source has been disposed.");
+
     private long _revision;
 
     /// <summary>

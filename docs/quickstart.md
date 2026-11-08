@@ -317,7 +317,7 @@ Handler behavior:
 - Handlers run synchronously on the thread that changed the source.
 - If handlers throw, the remaining handlers still run and the exceptions are rethrown together as an `AggregateException` from the `Push`/`Set`/... call.
 - `RegisterOutput` returns an `IDisposable`: disposing it unregisters that handler only (disposing twice is a no-op).
-- After `Dispose()`, the context no longer listens to its sources and all of its handlers are dropped.
+- After `Dispose()`, the context no longer listens to its sources and all of its handlers are dropped; reading its providers or changing its sources throws `ObjectDisposedException`.
 
 ## Troubleshooting
 

@@ -16,6 +16,12 @@ namespace Guacamole;
 /// <see cref="AsProvider"/> enumerate items in the order they were pushed, so downstream results such
 /// as <c>Collect()</c> are deterministic. <see cref="Replace"/> keeps the replaced item's position;
 /// removing an item and pushing it again moves it to the end.
+/// <para>
+/// Once the context that created the source has been disposed, the operations that change the source
+/// (<see cref="Push"/>, <see cref="Remove"/>, <see cref="Replace"/>, <see cref="Clear"/>, and
+/// <c>PushRange</c> and batch <c>Commit</c>) throw <see cref="ObjectDisposedException"/>;
+/// <see cref="GetSnapshot"/> still returns the current items.
+/// </para>
 /// </remarks>
 /// <typeparam name="T">Type of items this source produces</typeparam>
 public interface IIncrementalSource<T>
@@ -84,6 +90,10 @@ public interface IIncrementalSource<T>
 /// <summary>
 /// Represents a single-value source (non-collection).
 /// </summary>
+/// <remarks>
+/// Once the context that created the source has been disposed, <see cref="Set"/> throws
+/// <see cref="ObjectDisposedException"/>; <see cref="GetValue"/> still returns the current value.
+/// </remarks>
 /// <typeparam name="T">Type of value this source produces</typeparam>
 public interface IIncrementalValueSource<T>
 {
@@ -109,6 +119,7 @@ public interface IIncrementalValueSource<T>
     /// </remarks>
     /// <param name="value">The new value</param>
     /// <exception cref="ArgumentNullException"><paramref name="value"/> is <c>null</c>.</exception>
+    /// <exception cref="ObjectDisposedException">The context that created the source has been disposed.</exception>
     void Set(T value);
 
     /// <summary>

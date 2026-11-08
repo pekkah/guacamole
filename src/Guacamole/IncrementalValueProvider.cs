@@ -81,9 +81,13 @@ public readonly record struct IncrementalValueProvider<T>
     /// Result containing the computed value, an error, or no value
     /// (<see cref="Result{TValue, TError}.IsNone"/>) when a <c>Where</c> upstream rejected its input
     /// </returns>
+    /// <exception cref="ObjectDisposedException">The context owning the provider has been disposed
+    /// (see <see cref="ComputingContextBase.Dispose"/>).</exception>
     public Result<T, ComputationError> GetValue()
     {
         var graph = Graph;
+        if (graph.SharedState.IsDisposed)
+            SharedGraphState.ThrowDisposed(Node.Id);
 
         // Fast path: verified since the last source change
         if (graph.ValueCache.TryGet(Node.Id, out var cached)
@@ -107,6 +111,7 @@ public readonly record struct IncrementalValueProvider<T>
     /// <exception cref="InvalidOperationException">
     /// The computation failed, or the provider has no value because a <c>Where</c> upstream rejected its input.
     /// </exception>
+    /// <exception cref="ObjectDisposedException">The context owning the provider has been disposed.</exception>
     public T Value
     {
         get
@@ -128,6 +133,7 @@ public readonly record struct IncrementalValueProvider<T>
     /// value because a <c>Where</c> upstream rejected its input
     /// </returns>
     /// <exception cref="InvalidOperationException">The computation failed.</exception>
+    /// <exception cref="ObjectDisposedException">The context owning the provider has been disposed.</exception>
     public bool TryGetValue([MaybeNullWhen(false)] out T value)
     {
         var result = GetValue();
@@ -219,9 +225,13 @@ public readonly record struct IncrementalValuesProvider<T>
     /// </para>
     /// </remarks>
     /// <returns>Result containing the computed values or error</returns>
+    /// <exception cref="ObjectDisposedException">The context owning the provider has been disposed
+    /// (see <see cref="ComputingContextBase.Dispose"/>).</exception>
     public Result<IReadOnlyList<T>, ComputationError> GetValues()
     {
         var graph = Graph;
+        if (graph.SharedState.IsDisposed)
+            SharedGraphState.ThrowDisposed(Node.Id);
 
         // Fast path: verified since the last source change
         if (graph.ValueCache.TryGet(Node.Id, out var cached)
@@ -258,6 +268,8 @@ public readonly record struct IncrementalValuesProvider<T>
     /// <see cref="GetValues"/>).
     /// Throws if computation fails. Use GetValues() for Result-based error handling.
     /// </summary>
+    /// <exception cref="InvalidOperationException">The computation failed.</exception>
+    /// <exception cref="ObjectDisposedException">The context owning the provider has been disposed.</exception>
     public IReadOnlyList<T> Values
     {
         get

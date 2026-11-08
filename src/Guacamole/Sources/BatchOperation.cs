@@ -58,7 +58,8 @@ public interface IBatchOperation<T> : IDisposable
     /// <exception cref="InvalidOperationException">The batch was already committed, or a
     /// <see cref="Replace"/> would fail (nothing was applied).</exception>
     /// <exception cref="ArgumentNullException">An item is <c>null</c> (nothing was applied).</exception>
-    /// <exception cref="ObjectDisposedException">The batch was disposed.</exception>
+    /// <exception cref="ObjectDisposedException">The batch was disposed, or the context that created
+    /// the source has been disposed (nothing was applied).</exception>
     void Commit();
 
     /// <summary>

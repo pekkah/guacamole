@@ -73,6 +73,7 @@ internal sealed class IncrementalValueSource<T> : IIncrementalValueSource<T>
     /// </summary>
     public void Set(T value)
     {
+        ThrowIfContextDisposed();
         ArgumentNullException.ThrowIfNull(value);
 
         bool changed = false;
@@ -133,6 +134,16 @@ internal sealed class IncrementalValueSource<T> : IIncrementalValueSource<T>
         {
             _lock.ExitReadLock();
         }
+    }
+
+    /// <summary>
+    /// Throws <see cref="ObjectDisposedException"/> once the context owning this source has been
+    /// disposed: it no longer tracks changes, so a change would leave its providers stale.
+    /// </summary>
+    private void ThrowIfContextDisposed()
+    {
+        if (_graphProvider().SharedState.IsDisposed)
+            SharedGraphState.ThrowDisposed(SourceId);
     }
 
     /// <summary>
