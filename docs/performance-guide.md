@@ -111,7 +111,17 @@ var typeChecked = Parsed.Combine(symbols).Select(pair => TypeCheck(pair.Left, pa
       .Select(pair => TypeCheck(pair.File, pair.Symbols));                                                 // expensive, memoized
   ```
 
-Avoid giving each file its own single-value stage that reads the table (`symbols.Select(d => d.GetValueOrDefault(name))` per file): every edit that changes the table marks and reruns all of them (see the [fan-out benchmark](#benchmark-results)).
+- **Look up single keys with `Lookup`** when single-value stages each need a few entries of the table (a per-file or per-symbol provider). `symbols.Lookup(name)` depends on that key's entry only: an edit marks and reruns the lookups of the keys whose entries changed, and every other lookup stays cached. `Lookup` has no value while the key is absent (like a rejecting `Where`); `LookupOrDefault` gives `default` instead, so several lookups can be combined:
+
+  ```csharp
+  IncrementalValueProvider<(string? List, string? Option)> resolved = symbols.LookupOrDefault("List")
+      .Combine(symbols.LookupOrDefault("Option"))
+      .Select(pair => (List: pair.Item1, Option: pair.Item2));
+  ```
+
+  Avoid a stage that reads the whole table for one entry (`symbols.Select(d => d.GetValueOrDefault(name))`): every edit that changes the table marks and reruns all such stages (see the [fan-out benchmark](#benchmark-results)).
+
+  How it works: a change upstream of the table marks the table's stage and stops there, instead of marking every lookup. When the table is recomputed, it compares the looked-up keys of its old and new dictionaries (for `CollectToDictionary`, only the keys of the items that changed) and marks the lookups of the keys whose entries changed. A stage downstream of a lookup therefore brings the table up to date before it trusts its cached value, which costs one cached read of the table when nothing changed. A lookup into any other dictionary provider works the same way, comparing all looked-up keys on each change of the dictionary; a lookup into a source of dictionaries depends on the whole dictionary.
 
 With this structure, editing one file reruns its own parse and declaration extraction, an update of the table for its declarations, and the type checks of the files whose (narrowed) inputs changed. See [`examples/CrossFileSymbolsExample`](../examples/CrossFileSymbolsExample/) for a runnable version and `tests/Guacamole.Tests/Regressions/Issue25CrossFileSymbolLookupTests.cs` for the order-dependence it avoids.
 
@@ -207,6 +217,7 @@ A batch is all or nothing: if an operation would fail (`Replace` of an item that
   }
   ```
 - `CollectToDictionary` keeps a memo of each distinct item's (key, value) pair, the candidate values of each key and its latest dictionary (and the one before it): three N-entry structures, updated in place, so a change allocates only the dictionary nodes it replaces.
+- A dictionary stage read with `Lookup`/`LookupOrDefault` keeps, for each key ever looked up, a small record (the key's change-tracking state and its dependents), and a reference to the dictionary it compared last. These live as long as the dictionary stage, even after the lookups of a key have been trimmed.
 - Outside the cache, collection `Select`, `Where` and `SelectMany` stages keep their per-item memo (the latest input and results), and `Where`, `SelectMany` and `values.Combine(value)` also keep their latest output for [item-level deltas](#item-level-deltas) (`SelectMany` also an offset per item, `Combine` its latest input). That is about one or two N-element arrays per collection stage, released when the node is trimmed.
 - Nodes created by operator calls stay registered in the graph until `TrimUnusedNodes()` (called explicitly, or automatically with `AutoTrimInterval`) removes the ones nothing references anymore (see [Build Pipelines Once](#build-pipelines-once)).
 - `Dispose()` unsubscribes the context from its sources and drops its output registrations; reading its providers, changing its sources or beginning or committing a batch afterwards throws `ObjectDisposedException` (disposing a pending batch discards it quietly) (a single volatile read on each provider read).
@@ -229,7 +240,7 @@ The repository contains BenchmarkDotNet benchmarks in [`benchmarks/Guacamole.Ben
 | `CollectionChangeBenchmarks` | Replacing K of N items, then reading `Items.Select(work).Collect().Select(Sum)`, against recomputing all N items directly |
 | `CollectionPipelineBenchmarks` | Replacing K of 10,000 items, then reading a longer pipeline (`Combine` with a value, `Select`, `Where`, `SelectMany`, `Collect`, sum), against recomputing directly |
 | `SymbolTableBenchmarks` | A symbol table over 10,000 files after K of them changed: `Collect().Select(merge)` against `CollectToDictionary` |
-| `SymbolLookupFanOutBenchmarks` | One edit to one of N files, then reading per-file lookups into a `CollectToDictionary` table (`table.Select(d => ...)` per file, plus a result stage): all results or only the affected one, against the table alone and a direct computation |
+| `SymbolLookupFanOutBenchmarks` | One edit to one of N files, then reading per-file lookups into a `CollectToDictionary` table (`table.Select(d => ...)` per file, or per-key `Lookup`s, plus a result stage): all results or only the affected one, against the table alone and a direct computation |
 | `DeltaPropagationBenchmarks` | Item-level deltas for a stage that lags behind its input (4 changes, each read by another pipeline, before it reads) and through `Merge` (10,000 items, one replaced per read) |
 | `MemoryOverheadBenchmarks` | Building a context over N items and reading the total, against computing the results directly (time and allocations) |
 | `SourceFanOutBenchmarks` | 100 changes to a source read by N stages, then a read (time per change), against one change and a read |
@@ -284,14 +295,14 @@ It allocates about 420 KB per change and read (each stage's output array; the `C
 
 The merge sorts the 10,000 files by path and folds their 30,000 declarations into a sorted dictionary on every change. `CollectToDictionary` updates the K files' entries; what remains is mostly the `SelectMany` before it, which copies its 30,000 (name, path) pairs into a new array on every change (a large-object-heap allocation, hence the gen2 collections), and the source snapshot.
 
-**Per-file lookups into the table** (`SymbolLookupFanOutBenchmarks`, #95; the same files, each with its own lookup stage `table.Select(d => (d.GetValueOrDefault(a), d.GetValueOrDefault(b), d.GetValueOrDefault(c)))` for 3 referenced names and a result stage after it; each edit changes the table and the lookup of exactly one other file):
+**Per-file lookups into the table** (`SymbolLookupFanOutBenchmarks`, #95; the same files, each with its own lookup of 3 referenced names and a result stage after it; each edit changes the table and the lookup of exactly one other file). `Select` is a per-file stage reading the whole table, `table.Select(d => (d.GetValueOrDefault(a), d.GetValueOrDefault(b), d.GetValueOrDefault(c)))`; `Lookup` is `table.LookupOrDefault(a).Combine(table.LookupOrDefault(b)).Combine(table.LookupOrDefault(c))` (a node per key, shared by the files that reference it):
 
-| Files | Table only | Edit, read all N results | Edit, read the affected result | Direct (dictionary updated in place, N lookups) |
-|------:|-----------:|-------------------------:|-------------------------------:|------------------------------------------------:|
-| 1,000 | 23 µs, 70 KB | 1.26 ms, 523 KB | 87 µs, 71 KB | 47 µs, 0 B |
-| 10,000 | 0.41 ms, 668 KB | 17.5 ms, 5.1 MB | 1.39 ms, 669 KB | 0.51 ms, 0 B |
+| Files | Table only | Edit, read all N results: `Select` | `Lookup` | Edit, read the affected result: `Select` | `Lookup` | Direct (dictionary updated in place, N lookups) |
+|------:|-----------:|-----------------------------------:|---------:|-----------------------------------------:|---------:|------------------------------------------------:|
+| 1,000 | 22 µs, 70 KB | 1.34 ms, 523 KB | 0.41 ms, 220 KB | 95 µs, 71 KB | 34 µs, 71 KB | 40 µs, 0 B |
+| 10,000 | 0.53 ms, 668 KB | 23.5 ms, 5.1 MB | 4.9 ms, 2.1 MB | 1.56 ms, 669 KB | 0.60 ms, 670 KB | 0.66 ms, 0 B |
 
-Every lookup stage reads the whole table, and any edit produces a new table, so all N lookup stages are marked dirty and rerun when read; their equality cut-off keeps all but one result stage cached. That costs about 1.2-1.7 µs and 530 bytes per lookup stage per edit when all results are read (34x the direct computation at 10,000 files), and even when only one result is read, the dirty marking walks all 2N stages: about 65-100 ns per file per edit (1 ms at 10,000 files). Up to a few hundred files this is small. The collection pipeline with a narrowed table shown in [Cross-item lookups](#cross-item-lookups-eg-symbol-tables) also reruns its narrowing for every file when the table changes, but inside one stage per step instead of one cached stage per file (not measured here). A per-key lookup operator that marks only the readers of changed keys is tracked in #95.
+With `Select`, every lookup stage reads the whole table, and any edit produces a new table, so all N lookup stages are marked dirty and rerun when read; their equality cut-off keeps all but one result stage cached. That costs about 1.3-2.3 µs and 530 bytes per lookup stage per edit when all results are read, and even when only one result is read, the dirty marking walks all 2N stages: about 70-100 ns per file per edit (1 ms at 10,000 files). With `Lookup`, the edit marks the table and stops; the table's update marks the lookups of the two keys whose entries changed (the old and new `B` name) and the result after them. Reading the affected result then costs about as much as updating the table alone, whatever N, and reading all N results costs about 0.4-0.5 µs and 220 bytes per result: each read is a provider read (its evaluation pass allocates) that finds the result's stamp valid after one cached read of the table, with no lookup rerun or re-verified. Up to a few hundred files either is small.
 
 **Stages that do not read after every change** (`DeltaPropagationBenchmarks`, 10,000 items, one item replaced per change; before #80 in parentheses):
 

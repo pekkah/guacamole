@@ -45,7 +45,8 @@ namespace Guacamole;
 internal sealed class CollectToDictionaryNode<T, TKey, TValue>
     : IComputationNode<ImmutableDictionary<TKey, TValue>>,
       IHasComparer<ImmutableDictionary<TKey, TValue>>,
-      IDeltaComparable<ImmutableDictionary<TKey, TValue>>
+      IDeltaComparable<ImmutableDictionary<TKey, TValue>>,
+      IDictionaryChanges<TKey, TValue>
     where TKey : notnull
 {
     private static readonly IEqualityComparer<T> s_itemComparer = DefaultEqualityComparer<T>.Instance;
@@ -103,13 +104,15 @@ internal sealed class CollectToDictionaryNode<T, TKey, TValue>
     }
 
     /// <summary>
-    /// The latest computation: its input, the result, the result before it when the two differ,
-    /// and the number of keys in conflict (with one of them, for the error message).
+    /// The latest computation: its input, the result, the result before it when the two differ
+    /// (with the keys whose entries differ between them, when known), and the number of keys in
+    /// conflict (with one of them, for the error message).
     /// </summary>
     private sealed record State(
         T[] Input,
         ImmutableDictionary<TKey, TValue> Result,
         ImmutableDictionary<TKey, TValue>? Previous,
+        TKey[]? ChangedKeys,
         int ConflictCount,
         TKey? ConflictExample);
 
@@ -135,6 +138,11 @@ internal sealed class CollectToDictionaryNode<T, TKey, TValue>
     public Type OutputType => typeof(ImmutableDictionary<TKey, TValue>);
     public ImmutableHashSet<string> Dependencies { get; }
     public IEqualityComparer<ImmutableDictionary<TKey, TValue>> Comparer { get; }
+
+    /// <summary>
+    /// The comparer of the keys (and of the resulting dictionaries).
+    /// </summary>
+    public IEqualityComparer<TKey> KeyComparer => _keyComparer;
 
     internal int DeltaComputations => Volatile.Read(ref _deltaComputations);
 
@@ -218,6 +226,25 @@ internal sealed class CollectToDictionaryNode<T, TKey, TValue>
         }
 
         equal = false;
+        return false;
+    }
+
+    /// <summary>
+    /// Returns the keys whose entries changed in the latest transition, when <paramref name="previous"/>
+    /// and <paramref name="current"/> are its two results and it was applied from a delta (a full fold
+    /// does not record them; the caller then compares the keys it needs).
+    /// </summary>
+    public bool TryGetChangedKeys(ImmutableDictionary<TKey, TValue> previous, ImmutableDictionary<TKey, TValue> current, out IReadOnlyCollection<TKey> keys)
+    {
+        if (Volatile.Read(ref _state) is { ChangedKeys: { } changed } state
+            && ReferenceEquals(state.Result, current)
+            && ReferenceEquals(state.Previous, previous))
+        {
+            keys = changed;
+            return true;
+        }
+
+        keys = [];
         return false;
     }
 
@@ -330,13 +357,16 @@ internal sealed class CollectToDictionaryNode<T, TKey, TValue>
             }
 
             var builder = state.Result.ToBuilder();
-            var changed = false;
+            List<TKey>? changedKeys = null;
             foreach (var key in touched)
-                changed |= Settle(builder, memo.Keys, memo.Conflicts, key);
+            {
+                if (Settle(builder, memo.Keys, memo.Conflicts, key))
+                    (changedKeys ??= []).Add(key);
+            }
 
-            return changed
-                ? Publish(input, builder.ToImmutable(), state.Result, memo.Conflicts)
-                : Publish(input, state.Result, state.Previous, memo.Conflicts);
+            return changedKeys != null
+                ? Publish(input, builder.ToImmutable(), state.Result, [.. changedKeys], memo.Conflicts)
+                : Publish(input, state.Result, state.Previous, state.ChangedKeys, memo.Conflicts);
         }
         catch
         {
@@ -398,12 +428,12 @@ internal sealed class CollectToDictionaryNode<T, TKey, TValue>
             changed |= Settle(builder, memo.Keys, memo.Conflicts, key);
 
         return previous != null && !changed
-            ? Publish(input, previous, null, memo.Conflicts)
-            : Publish(input, builder.ToImmutable(), previous, memo.Conflicts);
+            ? Publish(input, previous, null, null, memo.Conflicts)
+            : Publish(input, builder.ToImmutable(), previous, null, memo.Conflicts);
     }
 
-    private static State Publish(T[] input, ImmutableDictionary<TKey, TValue> result, ImmutableDictionary<TKey, TValue>? previous, HashSet<TKey> conflicts) =>
-        new(input, result, previous, conflicts.Count, conflicts.Count > 0 ? conflicts.First() : default);
+    private static State Publish(T[] input, ImmutableDictionary<TKey, TValue> result, ImmutableDictionary<TKey, TValue>? previous, TKey[]? changedKeys, HashSet<TKey> conflicts) =>
+        new(input, result, previous, changedKeys, conflicts.Count, conflicts.Count > 0 ? conflicts.First() : default);
 
     /// <summary>
     /// Brings the entry of <paramref name="key"/> in <paramref name="builder"/> in line with its

@@ -168,4 +168,38 @@ public class IncrementalScenarioTests
             benchmarks.Cleanup();
         }
     }
+
+    [Fact]
+    public void SymbolLookupFanOutBenchmarks_LookupVariants_AgreeWithDirect_AndOneEditRecomputesOneResult()
+    {
+        var incremental = new SymbolLookupFanOutBenchmarks { Files = 1_000 };
+        var direct = new SymbolLookupFanOutBenchmarks { Files = 1_000 };
+        incremental.Setup();
+        direct.Setup();
+        try
+        {
+            for (int i = 0; i < 2_500; i++) // wraps around the files, toggling each B back and forth
+            {
+                var checks = incremental.LookupChecks;
+                if (i % 2 == 0)
+                {
+                    Assert.Equal(direct.DirectReadAll(), incremental.LookupReadAll());
+                }
+                else
+                {
+                    // Only the affected file is read; the next LookupReadAll checks the others
+                    _ = direct.DirectReadAll();
+                    Assert.True(incremental.LookupReadOne() >= 0);
+                }
+
+                // Only the file referencing the edited B name gets a new lookup result
+                Assert.Equal(1, incremental.LookupChecks - checks);
+            }
+        }
+        finally
+        {
+            incremental.Cleanup();
+            direct.Cleanup();
+        }
+    }
 }

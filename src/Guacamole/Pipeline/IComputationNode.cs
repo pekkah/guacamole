@@ -99,4 +99,13 @@ internal readonly record struct ComputationContext(
     /// </summary>
     public Result<IEnumerable<T>, ComputationError> Read<T>(ICollectionComputationNode<T> node) =>
         Evaluator is { } evaluator ? evaluator.Read(node) : node.Compute(this);
+
+    /// <summary>
+    /// Reads a dictionary dependency of the node being computed for one key: returns the dictionary
+    /// result, but the reading node depends only on <paramref name="key"/>'s entry (see
+    /// <see cref="GraphEvaluator.ReadKey"/>). The node must not use any other entry of the dictionary.
+    /// </summary>
+    public Result<ImmutableDictionary<TKey, TValue>, ComputationError> ReadKey<TKey, TValue>(IComputationNode<ImmutableDictionary<TKey, TValue>> node, TKey key)
+        where TKey : notnull =>
+        Evaluator is { } evaluator ? evaluator.ReadKey(node, key) : node.Compute(this);
 }

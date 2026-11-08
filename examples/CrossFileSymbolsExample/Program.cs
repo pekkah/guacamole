@@ -1,4 +1,5 @@
 using CrossFileSymbolsExample;
+using Guacamole;
 
 Console.WriteLine("=== Guacamole Cross-File Symbols Example ===\n");
 
@@ -15,6 +16,11 @@ context.RegisterOutput(context.TypeChecked, (files, _) =>
         Console.WriteLine($"[checked] {file.Path}: [{string.Join(", ", file.Resolved)}] {errors}");
     }
 });
+
+// One entry of the table: Lookup depends on that key only, so this handler runs when Option's
+// entry changes, not whenever the table does (declaring Map below changes the table, not Option).
+context.RegisterOutput(context.Symbols.LookupOrDefault("Option"), (path, _) =>
+    Console.WriteLine($"[lookup] Option -> {path ?? "(not declared)"}"));
 
 var std = new SourceFile("std.fugu", "decl List\ndecl Option");
 var main = new SourceFile("main.fugu", "decl Main\nuse List\nuse Option");

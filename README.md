@@ -117,6 +117,11 @@ first.Combine(second)  // Returns IncrementalValueProvider<(TFirst, TSecond)>
 // Transform to multiple values
 provider.SelectMany(x => x.Children)
 provider.SelectMany(x => x.Items, customComparer)
+
+// Look up one key of a dictionary (e.g. from CollectToDictionary): only a change of that key's
+// entry reaches the lookup and the stages after it
+table.Lookup("List")           // IncrementalValueProvider<TValue>, "no value" while the key is absent
+table.LookupOrDefault("List")  // IncrementalValueProvider<TValue?>, default while the key is absent
 ```
 
 ### IncrementalValuesProvider<T> Extensions
@@ -162,7 +167,7 @@ How these behave:
 - **Every stage is cached.** Each stage of a pipeline caches its result together with the versions of the inputs it read, whether or not you read that stage directly. Reading a provider first brings the stages it was computed from up to date (recursively), so a stage reruns only when one of its own inputs actually changed.
 - **Version-based invalidation** - a source change only increments that source's version; cached values are revalidated lazily on the next read. A stage whose recomputed value equals its previous value (by its comparer) keeps its version, so the stages downstream of it stay valid and are not recomputed. This equality cut-off applies at every stage, including intermediate stages that are never read themselves.
 - **Per-item memoization** - a recomputed collection `Select`/`Where`/`SelectMany` runs its lambda only for new or changed items; items equal to ones seen in the previous computation reuse the previous result (the same instance). Items should be immutable.
-- **Cross-item lookups** (e.g. a symbol table built from all files) - compute shared data from all items, with `CollectToDictionary` for a lookup table (updated in proportion to the changed items, with a deterministic rule for duplicate keys) or `Collect()` and a deterministic merge into a type with structural equality, then `Combine` it with each item; never accumulate it in a lambda, which makes results depend on processing order. See [Cross-item lookups](https://github.com/pekkah/guacamole/blob/main/docs/performance-guide.md#cross-item-lookups-eg-symbol-tables).
+- **Cross-item lookups** (e.g. a symbol table built from all files) - compute shared data from all items, with `CollectToDictionary` for a lookup table (updated in proportion to the changed items, with a deterministic rule for duplicate keys) or `Collect()` and a deterministic merge into a type with structural equality, then `Combine` it with each item; never accumulate it in a lambda, which makes results depend on processing order. For single-value stages that each need a few entries of a table, `table.Lookup(key)` depends on that key only, so an edit reruns only the lookups of the keys whose entries changed. See [Cross-item lookups](https://github.com/pekkah/guacamole/blob/main/docs/performance-guide.md#cross-item-lookups-eg-symbol-tables).
 - **Custom equality comparers** decide whether a recomputed value counts as changed. Use records or `IEquatable<T>` types; without value equality every recomputation looks like a change.
 - **Errors are values** - exceptions thrown by your lambdas become failed `Result`s; `GetValue()`/`GetValues()` do not throw them (`.Value`/`.Values` and `TryGetValue` do, as `InvalidOperationException`). Downstream stages pass the error on without running their lambdas. Failed results (and `null` values) are cached like values: a failing stage runs again only when one of its inputs changes, and an error equal to the previous one (same messages, inner errors, location and diagnostic ID) keeps the stages downstream of it cached. See [Every stage is cached](https://github.com/pekkah/guacamole/blob/main/docs/performance-guide.md#every-stage-is-cached).
 - **A filtered-out single value is "no value", not an error.** When a single-value `Where` rejects its input, `GetValue()` returns a `Result` with `IsNone == true` (`IsSuccess` and `IsError` are false). Downstream `Select`/`Where`/`Combine` propagate "no value" without running their lambdas; `SelectMany` and collection `Combine` produce no items; output handlers are not called. `.Value` throws `InvalidOperationException`; use `TryGetValue(out value)`, which returns `false` for no value (and throws only if the computation failed).
@@ -221,7 +226,7 @@ The [`examples/`](https://github.com/pekkah/guacamole/tree/main/examples/) direc
 - [`examples/BasicSourceUsage`](https://github.com/pekkah/guacamole/tree/main/examples/BasicSourceUsage/) - Pushing items, `Where`/`Collect`/`Select`, output handlers
 - [`examples/FileWatcherExample`](https://github.com/pekkah/guacamole/tree/main/examples/FileWatcherExample/) - Simulated file watcher pushing file changes
 - [`examples/DataPipelineExample`](https://github.com/pekkah/guacamole/tree/main/examples/DataPipelineExample/) - Multi-stage data transformation pipeline
-- [`examples/CrossFileSymbolsExample`](https://github.com/pekkah/guacamole/tree/main/examples/CrossFileSymbolsExample/) - Cross-file symbol resolution with `CollectToDictionary` and `Combine`
+- [`examples/CrossFileSymbolsExample`](https://github.com/pekkah/guacamole/tree/main/examples/CrossFileSymbolsExample/) - Cross-file symbol resolution with `CollectToDictionary`, `Combine` and `LookupOrDefault`
 
 Run an example with:
 ```bash
