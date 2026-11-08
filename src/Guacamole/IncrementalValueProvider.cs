@@ -288,7 +288,7 @@ public readonly record struct IncrementalValuesProvider<T>
 internal static class ComputationMetrics
 {
     /// <summary>
-    /// Runs <paramref name="compute"/> and, if computation metrics are enabled, records it in
+    /// Runs <paramref name="compute"/> and, if computation metrics are enabled and listened to, records it in
     /// <see cref="GuacamoleMetrics.ComputationsTotal"/>, <see cref="GuacamoleMetrics.ComputationDuration"/>
     /// and (for an error result) <see cref="GuacamoleMetrics.ComputationErrors"/>.
     /// </summary>
@@ -300,9 +300,15 @@ internal static class ComputationMetrics
         TState state,
         ComputationContext context)
     {
+        // Nothing to record unless something listens (checked first: a field read per instrument)
         var configuration = MetricsConfiguration.Current;
-        if (!configuration.EnableComputationMetrics)
+        if (!(GuacamoleMetrics.ComputationsTotal.Enabled
+                || GuacamoleMetrics.ComputationDuration.Enabled
+                || GuacamoleMetrics.ComputationErrors.Enabled)
+            || !configuration.EnableComputationMetrics)
+        {
             return compute(state, context);
+        }
 
         var start = Stopwatch.GetTimestamp();
         var result = compute(state, context);

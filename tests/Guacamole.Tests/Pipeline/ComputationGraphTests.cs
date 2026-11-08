@@ -131,6 +131,77 @@ public class ComputationGraphTests
     }
 
     /// <summary>
+    /// EDGE (#76): the cycle check skips the walk when no node depends on the new ID yet, so it must
+    /// still catch every cycle through a node whose ID other nodes already declare.
+    /// </summary>
+    [Fact]
+    public void ComputationGraph_ShouldDetect_CyclesThroughNodesDeclaredBeforeTheyAreAdded()
+    {
+        var graph = new ComputationGraph();
+
+        // A node depending on itself
+        Assert.Throws<InvalidOperationException>(() =>
+            graph.AddNode(new TestComputationNode("self", typeof(int), dependencies: ["self"])));
+
+        // A longer cycle, closed by the last node: c -> b -> a -> c
+        var withChain = graph
+            .AddNode(new TestComputationNode("a", typeof(int), dependencies: ["c"]))
+            .AddNode(new TestComputationNode("b", typeof(int), dependencies: ["a"]));
+        var exception = Assert.Throws<InvalidOperationException>(() =>
+            withChain.AddNode(new TestComputationNode("c", typeof(int), dependencies: ["b"])));
+        Assert.Contains("'c'", exception.Message);
+
+        // Through one of several dependencies, and a branch
+        var branched = graph
+            .AddNode(new TestComputationNode("root", typeof(int)))
+            .AddNode(new TestComputationNode("left", typeof(int), dependencies: ["root", "late"]))
+            .AddNode(new TestComputationNode("right", typeof(int), dependencies: ["root"]))
+            .AddNode(new TestComputationNode("join", typeof(int), dependencies: ["left", "right"]));
+        Assert.Throws<InvalidOperationException>(() =>
+            branched.AddNode(new TestComputationNode("late", typeof(int), dependencies: ["root", "join"])));
+
+        // A node others depend on that closes no cycle is accepted, and indexed in reverse
+        var accepted = branched.AddNode(new TestComputationNode("late", typeof(int), dependencies: ["root"]));
+        Assert.Equal(5, accepted.Nodes.Count);
+        Assert.Equal(new[] { "left" }, accepted.Dependents["late"]);
+        Assert.Equal(new[] { "join" }, accepted.Dependents["right"]);
+        Assert.Equal(new[] { "late", "left", "right" }, accepted.Dependents["root"].Order(StringComparer.Ordinal));
+        Assert.Equal(6, accepted.DependencyCount);
+    }
+
+    /// <summary>
+    /// PERFORMANCE (#76): building a chain (each node depending on the previous one) costs the same per
+    /// node at 100 and 3,200 nodes, whether the nodes are added after or before their dependencies;
+    /// the cycle check walked everything upstream of each new node, so building it was quadratic.
+    /// </summary>
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void ComputationGraph_BuildingAChain_IsNotQuadratic(bool dependentsFirst)
+    {
+        ScalingAssert.PerOperationTimeScales(
+            size =>
+            {
+                var nodes = Enumerable.Range(0, size)
+                    .Select(i => dependentsFirst
+                        ? new TestComputationNode($"chain-{i}", typeof(int), i == size - 1 ? null : [$"chain-{i + 1}"])
+                        : new TestComputationNode($"chain-{i}", typeof(int), i == 0 ? null : [$"chain-{i - 1}"]))
+                    .ToArray();
+                return (() =>
+                {
+                    var built = new ComputationGraph();
+                    foreach (var node in nodes)
+                        built = built.AddNode(node);
+                    Assert.Equal(size - 1, built.DependencyCount);
+                }, nodes.Length);
+            },
+            smallSize: 100,
+            largeSize: 3_200,
+            maxRatio: 8,
+            dependentsFirst ? "AddNode of a chain, dependents first" : "AddNode of a chain");
+    }
+
+    /// <summary>
     /// EDGE: Test graph allows nodes whose dependencies are not registered yet
     /// </summary>
     [Fact]

@@ -28,6 +28,11 @@ internal sealed class ComputationGraph
     public ImmutableDictionary<string, ImmutableHashSet<string>> Dependents { get; }
 
     /// <summary>
+    /// The number of dependency edges in <see cref="Dependencies"/>.
+    /// </summary>
+    public int DependencyCount { get; }
+
+    /// <summary>
     /// Shared cache for computed values with LRU eviction.
     /// </summary>
     internal LRUCache<string, object> ValueCache { get; }
@@ -82,6 +87,7 @@ internal sealed class ComputationGraph
             ImmutableDictionary<string, IComputationNode>.Empty,
             ImmutableDictionary<string, ImmutableHashSet<string>>.Empty,
             ImmutableDictionary<string, ImmutableHashSet<string>>.Empty,
+            0,
             new LRUCache<string, object>(cacheCapacity),
             new SharedGraphState())
     {
@@ -96,12 +102,14 @@ internal sealed class ComputationGraph
         ImmutableDictionary<string, IComputationNode> nodes,
         ImmutableDictionary<string, ImmutableHashSet<string>> dependencies,
         ImmutableDictionary<string, ImmutableHashSet<string>> dependents,
+        int dependencyCount,
         LRUCache<string, object> valueCache,
         SharedGraphState sharedState)
     {
         Nodes = nodes;
         Dependencies = dependencies;
         Dependents = dependents;
+        DependencyCount = dependencyCount;
         ValueCache = valueCache;
         _sharedState = sharedState ?? throw new ArgumentNullException(nameof(sharedState));
     }
@@ -109,13 +117,24 @@ internal sealed class ComputationGraph
     /// <summary>
     /// Adds a node to the graph with validation.
     /// </summary>
+    /// <remarks>
+    /// Costs O(log n) for a node whose ID no node in the graph declares as a dependency yet (the
+    /// usual case: nodes are added after their dependencies), so building a graph of n nodes this way
+    /// is O(n log n); the cycle check used to walk everything upstream of every new node, which made
+    /// building a chain quadratic. Otherwise the cycle check walks the nodes upstream of the new one
+    /// (see <see cref="WouldCreateCycle"/>). Runtime nodes (<see cref="RegisterNodeIfNeeded"/>) are not
+    /// checked: they are created from existing nodes (a node references its inputs), so they cannot close a cycle,
+    /// and registering one is O(1).
+    /// </remarks>
+    /// <exception cref="InvalidOperationException">A node with the same ID exists, or the node would
+    /// close a cycle.</exception>
     public ComputationGraph AddNode(IComputationNode node)
     {
         ArgumentNullException.ThrowIfNull(node);
 
-        using var activity = GuacamoleMetrics.StartActivity("graph.add_node",
-            ("node.id", node.Id),
-            ("node.type", node.GetType().Name));
+        using var activity = GuacamoleMetrics.ActivitySource.HasListeners()
+            ? GuacamoleMetrics.StartActivity("graph.add_node", ("node.id", node.Id), ("node.type", node.GetType().Name))
+            : null;
 
         // Validate NodeId uniqueness
         if (Nodes.ContainsKey(node.Id))
@@ -124,12 +143,12 @@ internal sealed class ComputationGraph
         }
 
         // Check for circular dependencies
-        var newDependencies = Dependencies.SetItem(node.Id, node.Dependencies);
-        if (WouldCreateCycle(newDependencies, node.Id))
+        if (WouldCreateCycle(node))
         {
             throw new InvalidOperationException($"Adding node '{node.Id}' would create a circular dependency");
         }
 
+        var newDependencies = Dependencies.SetItem(node.Id, node.Dependencies);
         var newDependents = Dependents;
         foreach (var dependency in node.Dependencies)
         {
@@ -139,13 +158,16 @@ internal sealed class ComputationGraph
         }
 
         var newNodes = Nodes.SetItem(node.Id, node);
-        var newGraph = new ComputationGraph(newNodes, newDependencies, newDependents, ValueCache, _sharedState);
+        var newGraph = new ComputationGraph(newNodes, newDependencies, newDependents, DependencyCount + node.Dependencies.Count, ValueCache, _sharedState);
 
-        // Record metrics if enabled
+        // Record metrics if enabled and listened to
         if (MetricsConfiguration.Current.EnableGraphMetrics)
         {
-            GuacamoleMetrics.GraphOperationsTotal.Add(1, new KeyValuePair<string, object?>("operation.type", "add_node"));
-            GuacamoleMetrics.UpdateGraphMetrics(newNodes.Count, newDependencies.Values.Sum(deps => deps.Count));
+            if (GuacamoleMetrics.GraphOperationsTotal.Enabled)
+                GuacamoleMetrics.GraphOperationsTotal.Add(1, new KeyValuePair<string, object?>("operation.type", "add_node"));
+
+            if (GuacamoleMetrics.GraphNodesActive.Enabled || GuacamoleMetrics.GraphDependenciesTotal.Enabled)
+                GuacamoleMetrics.UpdateGraphMetrics(newNodes.Count, newGraph.DependencyCount);
         }
 
         return newGraph;
@@ -198,43 +220,43 @@ internal sealed class ComputationGraph
         // Invalidate cache for the updated node and dependents
         InvalidateCacheForNode(node.Id);
 
-        return new ComputationGraph(newNodes, Dependencies, Dependents, ValueCache, _sharedState);
+        return new ComputationGraph(newNodes, Dependencies, Dependents, DependencyCount, ValueCache, _sharedState);
     }
 
     /// <summary>
-    /// Checks for circular dependencies.
+    /// Whether adding <paramref name="node"/> would close a cycle.
     /// </summary>
-    private bool WouldCreateCycle(
-        ImmutableDictionary<string, ImmutableHashSet<string>> dependencies,
-        string nodeId)
+    /// <remarks>
+    /// The graph is acyclic, so a new cycle has to pass through the new node: one of its dependencies
+    /// must (transitively) depend on its ID. That needs a node in the graph that declares the ID as a
+    /// dependency (<see cref="Dependents"/>); when there is none, there is no walk at all. That is the
+    /// usual case, as nodes are added after their dependencies. Otherwise the nodes upstream of the new
+    /// node are walked, iteratively (long chains cannot overflow the stack); when nodes are added
+    /// before their dependencies, those are not in the graph yet and the walk ends right away.
+    /// </remarks>
+    private bool WouldCreateCycle(IComputationNode node)
     {
-        return HasCycleInDependencies(dependencies, nodeId, new HashSet<string>(), new HashSet<string>());
-    }
-
-    private bool HasCycleInDependencies(
-        ImmutableDictionary<string, ImmutableHashSet<string>> dependencies,
-        string nodeId,
-        HashSet<string> visiting,
-        HashSet<string> visited)
-    {
-        if (visiting.Contains(nodeId))
+        var dependencies = node.Dependencies;
+        if (dependencies.Contains(node.Id))
             return true;
-        if (visited.Contains(nodeId))
+
+        if (dependencies.IsEmpty || !Dependents.ContainsKey(node.Id))
             return false;
 
-        visiting.Add(nodeId);
-
-        if (dependencies.TryGetValue(nodeId, out var deps))
+        var visited = new HashSet<string>();
+        var pending = new Stack<string>(dependencies);
+        while (pending.TryPop(out var id))
         {
-            foreach (var dep in deps)
-            {
-                if (HasCycleInDependencies(dependencies, dep, visiting, visited))
-                    return true;
-            }
+            if (id == node.Id)
+                return true;
+
+            if (!visited.Add(id) || !Dependencies.TryGetValue(id, out var upstream))
+                continue;
+
+            foreach (var dependency in upstream)
+                pending.Push(dependency);
         }
 
-        visiting.Remove(nodeId);
-        visited.Add(nodeId);
         return false;
     }
 
