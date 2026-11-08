@@ -172,7 +172,7 @@ dotnet run -c Release -- --filter "*"                                # all bench
 dotnet run -c Release -- --filter "*IncrementalUpdate*" --job short  # one class, quick run
 ```
 
-Reports go to `benchmarks/reports/results/` (HTML, CSV, GitHub Markdown). Add `--inProcess` where BenchmarkDotNet cannot start a separate benchmark process. `tests/Guacamole.Benchmarks.Tests` runs every benchmark once (dry job, in-process) and checks with call counters that the incremental benchmarks recompute what they claim to.
+Reports go to `BenchmarkDotNet.Artifacts/results/` in the current directory (HTML, CSV, GitHub Markdown; pass `--artifacts <path>` to choose another folder). `BenchmarkDotNet.Artifacts/` is not tracked by git, so a local run leaves the working tree clean; the curated results below (and the older [October 2025 baseline](benchmarks/2025-10-baseline.md)) are the committed reference. Add `--inProcess` where BenchmarkDotNet cannot start a separate benchmark process. `tests/Guacamole.Benchmarks.Tests` runs every benchmark once (dry job, in-process) and checks with call counters that the incremental benchmarks recompute what they claim to.
 
 ### Benchmark results
 

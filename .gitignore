@@ -59,6 +59,8 @@ dlldata.c
 
 # Benchmark Results
 BenchmarkDotNet.Artifacts/
+# Former benchmark output folder (curated baseline now in docs/benchmarks/)
+benchmarks/reports/
 
 # .NET
 project.lock.json

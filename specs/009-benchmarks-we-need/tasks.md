@@ -181,7 +181,7 @@
 
 ### Core Benchmark Classes
 
-- [x] **T017** Implement `Program.cs` BenchmarkDotNet runner — done: artifacts go to `benchmarks/reports/`; `Main` returns 0, or 1 if a benchmark failed (#53)
+- [x] **T017** Implement `Program.cs` BenchmarkDotNet runner — done: artifacts go to BenchmarkDotNet's default, untracked `BenchmarkDotNet.Artifacts/` (#58); `Main` returns 0, or 1 if a benchmark failed (#53)
   - File: `benchmarks/Guacamole.Benchmarks/Program.cs`
   - Entry point: `static int Main(string[] args)`
   - Use: `BenchmarkSwitcher.FromAssembly(typeof(Program).Assembly).Run(args)`
@@ -253,14 +253,14 @@
   - Verify: T006-T011 all passing
   - Verify: Benchmark classes exist and functional
 
-- [x] **T025** Execute benchmarks and validate baseline establishment — done: reports in `benchmarks/reports/results/` (HTML, CSV, Markdown); StdDev/Mean ≈ 1%, warm 195 ns vs cold 659 ns
+- [x] **T025** Execute benchmarks and validate baseline establishment — done: reports in `BenchmarkDotNet.Artifacts/results/` (HTML, CSV, Markdown; first baseline curated in `docs/benchmarks/2025-10-baseline.md`, #58); StdDev/Mean ≈ 1%, warm 195 ns vs cold 659 ns
   - Command: `dotnet run --project benchmarks/Guacamole.Benchmarks/ --configuration Release`
   - Verify: All 3 benchmark categories execute
   - Verify: Results show ≤10% variance
   - Verify: Warm cache faster than cold cache
   - Verify: HTML/JSON/Markdown reports generated
 
-- [x] **T026** Validate quickstart.md manual steps — done: `quickstart.md` now points at `benchmarks/reports/results/` and the HTML/CSV/Markdown reports, uses `dotnet run -- --filter`, and drops the JSON/variance-script/`BenchmarkConfig` steps (#53)
+- [x] **T026** Validate quickstart.md manual steps — done: `quickstart.md` now points at `BenchmarkDotNet.Artifacts/results/` (#58) and the HTML/CSV/Markdown reports, uses `dotnet run -- --filter`, and drops the JSON/variance-script/`BenchmarkConfig` steps (#53)
   - Follow: `specs/009-benchmarks-we-need/quickstart.md`
   - Execute: Steps 1-7 as documented
   - Verify: All acceptance scenarios validated
@@ -287,7 +287,7 @@
   - Command: `dotnet format tests/Guacamole.Benchmarks.Tests/`
   - Verify: Code style matches constitution requirements
 
-- [x] **T030** Commit baseline results to git (optional) — done: `benchmarks/reports/results/` instead of `benchmarks/baseline-results.json`
+- [x] **T030** Commit baseline results to git (optional) — done: curated in `docs/benchmarks/2025-10-baseline.md` and the Performance Guide's "Benchmark results" instead of `benchmarks/baseline-results.json`; raw reports are no longer committed (#58)
   - File: `benchmarks/baseline-results.json`
   - Content: Initial benchmark run results
   - Purpose: Historical comparison for future regression detection
