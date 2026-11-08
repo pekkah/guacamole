@@ -19,7 +19,7 @@ public class ResultTests
 
         // Assert
         Assert.True(result.IsSuccess);
-        Assert.Equal("test-value", result.Value);
+        Assert.Equal("test-value", result.ValueOrDefault);
         Assert.Null(result.ErrorValue);
     }
 
@@ -37,7 +37,7 @@ public class ResultTests
 
         // Assert
         Assert.False(result.IsSuccess);
-        Assert.Null(result.Value);
+        Assert.Null(result.ValueOrDefault);
         Assert.Same(error, result.ErrorValue);
     }
 
@@ -53,12 +53,12 @@ public class ResultTests
 
         // Assert - Success has value but not error
         Assert.True(successResult.IsSuccess);
-        Assert.Equal(42, successResult.Value);
+        Assert.Equal(42, successResult.ValueOrDefault);
         Assert.Null(successResult.ErrorValue);
 
         // Error has error but not value
         Assert.False(errorResult.IsSuccess);
-        Assert.Equal(default(int), errorResult.Value);
+        Assert.Equal(default(int), errorResult.ValueOrDefault);
         Assert.Equal("failure", errorResult.ErrorValue);
     }
 
@@ -77,7 +77,7 @@ public class ResultTests
 
         // Assert
         Assert.True(successResult.IsSuccess);
-        Assert.Equal(value, successResult.Value);
+        Assert.Equal(value, successResult.ValueOrDefault);
 
         Assert.False(errorResult.IsSuccess);
         Assert.Equal("error", errorResult.ErrorValue);
@@ -92,7 +92,7 @@ public class ResultTests
         // Act & Assert - Null success value should be allowed for reference types
         var nullResult = Result<string?, Exception>.Success(null);
         Assert.True(nullResult.IsSuccess);
-        Assert.Null(nullResult.Value);
+        Assert.Null(nullResult.ValueOrDefault);
 
         // But error should not be null
         Assert.Throws<ArgumentNullException>(() =>
@@ -112,10 +112,10 @@ public class ResultTests
 
         // Assert
         Assert.True(nullSuccess.IsSuccess);
-        Assert.Null(nullSuccess.Value);
+        Assert.Null(nullSuccess.ValueOrDefault);
 
         Assert.True(valueSuccess.IsSuccess);
-        Assert.Equal("value", valueSuccess.Value);
+        Assert.Equal("value", valueSuccess.ValueOrDefault);
 
         Assert.False(error.IsSuccess);
         Assert.NotNull(error.ErrorValue);
@@ -162,13 +162,13 @@ public class ResultTests
         // Act & Assert - Should support switch expressions
         var successMessage = success switch
         {
-            { IsSuccess: true, Value: var value } => $"Success: {value}",
+            { IsSuccess: true, ValueOrDefault: var value } => $"Success: {value}",
             { IsSuccess: false, ErrorValue: var err } => $"Error: {err}"
         };
 
         var errorMessage = error switch
         {
-            { IsSuccess: true, Value: var value } => $"Success: {value}",
+            { IsSuccess: true, ValueOrDefault: var value } => $"Success: {value}",
             { IsSuccess: false, ErrorValue: var err } => $"Error: {err}"
         };
 
@@ -188,17 +188,17 @@ public class ResultTests
 
         // Act - Transform success result
         var transformedSuccess = success.IsSuccess
-            ? Result<string, string>.Success($"Value: {success.Value}")
+            ? Result<string, string>.Success($"Value: {success.ValueOrDefault}")
             : Result<string, string>.Error(success.ErrorValue!);
 
         // Transform error result
         var transformedError = error.IsSuccess
-            ? Result<string, string>.Success($"Value: {error.Value}")
+            ? Result<string, string>.Success($"Value: {error.ValueOrDefault}")
             : Result<string, string>.Error(error.ErrorValue!);
 
         // Assert
         Assert.True(transformedSuccess.IsSuccess);
-        Assert.Equal("Value: 10", transformedSuccess.Value);
+        Assert.Equal("Value: 10", transformedSuccess.ValueOrDefault);
 
         Assert.False(transformedError.IsSuccess);
         Assert.Equal("calculation failed", transformedError.ErrorValue);
@@ -229,7 +229,7 @@ public class ResultTests
 
         // Assert - No exceptions thrown, errors captured in Result
         Assert.True(validResult.IsSuccess);
-        Assert.Equal(5, validResult.Value);
+        Assert.Equal(5, validResult.ValueOrDefault);
 
         Assert.False(errorResult.IsSuccess);
         Assert.IsType<DivideByZeroException>(errorResult.ErrorValue);
@@ -252,7 +252,7 @@ public class ResultTests
             for (int i = 0; i < 1000; i++)
             {
                 var result = Result<int, string>.Success(i);
-                sum += result.Value;
+                sum += result.ValueOrDefault;
                 if (result.IsSuccess)
                     successes++;
             }
@@ -293,7 +293,7 @@ public class ResultTests
         Assert.True(none.IsNone);
         Assert.False(none.IsSuccess);
         Assert.False(none.IsError);
-        Assert.Equal(default, none.Value);
+        Assert.Equal(default, none.ValueOrDefault);
         Assert.Null(none.ErrorValue);
         Assert.Equal("None", none.ToString());
     }

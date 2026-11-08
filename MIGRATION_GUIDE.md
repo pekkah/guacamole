@@ -28,6 +28,22 @@ Code that assigns the values to `IEnumerable<T>` keeps compiling. Explicitly typ
 
 Both `RegisterOutput` overloads return an `IDisposable` registration (they returned `void`). Disposing it unregisters just that handler; disposing it twice, or after the context was disposed, does nothing. Existing calls that ignore the return value keep compiling. Code that passed a method group of `RegisterOutput` to an `Action<...>` delegate needs a `Func<..., IDisposable>` or a lambda.
 
+### `Result.Value` is now `Result.ValueOrDefault`
+
+`Result<TValue, TError>.Value` returned `default` for None and errors, while the providers' `.Value` throws: the same name had opposite contracts. It is renamed to `ValueOrDefault`, with unchanged behavior; the providers' throwing `.Value`/`.Values` are unchanged.
+
+```csharp
+// Before
+var result = provider.GetValue();
+if (result.IsSuccess) Use(result.Value);
+
+// After
+var result = provider.GetValue();
+if (result.IsSuccess) Use(result.ValueOrDefault);
+```
+
+`IsSuccess`, `IsNone`, `IsError`, `ErrorValue`, `Match`, `GetValueOrDefault(...)`, `Map`, `Bind` and `MapError` are unchanged. A search for `.GetValue().Value`, `.GetValues().Value` and `result.Value` finds most call sites; the compiler reports the rest.
+
 ## Namespace Consolidation
 
 All public types used to be spread over `Guacamole`, `Guacamole.Sources`, `Guacamole.Exceptions` and several `Guacamole.Core.*` namespaces. They now live in `Guacamole`, plus `Guacamole.Diagnostics` for metrics, and the `Core` segment is gone. Infrastructure types moved to `Guacamole.Pipeline` and `Guacamole.Caching` and are now internal (see [Internal types and members](#internal-types-and-members)). A typical application needs only:

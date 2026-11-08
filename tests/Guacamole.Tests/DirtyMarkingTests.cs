@@ -247,13 +247,13 @@ public partial class DirtyMarkingTests
         static object? Read<T>(IncrementalValueProvider<T> provider)
         {
             var result = provider.GetValue();
-            return result.IsError ? "error" : result.IsNone ? "none" : result.Value;
+            return result.IsError ? "error" : result.IsNone ? "none" : result.ValueOrDefault;
         }
 
         static object? ReadAll<T>(IncrementalValuesProvider<T> provider)
         {
             var result = provider.GetValues();
-            return result.IsError ? "error" : string.Join(",", result.Value!);
+            return result.IsError ? "error" : string.Join(",", result.ValueOrDefault!);
         }
 
         var mod3 = context.A.Select(a => a % 3);

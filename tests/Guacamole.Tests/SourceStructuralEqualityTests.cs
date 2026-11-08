@@ -96,7 +96,7 @@ public partial class SourceStructuralEqualityTests
         {
             var result = context.Read(source);
             return result.IsSuccess
-                ? Result<ImmutableArray<string>, ComputationError>.Success([.. result.Value])
+                ? Result<ImmutableArray<string>, ComputationError>.Success([.. result.ValueOrDefault])
                 : result;
         }
     }
@@ -109,7 +109,7 @@ public partial class SourceStructuralEqualityTests
         {
             var result = context.Read(source);
             return result.IsSuccess
-                ? Result<IEnumerable<ImmutableArray<string>>, ComputationError>.Success(result.Value!.Select(r => (ImmutableArray<string>)[.. r]).ToArray())
+                ? Result<IEnumerable<ImmutableArray<string>>, ComputationError>.Success(result.ValueOrDefault!.Select(r => (ImmutableArray<string>)[.. r]).ToArray())
                 : result;
         }
     }

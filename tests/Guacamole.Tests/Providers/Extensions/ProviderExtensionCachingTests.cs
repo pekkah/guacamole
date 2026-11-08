@@ -34,9 +34,9 @@ public class ProviderExtensionCachingTests
 
         // Assert
         Assert.True(result1.IsSuccess);
-        Assert.Equal(84, result1.Value);
+        Assert.Equal(84, result1.ValueOrDefault);
         Assert.True(result2.IsSuccess);
-        Assert.Equal(84, result2.Value);
+        Assert.Equal(84, result2.ValueOrDefault);
 
         // Source should only be computed once if caching works
         Assert.Equal(1, computeCount);
@@ -144,9 +144,9 @@ public class ProviderExtensionCachingTests
 
         // Assert
         Assert.True(result1.IsSuccess);
-        Assert.Equal(new[] { 7, 9, 11 }, result1.Value!.ToArray());
+        Assert.Equal(new[] { 7, 9, 11 }, result1.ValueOrDefault!.ToArray());
         Assert.True(result2.IsSuccess);
-        Assert.Equal(new[] { 7, 9, 11 }, result2.Value!.ToArray());
+        Assert.Equal(new[] { 7, 9, 11 }, result2.ValueOrDefault!.ToArray());
 
         // With caching, source should only compute once
         Assert.Equal(1, sourceComputeCount);
@@ -184,9 +184,9 @@ public class ProviderExtensionCachingTests
 
         // Assert
         Assert.True(result1.IsSuccess);
-        Assert.Equal(new[] { 1, 10, 2, 20, 3, 30 }, result1.Value!.ToArray());
+        Assert.Equal(new[] { 1, 10, 2, 20, 3, 30 }, result1.ValueOrDefault!.ToArray());
         Assert.True(result2.IsSuccess);
-        Assert.Equal(new[] { 1, 10, 2, 20, 3, 30 }, result2.Value!.ToArray());
+        Assert.Equal(new[] { 1, 10, 2, 20, 3, 30 }, result2.ValueOrDefault!.ToArray());
 
         // Source should only compute once with caching
         Assert.Equal(1, computeCount);
@@ -218,9 +218,9 @@ public class ProviderExtensionCachingTests
 
         // Assert
         Assert.True(result1.IsSuccess);
-        Assert.Equal(new[] { 1, 2, 3, 4, 5 }, result1.Value!.ToArray());
+        Assert.Equal(new[] { 1, 2, 3, 4, 5 }, result1.ValueOrDefault!.ToArray());
         Assert.True(result2.IsSuccess);
-        Assert.Equal(new[] { 1, 2, 3, 4, 5 }, result2.Value!.ToArray());
+        Assert.Equal(new[] { 1, 2, 3, 4, 5 }, result2.ValueOrDefault!.ToArray());
 
         // Source should only compute once with caching
         Assert.Equal(1, computeCount);
@@ -252,9 +252,9 @@ public class ProviderExtensionCachingTests
 
         // Assert
         Assert.True(result1.IsSuccess);
-        Assert.Equal((42, "test"), result1.Value);
+        Assert.Equal((42, "test"), result1.ValueOrDefault);
         Assert.True(result2.IsSuccess);
-        Assert.Equal((42, "test"), result2.Value);
+        Assert.Equal((42, "test"), result2.ValueOrDefault);
 
         // Each source should only compute once with caching
         Assert.Equal(1, computeCount1);
@@ -282,9 +282,9 @@ public class ProviderExtensionCachingTests
 
         // Assert
         Assert.True(result1.IsSuccess);
-        Assert.Equal(42, result1.Value);
+        Assert.Equal(42, result1.ValueOrDefault);
         Assert.True(result2.IsSuccess);
-        Assert.Equal(42, result2.Value);
+        Assert.Equal(42, result2.ValueOrDefault);
 
         // Source should only compute once with caching
         Assert.Equal(1, computeCount);
@@ -316,9 +316,9 @@ public class ProviderExtensionCachingTests
 
         // Assert
         Assert.True(result1.IsSuccess);
-        Assert.Equal(new[] { 2, 4 }, result1.Value!.ToArray());
+        Assert.Equal(new[] { 2, 4 }, result1.ValueOrDefault!.ToArray());
         Assert.True(result2.IsSuccess);
-        Assert.Equal(new[] { 2, 4 }, result2.Value!.ToArray());
+        Assert.Equal(new[] { 2, 4 }, result2.ValueOrDefault!.ToArray());
 
         // Source should only compute once with caching
         Assert.Equal(1, computeCount);
@@ -357,11 +357,11 @@ public class ProviderExtensionCachingTests
         // Assert
         Assert.True(result1.IsSuccess);
         var expected = new[] { 6, 7, 8, 9, 10, 11 };
-        Assert.Equal(expected, result1.Value!.ToArray());
+        Assert.Equal(expected, result1.ValueOrDefault!.ToArray());
         Assert.True(result2.IsSuccess);
-        Assert.Equal(expected, result2.Value!.ToArray());
+        Assert.Equal(expected, result2.ValueOrDefault!.ToArray());
         Assert.True(result3.IsSuccess);
-        Assert.Equal(expected, result3.Value!.ToArray());
+        Assert.Equal(expected, result3.ValueOrDefault!.ToArray());
 
         // Source should only compute once even with 3 pipeline executions
         Assert.Equal(1, sourceComputeCount);
@@ -401,11 +401,11 @@ public class ProviderExtensionCachingTests
 
         // Assert
         Assert.True(result1.IsSuccess);
-        Assert.Equal(52, result1.Value); // (42 * 1) + 10
+        Assert.Equal(52, result1.ValueOrDefault); // (42 * 1) + 10
         Assert.True(result2.IsSuccess);
-        Assert.Equal(52, result2.Value); // Cached
+        Assert.Equal(52, result2.ValueOrDefault); // Cached
         Assert.True(result3.IsSuccess);
-        Assert.Equal(94, result3.Value); // (42 * 2) + 10, recomputed
+        Assert.Equal(94, result3.ValueOrDefault); // (42 * 2) + 10, recomputed
 
         // Each call with a fresh context (even with same values) triggers recomputation
         // because contexts don't carry cached node results - the Graph.ValueCache does that

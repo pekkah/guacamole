@@ -53,11 +53,11 @@ context.RegisterOutput(tokenCount, (count, ctx) => Console.WriteLine($"Tokens: {
 // Push data: the context is notified synchronously and runs its output handlers
 context.SourceCodeSource.Set("let x = 42");
 
-// Pull a value on demand (Result-based; use .Value to throw on error instead)
+// Pull a value on demand (Result-based; use tokenCount.Value to throw on error instead)
 var result = tokenCount.GetValue();
 if (result.IsSuccess)
 {
-    Console.WriteLine(result.Value);
+    Console.WriteLine(result.ValueOrDefault);
 }
 ```
 
@@ -149,6 +149,7 @@ How these behave:
 - **Custom equality comparers** decide whether a recomputed value counts as changed. Use records or `IEquatable<T>` types; without value equality every recomputation looks like a change.
 - **Errors are values** - exceptions thrown by your lambdas become failed `Result`s; `GetValue()`/`GetValues()` do not throw them (`.Value`/`.Values` and `TryGetValue` do, as `InvalidOperationException`). Downstream stages pass the error on without running their lambdas. Failed results (and `null` values) are not cached: a failing stage runs again each time it is read, until its inputs change and it succeeds.
 - **A filtered-out single value is "no value", not an error.** When a single-value `Where` rejects its input, `GetValue()` returns a `Result` with `IsNone == true` (`IsSuccess` and `IsError` are false). Downstream `Select`/`Where`/`Combine` propagate "no value" without running their lambdas; `SelectMany` and collection `Combine` produce no items; output handlers are not called. `.Value` throws `InvalidOperationException`; use `TryGetValue(out value)`, which returns `false` for no value (and throws only if the computation failed).
+- **`Result.ValueOrDefault` never throws.** It returns the value on success and `default` for None or an error, so check `IsSuccess` (or use `Match`) first. The providers' `.Value`/`.Values` are the throwing accessors.
 
 ## Packages
 

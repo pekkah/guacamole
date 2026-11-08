@@ -30,14 +30,14 @@ public class Issue73DualInterfaceNodeTests
         public Result<int, ComputationError> Compute(ComputationContext context)
         {
             var value = context.Read(source);
-            return value.IsSuccess ? Result<int, ComputationError>.Success(value.Value + 1) : value;
+            return value.IsSuccess ? Result<int, ComputationError>.Success(value.ValueOrDefault + 1) : value;
         }
 
         Result<IEnumerable<int>, ComputationError> ICollectionComputationNode<int>.Compute(ComputationContext context)
         {
             var value = context.Read(source);
             return value.IsSuccess
-                ? Result<IEnumerable<int>, ComputationError>.Success([value.Value, value.Value + 1])
+                ? Result<IEnumerable<int>, ComputationError>.Success([value.ValueOrDefault, value.ValueOrDefault + 1])
                 : Result<IEnumerable<int>, ComputationError>.Error(value.ErrorValue!);
         }
     }
@@ -56,7 +56,7 @@ public class Issue73DualInterfaceNodeTests
         public Result<int, ComputationError> Compute(ComputationContext context)
         {
             var value = context.Read(source);
-            return value.IsSuccess ? Result<int, ComputationError>.Success(value.Value + 1) : value;
+            return value.IsSuccess ? Result<int, ComputationError>.Success(value.ValueOrDefault + 1) : value;
         }
     }
 

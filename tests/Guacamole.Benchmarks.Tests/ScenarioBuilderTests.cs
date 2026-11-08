@@ -53,6 +53,6 @@ public class ScenarioBuilderTests
         // And same results
         var result1 = provider1.GetValue();
         var result2 = provider2.GetValue();
-        Assert.Equal(result1.Value, result2.Value);
+        Assert.Equal(result1.ValueOrDefault, result2.ValueOrDefault);
     }
 }

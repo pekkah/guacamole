@@ -515,11 +515,11 @@ internal abstract class NodeHandle<TResult> : NodeHandle
     {
         var graph = evaluator.Graph;
         var state = evaluator.State;
-        var hasValue = result.IsSuccess && result.Value is not null;
+        var hasValue = result.IsSuccess && result.ValueOrDefault is not null;
         var cacheable = hasValue || result.IsNone;
 
         // Materialize outside the lock
-        var stored = hasValue ? Store(result.Value!) : null;
+        var stored = hasValue ? Store(result.ValueOrDefault!) : null;
 
         lock (state.CommitLock)
         {

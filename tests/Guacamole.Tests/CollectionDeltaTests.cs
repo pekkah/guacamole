@@ -492,7 +492,7 @@ public partial class CollectionDeltaTests
         public override Result<IEnumerable<Item>, ComputationError> Compute(ComputationContext context)
         {
             var result = context.Read(source);
-            return result.IsSuccess ? Result<IEnumerable<Item>, ComputationError>.Success(result.Value!.ToArray()) : result;
+            return result.IsSuccess ? Result<IEnumerable<Item>, ComputationError>.Success(result.ValueOrDefault!.ToArray()) : result;
         }
     }
 

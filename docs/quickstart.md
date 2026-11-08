@@ -126,7 +126,7 @@ context.SourceCodeSource.Set("let x = 42");
 var result = context.SourceCode.GetValue();
 if (result.IsSuccess)
 {
-    Console.WriteLine($"Source: {result.Value}");
+    Console.WriteLine($"Source: {result.ValueOrDefault}");
 }
 ```
 

@@ -25,6 +25,6 @@ public class SimpleProviderBenchmarks
     {
         // Execute the provider chain
         var result = _provider.GetValue();
-        _ = result.Value;
+        _ = result.ValueOrDefault;
     }
 }

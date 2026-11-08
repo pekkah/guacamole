@@ -138,7 +138,7 @@ public class SelectManyMergeDuplicationTests
         // NOTE: We expect TYPE001 to appear twice because it's in BOTH streams.
         // The issue is if MATCH001 appears twice (which would mean 4 total items).
         Assert.True(result.IsSuccess, "Merge should succeed");
-        var diagnostics = result.Value!.ToArray();
+        var diagnostics = result.ValueOrDefault!.ToArray();
 
         // Expected: 3 diagnostics total (TYPE001 from first stream, TYPE001 and MATCH001 from second stream)
         // If this fails with 4 or more items, it means duplication is occurring
@@ -191,7 +191,7 @@ public class SelectManyMergeDuplicationTests
 
         // Assert
         Assert.True(result.IsSuccess);
-        var diagnostics = result.Value!.ToArray();
+        var diagnostics = result.ValueOrDefault!.ToArray();
 
         // Expected: 6 total diagnostics
         // diag1: [DIAG1]
@@ -239,7 +239,7 @@ public class SelectManyMergeDuplicationTests
 
         // Assert
         Assert.True(result.IsSuccess);
-        var diagnostics = result.Value!.ToArray();
+        var diagnostics = result.ValueOrDefault!.ToArray();
 
         // Expected: 1 diagnostic (only MATCH001)
         Assert.Single(diagnostics);
@@ -273,7 +273,7 @@ public class SelectManyMergeDuplicationTests
 
         // Assert
         Assert.True(result.IsSuccess);
-        var diagnostics = result.Value!.ToArray();
+        var diagnostics = result.ValueOrDefault!.ToArray();
 
         // Expected: 3 diagnostics
         Assert.Equal(3, diagnostics.Length);

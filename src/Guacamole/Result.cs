@@ -46,9 +46,12 @@ public readonly struct Result<TValue, TError> : IEquatable<Result<TValue, TError
     public bool IsError => _state == State.Error;
 
     /// <summary>
-    /// The computed value when <see cref="IsSuccess"/> is true, otherwise default(TValue).
+    /// The computed value when <see cref="IsSuccess"/> is true, otherwise <c>default(TValue)</c>.
+    /// Never throws: check <see cref="IsSuccess"/> first, or use <see cref="Match{TResult}(Func{TValue, TResult}, Func{TResult}, Func{TError, TResult})"/>
+    /// or <see cref="GetValueOrDefault(TValue)"/>. (Unlike the providers' <c>Value</c> properties,
+    /// which throw when there is no value.)
     /// </summary>
-    public TValue? Value => IsSuccess ? _value : default;
+    public TValue? ValueOrDefault => IsSuccess ? _value : default;
 
     /// <summary>
     /// The error information when <see cref="IsError"/> is true, otherwise default(TError).

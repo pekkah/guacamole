@@ -134,7 +134,7 @@ public partial class CacheInvalidationTests
         var firstResult = fileContents.GetValues();
 
         Assert.True(firstResult.IsSuccess);
-        var firstContent = firstResult.Value!.First();
+        var firstContent = firstResult.ValueOrDefault!.First();
         Assert.Equal("/project/file1.txt", firstContent.Path);
         Assert.Equal("Content of file 1", firstContent.Content);
         var firstHash = firstContent.Hash;
@@ -147,7 +147,7 @@ public partial class CacheInvalidationTests
         var secondResult = fileContents.GetValues();
 
         Assert.True(secondResult.IsSuccess);
-        var secondContent = secondResult.Value!.First();
+        var secondContent = secondResult.ValueOrDefault!.First();
 
         Assert.Equal("/project/file2.txt", secondContent.Path);
         Assert.Equal("Content of file 2", secondContent.Content);
@@ -168,7 +168,7 @@ public partial class CacheInvalidationTests
         var firstResult = transformed.GetValues();
 
         Assert.True(firstResult.IsSuccess);
-        Assert.Contains("FILE1.TXT", firstResult.Value!);
+        Assert.Contains("FILE1.TXT", firstResult.ValueOrDefault!);
 
         // Act - Remove file1 and push file2
         context.FilePathsSource.Remove("file1.txt");
@@ -178,8 +178,8 @@ public partial class CacheInvalidationTests
         var secondResult = transformed.GetValues();
 
         Assert.True(secondResult.IsSuccess);
-        Assert.Contains("FILE2.TXT", secondResult.Value!);
-        Assert.DoesNotContain("FILE1.TXT", secondResult.Value!);
+        Assert.Contains("FILE2.TXT", secondResult.ValueOrDefault!);
+        Assert.DoesNotContain("FILE1.TXT", secondResult.ValueOrDefault!);
     }
 
     [Fact]
@@ -206,16 +206,16 @@ public partial class CacheInvalidationTests
         // Push first file
         context.FilePathsSource.Push("/project/file1.txt");
         var firstResult = fileContents.GetValues();
-        Assert.Single(firstResult.Value!);
+        Assert.Single(firstResult.ValueOrDefault!);
 
         // Push second file (without removing first)
         context.FilePathsSource.Push("/project/file2.txt");
         var secondResult = fileContents.GetValues();
 
         // Should have both files
-        Assert.Equal(2, secondResult.Value!.Count());
-        Assert.Contains(secondResult.Value!, f => f.Path == "/project/file1.txt");
-        Assert.Contains(secondResult.Value!, f => f.Path == "/project/file2.txt");
+        Assert.Equal(2, secondResult.ValueOrDefault!.Count());
+        Assert.Contains(secondResult.ValueOrDefault!, f => f.Path == "/project/file1.txt");
+        Assert.Contains(secondResult.ValueOrDefault!, f => f.Path == "/project/file2.txt");
     }
 
     [Fact]
@@ -245,9 +245,9 @@ public partial class CacheInvalidationTests
         context.FilePathsSource.Push("/project/dependent.fugu");
 
         var firstResult = fileContents.GetValues();
-        Assert.Equal(2, firstResult.Value!.Count());
-        Assert.Contains(firstResult.Value!, f => f.Path == "/project/library.fugu");
-        Assert.Contains(firstResult.Value!, f => f.Path == "/project/dependent.fugu");
+        Assert.Equal(2, firstResult.ValueOrDefault!.Count());
+        Assert.Contains(firstResult.ValueOrDefault!, f => f.Path == "/project/library.fugu");
+        Assert.Contains(firstResult.ValueOrDefault!, f => f.Path == "/project/dependent.fugu");
 
         // Act - Replace library.fugu with library_v2.fugu
         context.FilePathsSource.Remove("/project/library.fugu");
@@ -255,12 +255,12 @@ public partial class CacheInvalidationTests
 
         // Assert - Should have both files with library_v2 instead of library
         var secondResult = fileContents.GetValues();
-        Assert.Equal(2, secondResult.Value!.Count());
-        Assert.Contains(secondResult.Value!, f => f.Path == "/project/library_v2.fugu");
-        Assert.Contains(secondResult.Value!, f => f.Path == "/project/dependent.fugu");
+        Assert.Equal(2, secondResult.ValueOrDefault!.Count());
+        Assert.Contains(secondResult.ValueOrDefault!, f => f.Path == "/project/library_v2.fugu");
+        Assert.Contains(secondResult.ValueOrDefault!, f => f.Path == "/project/dependent.fugu");
 
         // Verify the content is correct for the new file
-        var libraryV2 = secondResult.Value!.First(f => f.Path == "/project/library_v2.fugu");
+        var libraryV2 = secondResult.ValueOrDefault!.First(f => f.Path == "/project/library_v2.fugu");
         Assert.Equal("Library v2", libraryV2.Content);
     }
 
@@ -287,44 +287,44 @@ public partial class CacheInvalidationTests
         context.SourceFilesSource.Push("dependent.fugu");
 
         var firstResult = withVersion.GetValues();
-        Assert.Equal(2, firstResult.Value!.Count());
-        Assert.Contains("library.fugu::Debug:v1", firstResult.Value!);
-        Assert.Contains("dependent.fugu::Debug:v1", firstResult.Value!);
+        Assert.Equal(2, firstResult.ValueOrDefault!.Count());
+        Assert.Contains("library.fugu::Debug:v1", firstResult.ValueOrDefault!);
+        Assert.Contains("dependent.fugu::Debug:v1", firstResult.ValueOrDefault!);
 
         // Check what's in the source directly before Remove
         var sourceBeforeRemove = context.SourceFiles.GetValues();
-        Assert.Equal(2, sourceBeforeRemove.Value!.Count());
+        Assert.Equal(2, sourceBeforeRemove.ValueOrDefault!.Count());
 
         // Act - Replace library.fugu with library_v2.fugu
         context.SourceFilesSource.Remove("library.fugu");
 
         // Check source after Remove, before Push
         var sourceAfterRemove = context.SourceFiles.GetValues();
-        Assert.Single(sourceAfterRemove.Value!);
-        Assert.Contains("dependent.fugu", sourceAfterRemove.Value!);
+        Assert.Single(sourceAfterRemove.ValueOrDefault!);
+        Assert.Contains("dependent.fugu", sourceAfterRemove.ValueOrDefault!);
 
         context.SourceFilesSource.Push("library_v2.fugu");
 
         // Check source after Push
         var sourceAfterPush = context.SourceFiles.GetValues();
-        Assert.Equal(2, sourceAfterPush.Value!.Count());
-        Assert.Contains("library_v2.fugu", sourceAfterPush.Value!);
-        Assert.Contains("dependent.fugu", sourceAfterPush.Value!);
+        Assert.Equal(2, sourceAfterPush.ValueOrDefault!.Count());
+        Assert.Contains("library_v2.fugu", sourceAfterPush.ValueOrDefault!);
+        Assert.Contains("dependent.fugu", sourceAfterPush.ValueOrDefault!);
 
         // Assert - Should have both files with library_v2 instead of library
         var secondResult = withVersion.GetValues();
 
         // Diagnostic output
-        var actualValues = secondResult.Value!.ToArray();
+        var actualValues = secondResult.ValueOrDefault!.ToArray();
         System.Diagnostics.Debug.WriteLine($"Second result count: {actualValues.Length}");
         foreach (var val in actualValues)
         {
             System.Diagnostics.Debug.WriteLine($"  - {val}");
         }
 
-        Assert.Equal(2, secondResult.Value!.Count());
-        Assert.Contains("library_v2.fugu::Debug:v1", secondResult.Value!);
-        Assert.Contains("dependent.fugu::Debug:v1", secondResult.Value!);
+        Assert.Equal(2, secondResult.ValueOrDefault!.Count());
+        Assert.Contains("library_v2.fugu::Debug:v1", secondResult.ValueOrDefault!);
+        Assert.Contains("dependent.fugu::Debug:v1", secondResult.ValueOrDefault!);
     }
 
     [Fact]
@@ -375,9 +375,9 @@ public partial class CacheInvalidationTests
         context.SourceFilesSource.Push("/project/dependent.fugu");
 
         var firstResult = typeCheckedModules.GetValues();
-        Assert.Equal(2, firstResult.Value!.Count());
+        Assert.Equal(2, firstResult.ValueOrDefault!.Count());
 
-        var libraryModule1 = firstResult.Value!.First(m => m.SourceFile.Contains("library"));
+        var libraryModule1 = firstResult.ValueOrDefault!.First(m => m.SourceFile.Contains("library"));
         Assert.Equal("/project/library.fugu", libraryModule1.SourceFile);
 
         // Act - Replace library.fugu with library_v2.fugu
@@ -386,18 +386,18 @@ public partial class CacheInvalidationTests
 
         // Assert - Should NOT contain old file path
         var secondResult = typeCheckedModules.GetValues();
-        Assert.Equal(2, secondResult.Value!.Count());
+        Assert.Equal(2, secondResult.ValueOrDefault!.Count());
 
         // The critical assertion: old file should NOT be present
-        var oldFile = secondResult.Value!.FirstOrDefault(m => m.SourceFile == "/project/library.fugu");
+        var oldFile = secondResult.ValueOrDefault!.FirstOrDefault(m => m.SourceFile == "/project/library.fugu");
         Assert.Null(oldFile); // Old file should not be in results!
 
         // New file SHOULD be present
-        var newFile = secondResult.Value!.FirstOrDefault(m => m.SourceFile == "/project/library_v2.fugu");
+        var newFile = secondResult.ValueOrDefault!.FirstOrDefault(m => m.SourceFile == "/project/library_v2.fugu");
         Assert.NotNull(newFile); // New file should be in results!
 
         // Dependent should still be there
-        var dependent = secondResult.Value!.FirstOrDefault(m => m.SourceFile == "/project/dependent.fugu");
+        var dependent = secondResult.ValueOrDefault!.FirstOrDefault(m => m.SourceFile == "/project/dependent.fugu");
         Assert.NotNull(dependent);
     }
 
@@ -430,12 +430,12 @@ public partial class CacheInvalidationTests
         context.SourceFilePathsSource.Push("/project/dependent.fugu");
 
         var firstModules = context.TypeCheckedModules.GetValues();
-        Assert.Equal(2, firstModules.Value!.Count());
+        Assert.Equal(2, firstModules.ValueOrDefault!.Count());
 
-        var firstPaths = string.Join(", ", firstModules.Value!.Select(m => m.SourceFile).OrderBy(p => p));
+        var firstPaths = string.Join(", ", firstModules.ValueOrDefault!.Select(m => m.SourceFile).OrderBy(p => p));
         _output.WriteLine($"After initial Push: [{firstPaths}]");
 
-        var libraryModule1 = firstModules.Value!.FirstOrDefault(m => m.SourceFile.EndsWith("library.fugu"));
+        var libraryModule1 = firstModules.ValueOrDefault!.FirstOrDefault(m => m.SourceFile.EndsWith("library.fugu"));
         Assert.NotNull(libraryModule1);
         Assert.Equal("/project/library.fugu", libraryModule1.SourceFile);
 
@@ -451,17 +451,17 @@ public partial class CacheInvalidationTests
 
         // Assert
         var secondModules = context.TypeCheckedModules.GetValues();
-        var secondPaths = string.Join(", ", secondModules.Value!.Select(m => m.SourceFile).OrderBy(p => p));
+        var secondPaths = string.Join(", ", secondModules.ValueOrDefault!.Select(m => m.SourceFile).OrderBy(p => p));
         _output.WriteLine($"After Remove+Push: [{secondPaths}]");
 
-        Assert.Equal(2, secondModules.Value!.Count());
+        Assert.Equal(2, secondModules.ValueOrDefault!.Count());
 
         // Critical assertion from issue: library_v2.fugu should be in results
-        var libraryModule2 = secondModules.Value!.FirstOrDefault(m => m.SourceFile.EndsWith("library_v2.fugu"));
+        var libraryModule2 = secondModules.ValueOrDefault!.FirstOrDefault(m => m.SourceFile.EndsWith("library_v2.fugu"));
         if (libraryModule2 == null)
         {
             // If library_v2 not found, check if old library still there (the bug!)
-            var oldLibrary = secondModules.Value!.FirstOrDefault(m => m.SourceFile.Contains("library"));
+            var oldLibrary = secondModules.ValueOrDefault!.FirstOrDefault(m => m.SourceFile.Contains("library"));
             if (oldLibrary != null)
             {
                 Assert.Fail($"Bug reproduced! Old file '{oldLibrary.SourceFile}' still in results instead of '/project/library_v2.fugu'. " +
@@ -478,11 +478,11 @@ public partial class CacheInvalidationTests
         Assert.Contains("LibFunc", libraryModule2.Symbols);
 
         // Verify old file is NOT in results
-        var oldFile = secondModules.Value!.FirstOrDefault(m => m.SourceFile == "/project/library.fugu");
+        var oldFile = secondModules.ValueOrDefault!.FirstOrDefault(m => m.SourceFile == "/project/library.fugu");
         Assert.Null(oldFile);
 
         // Dependent should still be present
-        var dependent = secondModules.Value!.FirstOrDefault(m => m.SourceFile == "/project/dependent.fugu");
+        var dependent = secondModules.ValueOrDefault!.FirstOrDefault(m => m.SourceFile == "/project/dependent.fugu");
         Assert.NotNull(dependent);
     }
 }

@@ -37,8 +37,8 @@ public partial class ReadOnlyValuesTests
         // Cached and freshly computed reads, through Values and GetValues
         foreach (var values in new[]
         {
-            context.Items.Values, context.Items.Values, context.Items.GetValues().Value!,
-            doubled.Values, doubled.Values, odd.Values, odd.GetValues().Value!,
+            context.Items.Values, context.Items.Values, context.Items.GetValues().ValueOrDefault!,
+            doubled.Values, doubled.Values, odd.Values, odd.GetValues().ValueOrDefault!,
         })
         {
             Assert.IsNotType<int[]>(values, exactMatch: false);
@@ -156,7 +156,7 @@ public partial class ReadOnlyValuesTests
         var doubled = context.Items.Select(x => x * 2);
 
         IReadOnlyList<int> values = doubled.Values;
-        IReadOnlyList<int> viaResult = doubled.GetValues().Value!;
+        IReadOnlyList<int> viaResult = doubled.GetValues().ValueOrDefault!;
 
         Assert.Equal(3, values.Count);
         Assert.Equal(20, values[0]);
@@ -188,13 +188,13 @@ public partial class ReadOnlyValuesTests
     {
         using var context = Create(1, 2, 3);
         var doubled = context.Items.Select(x => x * 2);
-        var first = doubled.GetValues().Value;
+        var first = doubled.GetValues().ValueOrDefault;
 
         IReadOnlyList<int>? read = null;
         var allocated = ScalingAssert.AllocatedBytes(() =>
         {
             for (var i = 0; i < 100; i++)
-                read = doubled.GetValues().Value;
+                read = doubled.GetValues().ValueOrDefault;
         });
 
         Assert.Equal(0, allocated);

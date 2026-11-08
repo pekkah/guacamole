@@ -113,7 +113,7 @@ public readonly record struct IncrementalValueProvider<T>
         {
             var result = GetValue();
             if (result.IsSuccess)
-                return result.Value!;
+                return result.ValueOrDefault!;
 
             throw NoValueException(result);
         }
@@ -133,7 +133,7 @@ public readonly record struct IncrementalValueProvider<T>
         var result = GetValue();
         if (result.IsSuccess)
         {
-            value = result.Value!;
+            value = result.ValueOrDefault!;
             return true;
         }
 
@@ -241,7 +241,7 @@ public readonly record struct IncrementalValuesProvider<T>
             return Result<IReadOnlyList<T>, ComputationError>.Error(result.ErrorValue!);
 
         // The handle returns the cached array: hand out the view kept with it
-        var computedValues = result.Value!;
+        var computedValues = result.ValueOrDefault!;
         var array = computedValues as T[] ?? computedValues.ToArray();
         if (graph.ValueCache.TryGet(Node.Id, out cached)
             && cached is CachedNodeValue computed
@@ -264,7 +264,7 @@ public readonly record struct IncrementalValuesProvider<T>
         {
             var result = GetValues();
             if (result.IsSuccess)
-                return result.Value!;
+                return result.ValueOrDefault!;
 
             throw new InvalidOperationException(
                 $"Failed to compute values: {result.ErrorValue?.Message ?? "Unknown error"}");

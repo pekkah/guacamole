@@ -75,6 +75,6 @@ public class ComputationNodeBaseTests
 
         // Assert
         Assert.True(result.IsSuccess);
-        Assert.Equal(42, result.Value);
+        Assert.Equal(42, result.ValueOrDefault);
     }
 }

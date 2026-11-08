@@ -462,7 +462,7 @@ public abstract partial class ComputingContextBase : IDisposable
             // A null computed value is a value too (not an error and not "no value"): deliver it
             if (result.IsSuccess)
             {
-                var value = result.Value!;
+                var value = result.ValueOrDefault!;
 
                 // Only call handler if value changed (Roslyn-style incremental computation)
                 if (!_hasExecuted || !_comparer.Equals(_lastValue!, value))
@@ -502,11 +502,11 @@ public abstract partial class ComputingContextBase : IDisposable
                 return;
 
             var result = _provider.GetValues();
-            if (result.IsSuccess && result.Value != null)
+            if (result.IsSuccess && result.ValueOrDefault != null)
             {
                 // A read-only view of an immutable cached array (see GetValues), so it can be kept
                 // for the next comparison without copying it
-                var current = result.Value;
+                var current = result.ValueOrDefault;
 
                 // Compare item by item; only call the handler if the collection changed
                 if (!_hasExecuted || _lastValue == null
