@@ -2,7 +2,6 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using Guacamole;
-using Microsoft.Extensions.DependencyInjection;
 using Xunit;
 
 namespace Guacamole.Tests;
@@ -72,17 +71,11 @@ public partial class CustomComparerTests
 
     }
 
-    private static System.IServiceProvider CreateServices()
-    {
-        var services = new ServiceCollection();
-        return services.BuildServiceProvider();
-    }
 
     [Fact]
     public void Select_WithCustomComparer_UsesComparerForEquality()
     {
         // Arrange
-        var services = CreateServices();
         var context = new StringContext();
         int handlerCallCount = 0;
         string? lastResult = null;
@@ -116,7 +109,6 @@ public partial class CustomComparerTests
     public void Select_WithoutCustomComparer_UsesDefaultEquality()
     {
         // Arrange
-        var services = CreateServices();
         var context = new StringContext();
         int handlerCallCount = 0;
 
@@ -147,7 +139,6 @@ public partial class CustomComparerTests
     public void Where_WithCustomComparer_StoreComparerInNode()
     {
         // Arrange
-        var services = CreateServices();
         var context = new StringContext();
 
         // Create Where with custom comparer
@@ -162,7 +153,6 @@ public partial class CustomComparerTests
     public void ValuesProvider_Where_WithCustomComparer_StoreComparerInNode()
     {
         // Arrange
-        var services = CreateServices();
         var context = new CollectionContext();
 
         // Create Where with custom comparer
@@ -178,7 +168,6 @@ public partial class CustomComparerTests
     public void ValuesProvider_SelectMany_WithCustomComparer_StoreComparerInNode()
     {
         // Arrange
-        var services = CreateServices();
         var context = new CollectionContext();
 
         // Create SelectMany with custom comparer
@@ -194,7 +183,6 @@ public partial class CustomComparerTests
     public void CustomComparer_NodeExposesComparerProperty()
     {
         // Arrange
-        var services = CreateServices();
         var context = new StringContext();
         var customComparer = new CaseInsensitiveComparer();
 
@@ -217,7 +205,6 @@ public partial class CustomComparerTests
     public void CustomComparer_DefaultsToEqualityComparerDefault()
     {
         // Arrange
-        var services = CreateServices();
         var context = new StringContext();
 
         // Create Select without custom comparer (null)

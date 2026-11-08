@@ -176,7 +176,7 @@ How these behave:
 
 | Package | Description | NuGet |
 |---------|-------------|-------|
-| **Guacamole** | Runtime: `ComputingContextBase`, sources, providers and operators, computation graph, caching, DI registration | [![NuGet](https://img.shields.io/nuget/v/Guacamole.svg)](https://www.nuget.org/packages/Guacamole/) |
+| **Guacamole** | Runtime: `ComputingContextBase`, sources, providers and operators, computation graph, caching | [![NuGet](https://img.shields.io/nuget/v/Guacamole.svg)](https://www.nuget.org/packages/Guacamole/) |
 | **Guacamole.SourceGenerators** | Source generator and diagnostics for `[ComputingContext]` classes (separate package; required) | [![NuGet](https://img.shields.io/nuget/v/Guacamole.SourceGenerators.svg)](https://www.nuget.org/packages/Guacamole.SourceGenerators/) |
 
 ## Requirements
@@ -314,7 +314,7 @@ What is not:
 
 ### Namespaces
 
-Everything a typical application uses (contexts, providers and their operators, sources, `Result`, `ComputationError`, `ProviderMetadata`, the dependency-injection extensions) is in the `Guacamole` namespace, so `using Guacamole;` is all you need. The only other public namespace is `Guacamole.Diagnostics` (`MetricsConfiguration` and the `GuacamoleMetrics` instruments). The computation graph, nodes, value cache and concrete source classes are internal implementation details. See the [Migration Guide](https://github.com/pekkah/guacamole/blob/main/MIGRATION_GUIDE.md) for the old namespaces and the members that became internal.
+Everything a typical application uses (contexts, providers and their operators, sources, `Result`, `ComputationError`, `ProviderMetadata`) is in the `Guacamole` namespace, so `using Guacamole;` is all you need. The only other public namespace is `Guacamole.Diagnostics` (`MetricsConfiguration` and the `GuacamoleMetrics` instruments). The computation graph, nodes, value cache and concrete source classes are internal implementation details. See the [Migration Guide](https://github.com/pekkah/guacamole/blob/main/MIGRATION_GUIDE.md) for the old namespaces and the members that became internal.
 
 ## Documentation
 

@@ -134,7 +134,7 @@ if (result.IsSuccess)
 
 Reading a single-value input before anything was `Set` returns a failed `Result` ("has never been initialized with a value").
 
-Contexts are ordinary classes created with `new`. If you use dependency injection, register them like any other service (for example `services.AddScoped<CompilerContext>()`). Contexts are `IDisposable`.
+Contexts are ordinary classes created with `new`, and they are `IDisposable`. Guacamole has no dependency-injection API of its own: if you use a container, register contexts like any other service, for example `services.AddScoped<CompilerContext>()` (or a factory such as `services.AddScoped(sp => new BuildContext(...))` for a context with a constructor of its own, see [Derived properties on the context](#derived-properties-on-the-context)), and the container disposes them with their scope.
 
 ## Building Pipelines
 

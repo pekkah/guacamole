@@ -41,8 +41,6 @@ Guacamole.Diagnostics.MetricsConfiguration.EnableGraphMetrics.init -> void
 Guacamole.Diagnostics.MetricsConfiguration.Equals(Guacamole.Diagnostics.MetricsConfiguration? other) -> bool
 Guacamole.Diagnostics.MetricsConfiguration.MetricsConfiguration() -> void
 Guacamole.Diagnostics.MetricsConfiguration.With(bool? enableComputationMetrics = null, bool? enableCacheMetrics = null, bool? enableGraphMetrics = null) -> Guacamole.Diagnostics.MetricsConfiguration!
-Guacamole.GuacamoleOptions
-Guacamole.GuacamoleOptions.GuacamoleOptions() -> void
 Guacamole.IBatchOperation<T>
 Guacamole.IBatchOperation<T>.Commit() -> void
 Guacamole.IBatchOperation<T>.Push(T item) -> void
@@ -113,7 +111,6 @@ Guacamole.Result<TValue, TError>.Match<TResult>(System.Func<TValue, TResult>! on
 Guacamole.Result<TValue, TError>.Match<TResult>(System.Func<TValue, TResult>! onSuccess, System.Func<TResult>! onNone, System.Func<TError, TResult>! onError) -> TResult
 Guacamole.Result<TValue, TError>.Result() -> void
 Guacamole.Result<TValue, TError>.ValueOrDefault.get -> TValue?
-Guacamole.ServiceCollectionExtensions
 Guacamole.SourceChangedEventArgs
 Guacamole.SourceChangedEventArgs.SourceChangedEventArgs(string! sourceId, System.DateTimeOffset timestamp) -> void
 Guacamole.SourceChangedEventArgs.SourceId.get -> string!
@@ -196,8 +193,6 @@ static Guacamole.Result<TValue, TError>.None.get -> Guacamole.Result<TValue, TEr
 static Guacamole.Result<TValue, TError>.operator !=(Guacamole.Result<TValue, TError> left, Guacamole.Result<TValue, TError> right) -> bool
 static Guacamole.Result<TValue, TError>.operator ==(Guacamole.Result<TValue, TError> left, Guacamole.Result<TValue, TError> right) -> bool
 static Guacamole.Result<TValue, TError>.Success(TValue value) -> Guacamole.Result<TValue, TError>
-static Guacamole.ServiceCollectionExtensions.AddGuacamole(this Microsoft.Extensions.DependencyInjection.IServiceCollection! services) -> Microsoft.Extensions.DependencyInjection.IServiceCollection!
-static Guacamole.ServiceCollectionExtensions.AddGuacamole(this Microsoft.Extensions.DependencyInjection.IServiceCollection! services, System.Action<Guacamole.GuacamoleOptions!>! configure) -> Microsoft.Extensions.DependencyInjection.IServiceCollection!
 static Guacamole.SourceLocation.operator !=(Guacamole.SourceLocation left, Guacamole.SourceLocation right) -> bool
 static Guacamole.SourceLocation.operator ==(Guacamole.SourceLocation left, Guacamole.SourceLocation right) -> bool
 static readonly Guacamole.Diagnostics.GuacamoleMetrics.ActivitySource -> System.Diagnostics.ActivitySource!
