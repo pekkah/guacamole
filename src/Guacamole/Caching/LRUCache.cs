@@ -1,4 +1,3 @@
-using System.Collections.Concurrent;
 using Guacamole.Diagnostics;
 
 namespace Guacamole.Caching;
@@ -11,10 +10,16 @@ namespace Guacamole.Caching;
 /// <typeparam name="TValue">Type of cached values</typeparam>
 internal sealed class LRUCache<TKey, TValue> : ICache<TKey, TValue>, ICacheStatisticsProvider where TKey : notnull
 {
-    private readonly ConcurrentDictionary<TKey, LinkedListNode<CacheEntry>> _index;
+    // Guarded by _lock, like _accessOrder. A ConcurrentDictionary is not needed (every access takes
+    // the lock anyway) and its Count takes all of its locks, whose number grows with the table, which
+    // made Set cost O(n) for large caches.
+    private readonly Dictionary<TKey, LinkedListNode<CacheEntry>> _index;
     private readonly LinkedList<CacheEntry> _accessOrder;
     private readonly object _lock = new();
     private readonly int _capacity;
+
+    // _index.Count, published for lock-free reads of the size
+    private int _count;
 
     /// <summary>
     /// Maximum number of cached entries.
@@ -24,12 +29,12 @@ internal sealed class LRUCache<TKey, TValue> : ICache<TKey, TValue>, ICacheStati
     /// <summary>
     /// Current number of entries in cache.
     /// </summary>
-    public int CurrentSize => _index.Count;
+    public int CurrentSize => Volatile.Read(ref _count);
 
     /// <summary>
     /// Current number of entries in cache.
     /// </summary>
-    public int Count => _index.Count;
+    public int Count => Volatile.Read(ref _count);
 
     // Statistics tracking
     private long _hitCount;
@@ -47,7 +52,7 @@ internal sealed class LRUCache<TKey, TValue> : ICache<TKey, TValue>, ICacheStati
             throw new ArgumentOutOfRangeException(nameof(capacity), "Capacity must be at least 1");
 
         _capacity = capacity;
-        _index = new ConcurrentDictionary<TKey, LinkedListNode<CacheEntry>>();
+        _index = new Dictionary<TKey, LinkedListNode<CacheEntry>>();
         _accessOrder = new LinkedList<CacheEntry>();
     }
 
@@ -144,7 +149,7 @@ internal sealed class LRUCache<TKey, TValue> : ICache<TKey, TValue>, ICacheStati
                 if (lastNode != null)
                 {
                     _accessOrder.RemoveLast();
-                    _index.TryRemove(lastNode.Value.Key, out _);
+                    _index.Remove(lastNode.Value.Key);
                     Interlocked.Increment(ref _evictionCount);
                     wasEvicted = true;
                 }
@@ -152,6 +157,7 @@ internal sealed class LRUCache<TKey, TValue> : ICache<TKey, TValue>, ICacheStati
 
             _index[key] = newNode;
             _accessOrder.AddFirst(newNode);
+            Volatile.Write(ref _count, _index.Count);
         }
 
         // Record cache metrics outside the lock
@@ -166,7 +172,7 @@ internal sealed class LRUCache<TKey, TValue> : ICache<TKey, TValue>, ICacheStati
 
             // Update cache size metrics
             var hitRatio = (_hitCount + _missCount) > 0 ? (double)_hitCount / (_hitCount + _missCount) * 100 : 0;
-            GuacamoleMetrics.UpdateCacheMetrics(hitRatio, _index.Count);
+            GuacamoleMetrics.UpdateCacheMetrics(hitRatio, Volatile.Read(ref _count));
         }
     }
 
@@ -179,6 +185,7 @@ internal sealed class LRUCache<TKey, TValue> : ICache<TKey, TValue>, ICacheStati
         {
             _index.Clear();
             _accessOrder.Clear();
+            Volatile.Write(ref _count, 0);
         }
     }
 
@@ -203,7 +210,10 @@ internal sealed class LRUCache<TKey, TValue> : ICache<TKey, TValue>, ICacheStati
     public bool ContainsKey(TKey key)
     {
         ArgumentNullException.ThrowIfNull(key);
-        return _index.ContainsKey(key);
+        lock (_lock)
+        {
+            return _index.ContainsKey(key);
+        }
     }
 
     /// <summary>
@@ -225,9 +235,10 @@ internal sealed class LRUCache<TKey, TValue> : ICache<TKey, TValue>, ICacheStati
 
         lock (_lock)
         {
-            if (_index.TryRemove(key, out var node))
+            if (_index.Remove(key, out var node))
             {
                 _accessOrder.Remove(node);
+                Volatile.Write(ref _count, _index.Count);
                 return true;
             }
             return false;

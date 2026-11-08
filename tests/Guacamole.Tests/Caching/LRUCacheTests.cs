@@ -1,4 +1,5 @@
 using Guacamole.Caching;
+using Guacamole.Tests.Common;
 using Xunit;
 
 namespace Guacamole.Tests.Caching;
@@ -256,70 +257,107 @@ public class LRUCacheTests
     }
 
     /// <summary>
-    /// PERFORMANCE: Test that cache operations are O(1)
+    /// PERFORMANCE: Test that cache operations are O(1): the time per Set and per Get does not grow
+    /// with the number of entries (compared at 1,000 and 32,000 entries; O(n) would be about 32x).
     /// </summary>
     [Fact]
     public void LRUCache_Operations_ShouldBe_O1()
     {
-        // Arrange
-        var cache = new LRUCache<string, int>(1000);
+        // Set: fill an empty cache of the size's capacity
+        ScalingAssert.PerOperationTimeScales(
+            size =>
+            {
+                var keys = Keys("key", size);
+                var cache = new LRUCache<string, int>(size);
+                return (() =>
+                {
+                    for (var i = 0; i < keys.Length; i++)
+                        cache.Set(keys[i], i);
+                }, keys.Length);
+            },
+            smallSize: 1_000,
+            largeSize: 32_000,
+            maxRatio: 8,
+            "LRUCache.Set");
 
-        // Act - Measure Set operations
-        var stopwatch = System.Diagnostics.Stopwatch.StartNew();
+        // Get: look up every entry of a full cache
+        ScalingAssert.PerOperationTimeScales(
+            size =>
+            {
+                var keys = Keys("key", size);
+                var cache = new LRUCache<string, int>(size);
+                for (var i = 0; i < keys.Length; i++)
+                    cache.Set(keys[i], i);
 
-        for (int i = 0; i < 1000; i++)
+                return (() =>
+                {
+                    foreach (var key in keys)
+                        cache.TryGet(key, out _);
+                }, keys.Length);
+            },
+            smallSize: 1_000,
+            largeSize: 32_000,
+            maxRatio: 8,
+            "LRUCache.TryGet");
+
+        // And the operations do what they should
+        var check = new LRUCache<string, int>(1000);
+        for (var i = 0; i < 1000; i++)
+            check.Set($"key-{i}", i);
+        for (var i = 0; i < 1000; i++)
         {
-            cache.Set($"key-{i}", i);
+            Assert.True(check.TryGet($"key-{i}", out var value));
+            Assert.Equal(i, value);
         }
-
-        stopwatch.Stop();
-        var setTime = stopwatch.ElapsedMilliseconds;
-
-        // Measure Get operations
-        stopwatch.Restart();
-
-        for (int i = 0; i < 1000; i++)
-        {
-            cache.TryGet($"key-{i}", out _);
-        }
-
-        stopwatch.Stop();
-        var getTime = stopwatch.ElapsedMilliseconds;
-
-        // Assert - O(1) operations should be very fast
-        Assert.True(setTime < 50, $"1000 Set operations took {setTime}ms, expected <50ms");
-        Assert.True(getTime < 50, $"1000 Get operations took {getTime}ms, expected <50ms");
     }
 
     /// <summary>
-    /// PERFORMANCE: Test cache eviction time is O(1)
+    /// PERFORMANCE: Test cache eviction time is O(1): the time per evicting Set does not grow with
+    /// the capacity (compared at 1,000 and 32,000 entries; O(n) would be about 32x).
     /// </summary>
     [Fact]
     public void LRUCache_Eviction_ShouldBe_O1()
     {
-        // Arrange - Small cache to force evictions
+        ScalingAssert.PerOperationTimeScales(
+            size =>
+            {
+                var initial = Keys("initial", size);
+                var evicting = Keys("eviction", size);
+                var cache = new LRUCache<string, int>(size);
+                for (var i = 0; i < initial.Length; i++)
+                    cache.Set(initial[i], i);
+
+                // Each Set of a new key into the full cache evicts the least recently used entry
+                return (() =>
+                {
+                    for (var i = 0; i < evicting.Length; i++)
+                        cache.Set(evicting[i], i);
+                }, evicting.Length);
+            },
+            smallSize: 1_000,
+            largeSize: 32_000,
+            maxRatio: 8,
+            "LRUCache eviction");
+
+        // Deterministic: every Set into the full cache evicted exactly one entry, the oldest
         var cache = new LRUCache<string, int>(100);
-
-        // Fill cache
-        for (int i = 0; i < 100; i++)
-        {
+        for (var i = 0; i < 100; i++)
             cache.Set($"initial-{i}", i);
-        }
-
-        // Act - Measure eviction operations
-        var stopwatch = System.Diagnostics.Stopwatch.StartNew();
-
-        // Force 100 evictions
-        for (int i = 0; i < 100; i++)
-        {
+        for (var i = 0; i < 100; i++)
             cache.Set($"eviction-{i}", i);
-        }
 
-        stopwatch.Stop();
+        Assert.Equal(100, cache.GetStatistics().EvictionCount);
+        Assert.Equal(100, cache.Count);
+        Assert.False(cache.TryGet("initial-99", out _));
+        Assert.True(cache.TryGet("eviction-0", out _));
+    }
 
-        // Assert - Eviction should be fast (O(1) with doubly-linked list)
-        Assert.True(stopwatch.ElapsedMilliseconds < 10,
-            $"100 evictions took {stopwatch.ElapsedMilliseconds}ms, expected <10ms");
+    private static string[] Keys(string prefix, int count)
+    {
+        var keys = new string[count];
+        for (var i = 0; i < count; i++)
+            keys[i] = $"{prefix}-{i}";
+        return keys;
     }
 
     /// <summary>

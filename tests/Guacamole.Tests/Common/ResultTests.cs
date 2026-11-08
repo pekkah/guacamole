@@ -241,21 +241,27 @@ public class ResultTests
     [Fact]
     public void Result_Operations_ShouldBe_Fast()
     {
-        // Act - Measure Result creation and access
-        var stopwatch = System.Diagnostics.Stopwatch.StartNew();
-
-        for (int i = 0; i < 1000; i++)
+        // Act - Measure what 1000 Result creations and accesses allocate (deterministic, unlike
+        // wall-clock time)
+        long sum = 0;
+        var successes = 0;
+        var allocated = ScalingAssert.AllocatedBytes(() =>
         {
-            var result = Result<int, string>.Success(i);
-            var value = result.Value;
-            var isSuccess = result.IsSuccess;
-        }
+            sum = 0;
+            successes = 0;
+            for (int i = 0; i < 1000; i++)
+            {
+                var result = Result<int, string>.Success(i);
+                sum += result.Value;
+                if (result.IsSuccess)
+                    successes++;
+            }
+        });
 
-        stopwatch.Stop();
-
-        // Assert - Should be very fast for struct operations
-        Assert.True(stopwatch.ElapsedMilliseconds < 5,
-            $"1000 Result operations took {stopwatch.ElapsedMilliseconds}ms, expected <5ms");
+        // Assert - Struct operations: no allocation, so nothing beyond a few field reads and writes
+        Assert.Equal(0, allocated);
+        Assert.Equal(499_500, sum);
+        Assert.Equal(1000, successes);
     }
 
     /// <summary>
