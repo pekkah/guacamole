@@ -280,7 +280,7 @@
   - Link: quickstart.md for detailed instructions
   - Include: Sample output and interpretation guide
 
-- [ ] **T029** Run `dotnet format` on all new code — open: `dotnet format --verify-no-changes` reports line-ending (and a few whitespace) differences repo-wide: `.editorconfig` says `end_of_line = crlf` while `.gitattributes` checks out LF
+- [x] **T029** Run `dotnet format` on all new code — done: `.editorconfig` now uses `end_of_line = lf` (matching the LF that `.gitattributes` stores), `dotnet format --verify-no-changes` is clean, and CI runs it on Linux (`.github/workflows/ci.yml`)
   - Command: `dotnet format benchmarks/Guacamole.Benchmarks/`
   - Command: `dotnet format tests/Guacamole.Benchmarks.Tests/`
   - Verify: Code style matches constitution requirements
@@ -400,7 +400,7 @@ Before marking feature complete, verify:
 - [x] All tests pass: `dotnet test`
 - [x] Benchmarks run: `dotnet run --project benchmarks/Guacamole.Benchmarks/ -c Release`
 - [x] Results exported to multiple formats (HTML, JSON, Markdown) — done: HTML, CSV and Markdown (no JSON)
-- [ ] Code formatted per constitution: `dotnet format` — open: see T029
+- [x] Code formatted per constitution: `dotnet format` — done: see T029
 
 ---
 
