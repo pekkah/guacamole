@@ -141,7 +141,18 @@ var lookup = context.Settings.Select(
 
 `PushRange` adds all its items in one step and raises a single change notification (none if every item was already present), so output handlers run once per range and downstream stages recompute once. Use it to load many items.
 
-`BeginBatch()` buffers operations, but `Commit()` still applies them one at a time, and each effective change raises its own notification, which runs all output handlers. When applying many individual changes with output handlers registered, keep handlers cheap.
+`BeginBatch()` buffers `Push`/`Remove`/`Replace` operations, and `Commit()` (or disposing the batch) applies them in order in one step with a single change notification, so the source's version changes once and output handlers run once for the whole batch. Group related changes (for example all the files touched by one save) into a batch.
+
+```csharp
+using (var batch = context.FilesSource.BeginBatch())
+{
+    batch.Replace(oldMain, newMain);
+    batch.Remove(deletedFile);
+    batch.Push(addedFile);
+} // one notification
+```
+
+If an operation fails (`Replace` of an item that is not present), the operations before it stay applied and are notified, and the exception is rethrown.
 
 ## Memory
 

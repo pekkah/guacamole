@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Collections.Immutable;
 using System.Collections.ObjectModel;
+using System.Runtime.ExceptionServices;
 using System.Threading;
 using Guacamole.Pipeline;
 
@@ -140,6 +141,63 @@ internal sealed class IncrementalSource<T> : IIncrementalSource<T>
         {
             NotifyChanged();
         }
+    }
+
+    /// <summary>
+    /// Applies <paramref name="operations"/> in order, with the semantics of <see cref="Push"/>,
+    /// <see cref="Remove"/> and <see cref="Replace"/>, and raises a single change notification if any
+    /// of them changed the source (see <see cref="IBatchOperation{T}.Commit"/>).
+    /// </summary>
+    /// <remarks>
+    /// If an operation throws, the operations before it stay applied (and are notified) and the
+    /// exception is rethrown after the notification.
+    /// </remarks>
+    internal void Apply(ReadOnlySpan<SourceOperation<T>> operations)
+    {
+        var changed = false;
+        ExceptionDispatchInfo? failure = null;
+
+        lock (_lock)
+        {
+            try
+            {
+                foreach (var operation in operations)
+                {
+                    switch (operation.Kind)
+                    {
+                        case SourceOperationKind.Push:
+                            ArgumentNullException.ThrowIfNull(operation.Item, "item");
+                            changed |= PushCore(operation.Item);
+                            break;
+                        case SourceOperationKind.Remove:
+                            ArgumentNullException.ThrowIfNull(operation.Item, "item");
+                            changed |= RemoveCore(operation.Item);
+                            break;
+                        default:
+                            ArgumentNullException.ThrowIfNull(operation.Item, "oldItem");
+                            ArgumentNullException.ThrowIfNull(operation.NewItem, "newItem");
+                            if (!EqualityComparer<T>.Default.Equals(operation.Item, operation.NewItem))
+                            {
+                                ReplaceCore(operation.Item, operation.NewItem);
+                                changed = true;
+                            }
+
+                            break;
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                failure = ExceptionDispatchInfo.Capture(ex);
+            }
+        }
+
+        if (changed)
+        {
+            NotifyChanged();
+        }
+
+        failure?.Throw();
     }
 
     /// <summary>
