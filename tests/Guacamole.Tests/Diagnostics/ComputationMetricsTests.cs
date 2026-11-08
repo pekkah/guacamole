@@ -22,8 +22,21 @@ public partial class ComputationMetricsTests
     /// Collects measurements of the computation instruments tagged with one tracking name, so
     /// tests running in parallel (which use other tracking names) do not interfere.
     /// </summary>
+    /// <remarks>
+    /// Instruments are matched by meter and instrument name, never by comparing with the
+    /// <see cref="GuacamoleMetrics"/> fields: when the listener starts before
+    /// <see cref="GuacamoleMetrics"/> is initialized, its instruments are published from inside its
+    /// static constructor, where those fields are still <c>null</c> on the initializing thread, so a
+    /// reference comparison would never enable them (and the first test to touch the metrics would
+    /// record nothing).
+    /// </remarks>
     private sealed class Recorder : IDisposable
     {
+        private const string MeterName = "Guacamole.Core";
+        private const string ComputationsName = "guacamole.computations.total";
+        private const string ErrorsName = "guacamole.computation.errors.total";
+        private const string DurationName = "guacamole.computation.duration";
+
         private readonly MeterListener _listener = new();
         private readonly string _trackingName;
         private readonly object _lock = new();
@@ -33,9 +46,8 @@ public partial class ComputationMetricsTests
             _trackingName = trackingName;
             _listener.InstrumentPublished = (instrument, listener) =>
             {
-                if (instrument == GuacamoleMetrics.ComputationsTotal
-                    || instrument == GuacamoleMetrics.ComputationErrors
-                    || instrument == GuacamoleMetrics.ComputationDuration)
+                if (instrument.Meter.Name == MeterName
+                    && instrument.Name is ComputationsName or ErrorsName or DurationName)
                 {
                     listener.EnableMeasurementEvents(instrument);
                 }
@@ -63,9 +75,9 @@ public partial class ComputationMetricsTests
 
             lock (_lock)
             {
-                if (instrument == GuacamoleMetrics.ComputationsTotal)
+                if (instrument.Name == ComputationsName)
                     Computations += (int)value;
-                else if (instrument == GuacamoleMetrics.ComputationErrors)
+                else if (instrument.Name == ErrorsName)
                     Errors += (int)value;
                 else
                     Durations += (int)value;

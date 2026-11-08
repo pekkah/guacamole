@@ -295,7 +295,7 @@ internal sealed class SelectValueNode<TSource, TResult> : IComputationNode<TResu
 
         try
         {
-            var sourceResult = _source.Compute(context);
+            var sourceResult = context.Read(_source);
             if (sourceResult.IsError)
                 return Result<TResult, ComputationError>.Error(sourceResult.ErrorValue!);
             if (sourceResult.IsNone)
@@ -341,7 +341,7 @@ internal sealed class WhereValueNode<T> : IComputationNode<T>, IHasComparer<T>
 
         try
         {
-            var sourceResult = _source.Compute(context);
+            var sourceResult = context.Read(_source);
             if (!sourceResult.IsSuccess)
                 return sourceResult; // error or no value: propagate without running the predicate
 
@@ -393,11 +393,11 @@ internal sealed class CombineValueNode<TFirst, TSecond> : IComputationNode<(TFir
 
         try
         {
-            var firstResult = _first.Compute(context);
+            var firstResult = context.Read(_first);
             if (firstResult.IsError)
                 return Result<(TFirst, TSecond), ComputationError>.Error(firstResult.ErrorValue!);
 
-            var secondResult = _second.Compute(context);
+            var secondResult = context.Read(_second);
             if (secondResult.IsError)
                 return Result<(TFirst, TSecond), ComputationError>.Error(secondResult.ErrorValue!);
 
@@ -444,7 +444,7 @@ internal sealed class SelectManyFromValueNode<TSource, TResult> : ICollectionCom
 
         try
         {
-            var sourceResult = _source.Compute(context);
+            var sourceResult = context.Read(_source);
             if (sourceResult.IsError)
                 return Result<IEnumerable<TResult>, ComputationError>.Error(sourceResult.ErrorValue!);
 

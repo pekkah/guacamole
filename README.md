@@ -63,7 +63,7 @@ if (result.IsSuccess)
 
 ### Build pipelines once
 
-Every operator call (`Select`, `Where`, `Combine`, `Collect`, ...) creates a **new computation node with a unique ID**, and cached values are stored per node. Build a pipeline once (in a constructor or at startup) and keep the resulting provider. Avoid building pipelines inside property getters or per request. Identical operator calls are reused: calling the same operator on the same input with an equal delegate (a non-capturing lambda, a lambda that only captures `this`, or a method group on the same instance) returns the existing node. Lambdas that capture locals allocate a new closure per call, so they never match and create a new node each time. Such nodes start with an empty cache and stay registered in the context's graph.
+Every operator call (`Select`, `Where`, `Combine`, `Collect`, ...) creates a **new computation node with a unique ID**, and cached values are stored per node. Build a pipeline once (in a constructor or at startup) and keep the resulting provider. Avoid building pipelines inside property getters or per request. Identical operator calls are reused: calling the same operator on the same input with an equal delegate (a non-capturing lambda, a lambda that only captures `this`, or a method group on the same instance) returns the existing node. Lambdas that capture locals allocate a new closure per call, so they never match and create a new node each time. Such nodes start with an empty cache and stay registered in the context's graph until you call `context.TrimUnusedNodes()`, which removes the nodes no provider, output registration or other node references anymore (see [Performance Guide](docs/performance-guide.md#build-pipelines-once)).
 
 The generator emits the context's public parameterless constructor, so you cannot declare your own parameterless constructor. To expose derived pipelines as properties, declare them as non-partial properties with a setter and assign them in a constructor that chains to `this()`:
 
@@ -141,8 +141,8 @@ values.Merge(otherValues)
 How these behave:
 
 - **Lazy evaluation** - nothing is computed until a provider is read with `GetValue()`/`GetValues()` (or `.Value`/`.Values`), or an output handler reads it.
-- **Caching happens at the nodes you read.** The provider you call `GetValue()`/`GetValues()` on caches its result together with the versions of the inputs it used. Intermediate stages that are never read directly are not cached: they are recomputed inline whenever the node you read is recomputed, and cache validation looks through them to the sources they depend on. To cache an intermediate stage, read it (for example by registering an output on it).
-- **Version-based invalidation** - a source change only increments that source's version; cached values are revalidated lazily on the next read. A read node whose recomputed value equals its previous value keeps its version, so downstream nodes built from its cached value stay valid and are not recomputed.
+- **Every stage is cached.** Each stage of a pipeline caches its result together with the versions of the inputs it read, whether or not you read that stage directly. Reading a provider first brings the stages it was computed from up to date (recursively), so a stage reruns only when one of its own inputs actually changed.
+- **Version-based invalidation** - a source change only increments that source's version; cached values are revalidated lazily on the next read. A stage whose recomputed value equals its previous value (by its comparer) keeps its version, so the stages downstream of it stay valid and are not recomputed. This equality cut-off applies at every stage, including intermediate stages that are never read themselves.
 - **Per-item memoization** - a recomputed collection `Select`/`Where`/`SelectMany` runs its lambda only for new or changed items; items equal to ones seen in the previous computation reuse the previous result (the same instance). Items should be immutable.
 - **Cross-item lookups** (e.g. a symbol table built from all files) - compute shared data with `Collect()` and a deterministic merge into a type with structural equality, then `Combine` it with each item; never accumulate it in a lambda, which makes results depend on processing order. See [Cross-item lookups](docs/performance-guide.md#cross-item-lookups-eg-symbol-tables).
 - **Custom equality comparers** decide whether a recomputed value counts as changed. Use records or `IEquatable<T>` types; without value equality every recomputation looks like a change.
@@ -239,7 +239,7 @@ Immutable pipeline structures that lazily compute values:
 - `IncrementalValueProvider<T>` - Single value provider
 - `IncrementalValuesProvider<T>` - Collection provider
 - Composable via extension methods (Select, Where, Combine, etc.)
-- Values are cached for the nodes that are read (see [Provider Extension Methods](#provider-extension-methods))
+- Every stage caches its value; a stage whose recomputed value is unchanged keeps downstream stages cached (see [Provider Extension Methods](#provider-extension-methods))
 
 ### Source Generation
 

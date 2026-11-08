@@ -53,6 +53,45 @@ public abstract partial class ComputingContextBase : IDisposable
     protected virtual int CacheCapacity => DefaultCacheCapacity;
 
     /// <summary>
+    /// Removes the pipeline nodes that are no longer used from this context's graph, together with
+    /// their cached values and version records.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Every operator call (<c>Select</c>, <c>Where</c>, <c>Combine</c>, ...) adds a node to the
+    /// context's graph. Identical calls reuse their node, but calls with lambdas that capture locals
+    /// (a new closure each time) or pipelines built per request add new nodes. A node stays alive as
+    /// long as a provider, an output registration or a downstream node references it; the context
+    /// itself also keeps the nodes created by operator calls alive, so that repeated identical calls
+    /// (for example in property getters) keep sharing one node and its cache.
+    /// </para>
+    /// <para>
+    /// This method
+    /// </para>
+    /// <list type="number">
+    /// <item><description>removes the nodes that have been garbage-collected, with their cached values
+    /// and version records, and</description></item>
+    /// <item><description>stops keeping the remaining nodes alive itself, so that those nothing else
+    /// references can be collected; they are removed by a later call. A node requested again by an
+    /// identical operator call before it is collected is kept alive again.</description></item>
+    /// </list>
+    /// <para>
+    /// A node that is still referenced (directly or as an input of a node that is) is never removed,
+    /// so trimming never affects results. An unreferenced node that is removed and later requested by
+    /// an identical operator call is recreated with an empty cache. Call this periodically (for example
+    /// after handling a batch of requests) when pipelines are built dynamically; it is not needed when
+    /// pipelines are built once. Thread-safe.
+    /// </para>
+    /// </remarks>
+    /// <returns>The number of nodes removed</returns>
+    /// <exception cref="ObjectDisposedException">The context has been disposed.</exception>
+    public int TrimUnusedNodes()
+    {
+        ThrowIfDisposed();
+        return Graph.TrimUnusedNodes();
+    }
+
+    /// <summary>
     /// Creates a new computing context.
     /// </summary>
     /// <exception cref="ArgumentOutOfRangeException"><see cref="CacheCapacity"/> is less than 1.</exception>
