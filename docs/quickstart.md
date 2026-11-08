@@ -60,7 +60,7 @@ Sources are where data enters the graph:
 **Providers** are immutable descriptions of a value in the pipeline:
 
 - **`IncrementalValueProvider<T>`** - a single value (`GetValue()`, `.Value`)
-- **`IncrementalValuesProvider<T>`** - a collection of values (`GetValues()`, `.Values`)
+- **`IncrementalValuesProvider<T>`** - a collection of values (`GetValues()`, `.Values`); the values are a read-only view of the cached result (copy them with `ToArray()` if you need an array to modify)
 
 Providers are **lazy**: nothing is computed until a provider is read.
 

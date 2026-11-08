@@ -281,7 +281,8 @@ public abstract partial class ComputingContextBase : IDisposable
     /// </summary>
     /// <typeparam name="T">The type of items in the collection</typeparam>
     /// <param name="provider">The collection provider whose output should trigger the handler</param>
-    /// <param name="handler">Action to execute with the computed values and context</param>
+    /// <param name="handler">Action to execute with the computed values (a read-only view, see
+    /// <see cref="IncrementalValuesProvider{T}.GetValues"/>) and context</param>
     public void RegisterOutput<T>(
         IncrementalValuesProvider<T> provider,
         Action<IEnumerable<T>, ComputingContextBase> handler)
@@ -397,7 +398,7 @@ public abstract partial class ComputingContextBase : IDisposable
         private readonly IncrementalValuesProvider<T> _provider;
         private readonly Action<IEnumerable<T>, ComputingContextBase> _handler;
         private readonly IEqualityComparer<T> _comparer;
-        private T[]? _lastValue;
+        private IEnumerable<T>? _lastValue;
         private bool _hasExecuted;
 
         public CollectionOutputRegistration(IncrementalValuesProvider<T> provider, Action<IEnumerable<T>, ComputingContextBase> handler)
@@ -413,14 +414,15 @@ public abstract partial class ComputingContextBase : IDisposable
             var result = _provider.GetValues();
             if (result.IsSuccess && result.Value != null)
             {
-                // Materialize to array for comparison (avoid reference equality issues)
-                var currentArray = result.Value.ToArray();
+                // A read-only view of an immutable cached array (see GetValues), so it can be kept
+                // for the next comparison without copying it
+                var current = result.Value;
 
-                // For collections, compare using SequenceEqual (structural comparison)
-                // Only call handler if collection changed
-                if (!_hasExecuted || _lastValue == null || !_lastValue.SequenceEqual(currentArray, _comparer))
+                // Compare item by item; only call the handler if the collection changed
+                if (!_hasExecuted || _lastValue == null
+                    || !(ReferenceEquals(_lastValue, current) || _lastValue.SequenceEqual(current, _comparer)))
                 {
-                    _lastValue = currentArray;
+                    _lastValue = current;
                     _hasExecuted = true;
                     _handler(result.Value, context);
                 }

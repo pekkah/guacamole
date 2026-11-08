@@ -182,7 +182,7 @@ The repository contains BenchmarkDotNet benchmarks in [`benchmarks/Guacamole.Ben
 | Class | Measures |
 |-------|----------|
 | `SimpleProviderBenchmarks`, `ComplexGraphBenchmarks` | Reading a 5-stage chain / 21-stage tree |
-| `CachingBenchmarks` | Cold read (cache cleared) vs warm read |
+| `CachingBenchmarks` | Cold read (cache cleared) vs warm read, and a warm read of a collection stage's `.Values` |
 | `IncrementalUpdateBenchmarks` | Reading a total over N sources (a binary reduction tree) after one source changed, for N = 16, 256, 4,096, against recomputing the total directly |
 | `CollectionChangeBenchmarks` | Replacing K of N items, then reading `Items.Select(work).Collect().Select(Sum)`, against recomputing all N items directly |
 | `MemoryOverheadBenchmarks` | Building a context over N items and reading the total, against computing the results directly (time and allocations) |
