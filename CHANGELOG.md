@@ -35,6 +35,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **Public API tracking** (#83): `src/Guacamole` uses Microsoft.CodeAnalysis.PublicApiAnalyzers 5.6.0 with `PublicAPI.Shipped.txt` (empty until the first release) and `PublicAPI.Unshipped.txt` (the full public surface). Undeclared (RS0016) or removed (RS0017) public API fails the build. See [docs/ci-cd.md](docs/ci-cd.md#public-api-tracking).
 - **Platform upgrade**: all projects target .NET 11 (`net11.0`) with the .NET 11 RC3 SDK pinned in `global.json`, and use `LangVersion=latest` (C# 15). Test projects moved to xUnit v3 on Microsoft.Testing.Platform. Dependencies bumped (Microsoft.Extensions.DependencyInjection 11.0 RC3, Microsoft.SourceLink.GitHub 10.0.403, Microsoft.CodeAnalysis 5.9.0).
 - **Release flow**: packages are published to nuget.org only from `v*` version tags (or a manual run of the Publish workflow); the tag name is the package version. Pushes to `main` only build, test and pack. The Publish workflow reuses the CI workflow. Publishing authenticates with nuget.org **trusted publishing** (GitHub OIDC → short-lived API key) instead of a stored `NUGET_API_KEY` secret. Example projects are now part of `guacamole.sln` and built in CI. See [docs/ci-cd.md](docs/ci-cd.md).
 - **Snapshot test tooling**: generator snapshot tests use Verify.XunitV3 33.3.4 (from 32.0.1). Verify 33's SponsorCheck build gate is satisfied by its time-bounded OpenSource exemption declared in the test project, valid until 2027-11 and to be renewed before then (#44).
