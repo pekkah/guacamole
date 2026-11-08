@@ -95,6 +95,12 @@ internal sealed class SharedGraphState
     /// </summary>
     public const long ActiveChangesMask = (1L << ActiveChangeBits) - 1;
 
+    /// <summary>
+    /// What one complete change (<see cref="BeginSourceChange"/> followed by
+    /// <see cref="EndSourceChange"/>) adds to <see cref="ChangeState"/>: one change started, none active.
+    /// </summary>
+    public const long CompletedChange = ChangeStarted - 1;
+
     private long _changeState;
     private long _propagationIds;
 
@@ -237,6 +243,11 @@ internal sealed class SharedGraphState
     /// (see <see cref="GraphEvaluator.OverlapsChange"/>). The epoch is still read after the change
     /// started, as required above.
     /// </para>
+    /// <para>
+    /// A pass that has made key changes of its own (see <see cref="MarkKeysChanged"/>) counts, for a
+    /// stamp it records afterwards, as a pass that started when the latest of them ended; the remarks
+    /// there show that the argument above holds for it.
+    /// </para>
     /// </remarks>
     /// <param name="sourceId">The source's node ID</param>
     /// <param name="pending">The source's notification, which may hold the change open (see
@@ -284,9 +295,10 @@ internal sealed class SharedGraphState
     /// (<see cref="MarkSourceChanged"/> never walks from a dictionary node to its keys). Which keys
     /// changed is only known when the dictionary node is recomputed; its commit then marks the
     /// readers of those keys here. Such a key change follows the rules of a source change: it
-    /// increments <see cref="ChangeState"/> for its duration (so no pass overlapping it records a
-    /// stamp), reads <see cref="StampEpoch"/> after that, and walks with the same early stopping.
-    /// Unlike a source change it does not advance <see cref="Revision"/> (see below).
+    /// increments <see cref="ChangeState"/> for its duration (so no other pass overlapping it records a
+    /// stamp), reads <see cref="StampEpoch"/> after that, walks with the same early stopping, and
+    /// advances <see cref="Revision"/> once it has marked everything. It returns that revision, which
+    /// the pass that made it uses to go on recording stamps (see the last part of these remarks).
     /// </para>
     /// <para>
     /// Between a source change and the dictionary's recomputation, the nodes downstream of a key
@@ -300,9 +312,11 @@ internal sealed class SharedGraphState
     /// stamp s equal to R's counter, and the pass Ps that wrote s. Ps verified or computed R, which
     /// read every key R depends on through its key handle, so it brought the dictionary node D up to
     /// date and checked each key's version against the dictionary result it found (call that commit
-    /// D1). A stamp is written only by a pass during which no change ran (<see cref="GraphEvaluator.CanStamp"/>),
-    /// so a commit of D that changed one of R's keys after D1 started its key change after Ps ended
-    /// (one that ran before Ps started would have been D1 or an earlier commit). Its walk reached R:
+    /// D1). A stamp is written only by a pass during which no change ran (<see cref="GraphEvaluator.CanStamp"/>;
+    /// for a pass that made key changes of its own before, read "started" as "ended the latest of
+    /// them", see below), so a commit of D that changed one of R's keys after D1 started its key
+    /// change after Ps ended (one that ran before Ps started would have been D1 or an earlier commit).
+    /// Its walk reached R:
     /// R's dependency path to the key state was registered before the values on it were stored, so
     /// before Ps saw them, and an early stop at a node covered in the same epoch is the case of the
     /// #71 argument above (pseudo source: the key state; Ps is a stamping pass that started before the
@@ -319,12 +333,14 @@ internal sealed class SharedGraphState
     /// can only be because a source change had incremented a version but not advanced the revision
     /// yet when P started, or started after P: P overlaps that change, and may return values from
     /// before it, as any pass overlapping a change may. The same holds for a value verified at P's
-    /// revision before a key change at that revision, which is why key changes need not advance the
-    /// revision: a value verified at a revision was verified after D was brought up to date at that
-    /// revision (a gated value cannot be verified without refreshing D), and D's value at a revision
-    /// only changes while a source change is in progress. A dictionary recomputed after its value was
-    /// evicted (or concurrently by two passes) compares equal to the committed dictionary kept by the
-    /// index, so it changes no key.
+    /// revision before a key change at that revision, so for other passes the key change's revision
+    /// advance is merely conservative: a value verified at a revision was verified after D was brought
+    /// up to date at that revision (a gated value cannot be verified without refreshing D), and D's
+    /// value at a revision only changes while a source change is in progress (sources publish their
+    /// new contents only inside their change, see <see cref="GraphEvaluator.OverlapsChange"/>). A
+    /// dictionary recomputed after its value was evicted (or concurrently by two passes) compares
+    /// equal to the committed dictionary kept by the index, so it changes no key, unless such a source
+    /// change is in progress.
     /// </para>
     /// <para>
     /// Per-key readers also record versions safely: a key's version as of a dictionary result is
@@ -334,11 +350,85 @@ internal sealed class SharedGraphState
     /// the entry it read.
     /// </para>
     /// <para>
+    /// <b>The pass that makes the key change (#104).</b> The key change C runs on the thread of the
+    /// pass P whose commit of D made it, and ends before P goes on. P does not give up stamping
+    /// because of C (<see cref="GraphEvaluator.AccountForOwnKeyChange"/>):
+    /// </para>
+    /// <list type="number">
+    /// <item>P expects the change state to have moved by exactly one complete change per key change
+    /// of its own: <see cref="GraphEvaluator.CanStamp"/> holds only if no change was in progress when
+    /// P started and every change started since is one of P's own key changes, all ended.</item>
+    /// <item>P increments <see cref="StampEpoch"/> again before its next stamp decision.</item>
+    /// <item>P takes the revision r_C that C advanced to as its revision.</item>
+    /// <item>A node evaluation of P that began before C (it encloses C) records no stamp, and marks its
+    /// value verified at the revision it began with. The one exception is the stamp of D's own
+    /// commit, whose evaluation ends with C. A gated node's evaluation begins afresh once its gates are
+    /// up to date, so the node whose read made C is not such an evaluation.</item>
+    /// <item>If a change other than P's own is in progress when C ends, P counts from then on as
+    /// overlapping a change (<see cref="GraphEvaluator.OverlapsChange"/>): it no longer takes values by
+    /// their revision nor trusts root versions, as a pass starting then would not (it cannot stamp
+    /// anymore either, by 1). Its own key change alone never makes it overlap one.</item>
+    /// </list>
+    /// <para>
+    /// <b>Why this is sound.</b> Take a stamp decision d of P for which CanStamp held, after P's own
+    /// key changes C_1 ... C_n (n ≥ 1, all ended before d by 1), and let t be the end of C_n and r_C
+    /// the revision it advanced to. Compare P with a pass P' that would start at t:
+    /// </para>
+    /// <list type="bullet">
+    /// <item>Changes: by 1, no change was in progress when P started and none other than C_1 ... C_n
+    /// started until d, so from t to d none started or was in progress: P' would see none either. A
+    /// change that ended before P started advanced the revision before P read its own, so the only
+    /// advances after that are those of C_1 ... C_n, and P' would read the revision r_C at t: the
+    /// revision P now has by 3. P' overlaps a change (issue #99, <see cref="GraphEvaluator.OverlapsChange"/>)
+    /// exactly if one is in progress at t; P then treats itself as overlapping one too (5), and it
+    /// already did if a change was in progress when it started. P's own key changes never count:
+    /// they publish no source contents, and they have ended at t. (Without a change in progress at t,
+    /// a stamp decision is moot anyway once another change has started: 1 fails.)</item>
+    /// <item>Epoch: by 2, P incremented the epoch after t and before d, as P' would before its first
+    /// stamp decision.</item>
+    /// <item>The value: by 4, the evaluation that d belongs to began after t, so it read the node's
+    /// dirty counter after t, and everything it relied on was verified or computed after t, or was
+    /// verified at r_C or later (P no longer accepts values verified at its earlier revision). A value
+    /// verified at r_C or later was verified by a pass whose revision is at least r_C, read after C_n
+    /// had marked everything, which accepts only values verified at its revision or later, inductively
+    /// with the same property. So the evaluation accepts exactly the values P' would. Results that
+    /// were not cached, kept by P from before t (<see cref="GraphEvaluator.FailedReads"/>), make the
+    /// reading node's result uncached too, so they are never stamped.</item>
+    /// </list>
+    /// <para>
+    /// The arguments above (#71 and the gates) use only that a stamping pass saw no change in progress
+    /// from its start to its decision, incremented the epoch in between, and read the node's counter
+    /// and verified its value after its start; so they hold for P' and hence for d. The stamp of D's
+    /// own commit (the exception in 4) is decided after C, but its evaluation encloses no other key
+    /// change of P (otherwise it records no stamp), so it is the decision of the pass that starts
+    /// at the end of P's previous key change (or at P's start), made later: C marks only nodes
+    /// downstream of D's keys, which are neither D nor anything D read (the edges form a DAG), so C
+    /// changes nothing that decision depends on, and by 1 no other change started meanwhile.
+    /// </para>
+    /// <para>
+    /// Each rule is needed (see LookupStampTests). Without the guard of C (or with an expected change
+    /// state that did not count C), a source change that runs, complete, during C would look to P like
+    /// its own key change; such a change can stop early at D (covered in the epoch C read), so P would
+    /// stamp D from inputs read before it. Without 2, a later change of the epoch C read, which C
+    /// recorded on the nodes it marked, could stop at nodes P stamps after C. Without 3, or with the
+    /// enclosing evaluations of 4 marking their values at r_C, P would accept values verified before C
+    /// (by itself or by another pass) that C made stale: D may be committed twice at one revision
+    /// with different values when it was evicted while a source's new contents were visible without
+    /// a change in progress. Since sources publish only inside their change (#99), a pass that can
+    /// still stamp no longer meets that case, so 3 and the revision rule of 4 are defence in depth,
+    /// kept so that the comparison with P' does not depend on how sources publish (the tests apply a
+    /// source by hand to reach it). Without 5, P would take, by their revision or root versions,
+    /// values that a pass starting after C would have to verify while a source publishes. Without
+    /// the stamp rule of 4, an enclosing evaluation would stamp with a counter read before C, which C
+    /// may have skipped (covered in its epoch). Other passes overlapping C still record no stamp.
+    /// </para>
+    /// <para>
     /// Runs under <see cref="CommitLock"/>, so <see cref="OnNodeMarked"/> must not wait for anything
     /// that commits a value while a key change is marking.
     /// </para>
     /// </remarks>
-    internal void MarkKeysChanged(List<NodeState> keys)
+    /// <returns>The revision this key change advanced <see cref="Revision"/> to</returns>
+    internal long MarkKeysChanged(List<NodeState> keys)
     {
         BeginSourceChange();
         try
@@ -347,6 +437,9 @@ internal sealed class SharedGraphState
             var epoch = StampEpoch;
             foreach (var key in keys)
                 MarkDependentsDirty(key, epoch);
+
+            // After marking, like a source change (see the remarks)
+            return Interlocked.Increment(ref _revision);
         }
         finally
         {

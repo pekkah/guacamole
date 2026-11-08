@@ -86,17 +86,20 @@ internal sealed class GraphEvaluator
         // end between the two reads; the pass would accept values verified before the change and
         // still be allowed to stamp what it derives from them.
         _changeState = State.ChangeState;
+        _overlapsChange = (_changeState & SharedGraphState.ActiveChangesMask) != 0;
         State.OnEvaluationSnapshot?.Invoke();
         Revision = State.Revision;
         Context = new ComputationContext(NoCachedValues) { Evaluator = this };
     }
 
-    // The source-change state when this pass started (read before Revision)
-    private readonly long _changeState;
+    // The source-change state when this pass started (read before Revision), plus the changes the
+    // pass has made itself (see AccountForOwnKeyChange)
+    private long _changeState;
 
     /// <summary>
-    /// Whether a source change was in progress when this pass started. Such a pass neither takes
-    /// values as verified by their revision nor trusts the versions of roots (issue #99).
+    /// Whether a source change was in progress when this pass started, or when its latest own key
+    /// change ended (see <see cref="AccountForOwnKeyChange"/>). Such a pass neither takes values as
+    /// verified by their revision nor trusts the versions of roots (issue #99).
     /// </summary>
     /// <remarks>
     /// <para>
@@ -121,16 +124,29 @@ internal sealed class GraphEvaluator
     /// has ended.
     /// </para>
     /// </remarks>
-    public bool OverlapsChange => (_changeState & SharedGraphState.ActiveChangesMask) != 0;
+    public bool OverlapsChange => _overlapsChange;
 
-    // Whether this pass may still record stamps: 0 until the first stamp decision, then 1 (yes, so
-    // far) or -1 (no, for the rest of the pass)
+    private bool _overlapsChange;
+
+    // The number of key changes this pass has made itself (see AccountForOwnKeyChange)
+    private int _ownKeyChanges;
+
+    // Whether this pass may still record stamps: 0 until the first stamp decision (and again after
+    // each own key change), then 1 (yes, so far) or -1 (no, for the rest of the pass)
     private int _stamping;
 
     /// <summary>
-    /// Whether this pass may record stamps (<see cref="CachedNodeValue.Stamp"/>): no source change
-    /// was in progress when it started, and none has started since. Called after the verification or
-    /// computation whose result would be stamped.
+    /// The number of key changes this pass has made itself (see <see cref="AccountForOwnKeyChange"/>).
+    /// A node evaluation reads it when it begins and passes it to <see cref="CanStamp(int)"/>.
+    /// </summary>
+    public int OwnKeyChanges => _ownKeyChanges;
+
+    /// <summary>
+    /// Whether this pass may record a stamp (<see cref="CachedNodeValue.Stamp"/>) for a node
+    /// evaluation that began when <see cref="OwnKeyChanges"/> was <paramref name="ownKeyChanges"/>: no
+    /// change was in progress when the pass started, none has started since except the pass's own key
+    /// changes, which have all ended, and none of those ran during the evaluation. Called after the
+    /// verification or computation whose result would be stamped.
     /// </summary>
     /// <remarks>
     /// <para>
@@ -143,10 +159,13 @@ internal sealed class GraphEvaluator
     /// <para>
     /// The first call of a pass that may stamp increments <see cref="SharedGraphState.StampEpoch"/>
     /// before it checks the change state, which ends early stopping for the changes that start
-    /// afterwards (see <see cref="SharedGraphState.MarkSourceChanged"/>).
+    /// afterwards (see <see cref="SharedGraphState.MarkSourceChanged"/>). So does the first call after
+    /// each of the pass's own key changes (see <see cref="AccountForOwnKeyChange"/>).
     /// </para>
     /// </remarks>
-    public bool CanStamp()
+    public bool CanStamp(int ownKeyChanges) => ownKeyChanges == _ownKeyChanges && CanStampCore();
+
+    private bool CanStampCore()
     {
         if (_stamping == 0)
         {
@@ -173,6 +192,49 @@ internal sealed class GraphEvaluator
         return true;
     }
 
+    /// <summary>
+    /// Called by a dictionary node's commit in this pass, right after its key change
+    /// (<see cref="SharedGraphState.MarkKeysChanged"/>) has ended, with the revision that change
+    /// advanced to: lets the pass go on recording stamps despite a change it made itself (#104).
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// From here on the pass behaves as one that started now, when the key change has ended:
+    /// </para>
+    /// <list type="bullet">
+    /// <item>It expects the change state to have moved by exactly one complete change, so any other
+    /// change that started since the pass started, or is in progress, still stops its stamping.</item>
+    /// <item>Its next stamp decision increments <see cref="SharedGraphState.StampEpoch"/> again, as the
+    /// first decision of a new pass would.</item>
+    /// <item>It takes <paramref name="revision"/> as its revision, so it no longer accepts values
+    /// verified at its earlier revision (possibly before the key change, by itself or by another pass)
+    /// without checking them.</item>
+    /// <item>A node evaluation that began before the key change (it encloses it) records no stamp
+    /// and marks its value verified at the revision it began with (see <see cref="CanStamp(int)"/> and
+    /// <c>NodeHandle&lt;TResult&gt;.Evaluate</c>); only the committing dictionary node itself, which the
+    /// key change cannot reach, may still stamp.</item>
+    /// <item>It overlaps a change (<see cref="OverlapsChange"/>) if another change is in progress now,
+    /// as a pass starting now would; its own key change alone does not make it overlap one.</item>
+    /// </list>
+    /// <para>
+    /// See the remarks of <see cref="SharedGraphState.MarkKeysChanged"/> for why this is sound.
+    /// </para>
+    /// </remarks>
+    internal void AccountForOwnKeyChange(long revision)
+    {
+        _changeState += SharedGraphState.CompletedChange;
+        _ownKeyChanges++;
+        Revision = revision;
+
+        // As a pass starting now would (issue #99): another change in progress at this point may have
+        // published contents that the revision does not cover yet
+        if (!State.NoChangeInProgress)
+            _overlapsChange = true;
+
+        if (_stamping > 0)
+            _stamping = 0;
+    }
+
     // Number of node computations in progress on this thread (nested when a computation reads a
     // provider that has to be computed itself)
     [ThreadStatic]
@@ -192,10 +254,12 @@ internal sealed class GraphEvaluator
     public SharedGraphState State { get; }
 
     /// <summary>
-    /// The graph revision when this pass started. Values verified or computed in this pass are
-    /// marked as up to date at this revision.
+    /// The graph revision when this pass started, or that its latest own key change advanced to (see
+    /// <see cref="AccountForOwnKeyChange"/>). Values verified at this revision or later are up to date
+    /// for this pass; a node evaluation marks the values it verifies or computes as up to date at the
+    /// revision it began with.
     /// </summary>
-    public long Revision { get; }
+    public long Revision { get; private set; }
 
     /// <summary>
     /// The context nodes are computed with; reads through it are recorded.
@@ -621,35 +685,61 @@ internal abstract class NodeHandle<TResult> : NodeHandle
         // recorded below stale, so the value is verified again.
         var dirty = State.Dirty;
 
-        if (TryGetEntry(evaluator.Graph, out var entry))
+        // Where the pass stood when this evaluation began: the value is marked verified at this
+        // revision, and is stamped only if the pass makes no key change of its own meanwhile (see
+        // GraphEvaluator.AccountForOwnKeyChange)
+        var start = new EvaluationStart(evaluator.Revision, evaluator.OwnKeyChanges);
+
+        var hasEntry = TryGetEntry(evaluator.Graph, out var entry);
+
+        // Verified since the last source change (not taken by a pass that overlaps a change, see
+        // GraphEvaluator.OverlapsChange)
+        if (hasEntry && entry.VerifiedAtRevision >= start.Revision && !evaluator.OverlapsChange)
+            return Verified(entry, start, out version);
+
+        // The stamp before the gates (see Gates)
+        var stamp = hasEntry ? entry.Stamp : CachedNodeValue.NoStamp;
+        if (Gates.Length > 0)
+            RefreshGates(evaluator, ref dirty, ref start);
+
+        if (hasEntry)
         {
-            // Verified since the last source change, or no source upstream has changed since it was
-            // (for a gated node, once its gates are up to date: see Gates and StampHoldsAfterGates)
-            if ((entry.VerifiedAtRevision >= evaluator.Revision && !evaluator.OverlapsChange)
-                || (entry.Stamp == dirty && (Gates.Length == 0 || StampHoldsAfterGates(entry, evaluator, ref dirty))))
-            {
-                entry.MarkVerified(evaluator.Revision);
-                version = entry.OutputVersion;
-                return ToResult(entry);
-            }
+            // No source upstream has changed since it was verified (for a gated node, now that its
+            // gates are up to date: see RefreshGates)
+            if (stamp == dirty)
+                return Verified(entry, start, out version);
 
             if (IsUpToDate(entry, evaluator))
             {
-                entry.MarkVerified(evaluator.Revision);
-                if (evaluator.CanStamp())
+                if (evaluator.CanStamp(start.OwnKeyChanges))
                     entry.SetStamp(dirty);
 
-                version = entry.OutputVersion;
-                return ToResult(entry);
+                return Verified(entry, start, out version);
             }
         }
 
-        return Recompute(evaluator, dirty, entry, out version, metadata);
+        return Recompute(evaluator, dirty, start, entry, out version, metadata);
+    }
+
+    private Result<TResult, ComputationError> Verified(CachedNodeValue entry, EvaluationStart start, out long version)
+    {
+        entry.MarkVerified(start.Revision);
+        version = entry.OutputVersion;
+        return ToResult(entry);
     }
 
     /// <summary>
-    /// For a gated node whose stamp matched its dirty counter: brings the gates up to date, then
-    /// checks the stamp against the counter again (re-read into <paramref name="dirty"/>).
+    /// The pass's revision and number of own key changes when a node evaluation began (see
+    /// <see cref="GraphEvaluator.AccountForOwnKeyChange"/>).
+    /// </summary>
+    private readonly record struct EvaluationStart(long Revision, int OwnKeyChanges);
+
+    /// <summary>
+    /// For a gated node that is not verified at the pass's revision: brings the gates up to date
+    /// before anything else, then reads the dirty counter again (into <paramref name="dirty"/>), which
+    /// the stamp is compared with. The rest of the evaluation starts afresh from there
+    /// (<paramref name="start"/> is taken again), so a key change of the pass's own made by refreshing
+    /// the gates does not keep the node from being stamped.
     /// </summary>
     /// <remarks>
     /// Refreshing a gate recomputes the dictionary node if a change upstream of it has marked it, and
@@ -660,13 +750,13 @@ internal abstract class NodeHandle<TResult> : NodeHandle
     /// <see cref="SharedGraphState.MarkKeysChanged"/> for the argument).
     /// </remarks>
     [MethodImpl(MethodImplOptions.NoInlining)]
-    private bool StampHoldsAfterGates(CachedNodeValue entry, GraphEvaluator evaluator, ref long dirty)
+    private void RefreshGates(GraphEvaluator evaluator, ref long dirty, ref EvaluationStart start)
     {
         foreach (var gate in Gates)
             gate.Refresh(evaluator);
 
         dirty = State.Dirty;
-        return entry.Stamp == dirty;
+        start = new EvaluationStart(evaluator.Revision, evaluator.OwnKeyChanges);
     }
 
     private bool IsUpToDate(CachedNodeValue entry, GraphEvaluator evaluator)
@@ -703,7 +793,7 @@ internal abstract class NodeHandle<TResult> : NodeHandle
         return true;
     }
 
-    private Result<TResult, ComputationError> Recompute(GraphEvaluator evaluator, long dirty, CachedNodeValue? previous, out long version, ProviderMetadata? metadata)
+    private Result<TResult, ComputationError> Recompute(GraphEvaluator evaluator, long dirty, EvaluationStart start, CachedNodeValue? previous, out long version, ProviderMetadata? metadata)
     {
         // A root's version is read before its value: a change racing with the read leaves the
         // value marked with the older version, so it is recomputed on the next read.
@@ -733,7 +823,7 @@ internal abstract class NodeHandle<TResult> : NodeHandle
         }
 
         var cacheable = evaluator.FailedReads == failedReadsBefore;
-        return Commit(evaluator, result, dependencies, versionBefore, dirty, previous, cacheable, out version);
+        return Commit(evaluator, result, dependencies, versionBefore, dirty, start, previous, cacheable, out version);
     }
 
     /// <summary>
@@ -768,6 +858,7 @@ internal abstract class NodeHandle<TResult> : NodeHandle
         DependencyVersion[] dependencies,
         long versionBefore,
         long dirty,
+        EvaluationStart start,
         CachedNodeValue? previous,
         bool cacheable,
         out long version)
@@ -790,11 +881,17 @@ internal abstract class NodeHandle<TResult> : NodeHandle
                 version = _isRoot ? versionBefore : State.IncrementVersion();
 
                 // Before the value is removed, like a cached value is stored after it (see below)
-                KeyIndex?.OnCommit(state, kind, stored, cacheable: false, version, changed: true);
+                if (KeyIndex?.OnCommit(state, kind, stored, cacheable: false, version, changed: true) is > 0 and var revision)
+                    evaluator.AccountForOwnKeyChange(revision);
                 graph.ValueCache.Remove(Id);
             }
             else
             {
+                // Whether the pass made no key change of its own during this evaluation. The key change
+                // of this commit (below) does not count: it cannot reach this node or anything it read.
+                var ownKeyChanges = evaluator.OwnKeyChanges;
+                var stampable = ownKeyChanges == start.OwnKeyChanges;
+
                 if (_isRoot)
                 {
                     version = versionBefore;
@@ -821,12 +918,18 @@ internal abstract class NodeHandle<TResult> : NodeHandle
 
                     // A dictionary node with per-key readers marks the readers of the changed keys
                     // before its value is stored, so a pass that finds the value up to date finds
-                    // those readers marked (see KeyIndex)
-                    KeyIndex?.OnCommit(state, kind, stored, cacheable: true, version, changed: !unchanged);
+                    // those readers marked (see KeyIndex). The pass then accounts for its own key change,
+                    // so that it can go on stamping, this value included (see
+                    // GraphEvaluator.AccountForOwnKeyChange).
+                    if (KeyIndex?.OnCommit(state, kind, stored, cacheable: true, version, changed: !unchanged) is > 0 and var revision)
+                    {
+                        evaluator.AccountForOwnKeyChange(revision);
+                        ownKeyChanges = evaluator.OwnKeyChanges;
+                    }
                 }
 
-                var stamp = evaluator.CanStamp() ? dirty : CachedNodeValue.NoStamp;
-                graph.ValueCache.Set(Id, new CachedNodeValue(kind, stored, error, version, dependencies, evaluator.Revision, stamp));
+                var stamp = stampable && evaluator.CanStamp(ownKeyChanges) ? dirty : CachedNodeValue.NoStamp;
+                graph.ValueCache.Set(Id, new CachedNodeValue(kind, stored, error, version, dependencies, start.Revision, stamp));
             }
         }
 

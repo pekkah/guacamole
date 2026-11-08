@@ -272,8 +272,8 @@ public partial class LookupTests
             context.DeclsSource.Replace(new Decl(0, "a", i - 1), new Decl(0, "a", i));
             Assert.Equal((i + 1) * 10 + i - 2, deep.Value);
 
-            // A pass that changes a key records no stamps; one that changes only another input of
-            // the reader re-verifies it and stamps it, so the next edit finds a matching stamp
+            // A pass that changes only another input of the reader re-verifies it and stamps it, so
+            // the next edit finds a matching stamp (as it would after the pass that changed the key)
             context.SwitchSource.Set(i - 1);
             Assert.Equal((i + 1) * 10 + i - 1, deep.Value);
             Assert.True(context.Graph.ValueCache.TryGet(deep.Node.Id, out var cached));
@@ -463,7 +463,7 @@ public partial class LookupTests
     }
 
     /// <summary>
-    /// A pass that overlaps a key change records no stamp. Key j is looked up in one table, key k in
+    /// A pass that overlaps another pass's key change records no stamp. Key j is looked up in one table, key k in
     /// another over the same declarations. After an edit of k's declaration (which marks both tables)
     /// and a change of another input of j's reader, a read of j's reader recomputes j's table (no
     /// tracked key changes there, so no key change) and, while it computes the reader, another thread
