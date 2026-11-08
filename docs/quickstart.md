@@ -37,7 +37,7 @@ dotnet add package Guacamole --prerelease
 dotnet add package Guacamole.SourceGenerators --prerelease
 ```
 
-Both packages are required: `Guacamole` is the runtime, and `Guacamole.SourceGenerators` contains the source generator that implements your `[ComputingContext]` classes. The runtime package does not pull in the generator. Until the first stable release only preview versions exist, hence `--prerelease`; see [Installation](../README.md#installation).
+Both packages are required: `Guacamole` is the runtime, and `Guacamole.SourceGenerators` contains the source generator that implements your `[ComputingContext]` classes. The runtime package does not pull in the generator. The generator is a development dependency: `dotnet add package` adds it with `PrivateAssets="all"` so it does not flow to projects that reference yours; in a hand-written `PackageReference`, add `PrivateAssets="all"` to `Guacamole.SourceGenerators` yourself. Until the first stable release only preview versions exist, hence `--prerelease`; see [Installation](../README.md#installation).
 
 ## Core Concepts
 

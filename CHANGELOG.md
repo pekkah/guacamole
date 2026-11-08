@@ -46,7 +46,7 @@ The sections below list the changes since the early `0.1.0-alpha.*` preview pack
 
 ### Changed
 
-- **Package contents and metadata** (#84): `Guacamole` ships its XML documentation (`Guacamole.xml`, for IntelliSense); `Guacamole.SourceGenerators` is marked as a development dependency (it is added with `PrivateAssets="all"` and no longer flows to projects that reference yours) and embeds its PDB. Both packages share one description and tag set, and the package README uses absolute links so they work on nuget.org.
+- **Package contents and metadata** (#84): `Guacamole` ships its XML documentation (`Guacamole.xml`, for IntelliSense); `Guacamole.SourceGenerators` is marked as a development dependency (`dotnet add package` and IDEs add it with `PrivateAssets="all"`, so it no longer flows to projects that reference yours; hand-written references need `PrivateAssets="all"`, see the README) and embeds its PDB. Both packages share one description and tag set, and the package README uses absolute links so they work on nuget.org.
 - **Source generator rewrite** (`ComputingContextGenerator`):
   - Cacheable incremental pipeline based on `ForAttributeWithMetadataName`, with all semantic analysis producing equatable models; source and diagnostic outputs are separate branches.
   - Generated code fully qualifies all types with `global::`, so item types from other namespaces work without `using` directives.

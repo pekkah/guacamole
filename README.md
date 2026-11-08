@@ -23,9 +23,14 @@ dotnet add package Guacamole --prerelease
 dotnet add package Guacamole.SourceGenerators --prerelease
 ```
 
-> **Note**: `Guacamole` is the runtime library. `Guacamole.SourceGenerators` contains the source generator that implements `[ComputingContext]` classes. The runtime package does not depend on the generator package, so **install both**. The generator is a development dependency: it runs at compile time only and is not passed on to projects that reference yours.
+> **Note**: `Guacamole` is the runtime library. `Guacamole.SourceGenerators` contains the source generator that implements `[ComputingContext]` classes. The runtime package does not depend on the generator package, so **install both**. The generator is a development dependency: `dotnet add package` and IDEs add it with `PrivateAssets="all"`, so it runs at compile time only and is not passed on to projects that reference yours. Those projects still get the `Guacamole` runtime through your package or project and can use the contexts you compiled; a project that declares `[ComputingContext]` classes of its own references `Guacamole.SourceGenerators` itself.
 
-`--prerelease` installs the latest preview: prerelease versions are published to nuget.org from `main`, and stable versions from release tags. Until the first stable release only previews exist, so `dotnet add package` without `--prerelease` finds no version; afterwards, omit it to get the latest stable version. In a `PackageReference`, give a preview version from nuget.org explicitly.
+`--prerelease` installs the latest preview: prerelease versions are published to nuget.org from `main`, and stable versions from release tags. Until the first stable release only previews exist, so `dotnet add package` without `--prerelease` finds no version; afterwards, omit it to get the latest stable version. In a `PackageReference`, give a preview version from nuget.org explicitly, and add `PrivateAssets="all"` to the generator yourself (NuGet does not add it to a hand-written reference, and without it the generator becomes a dependency of your package and runs in the projects that reference yours):
+
+```xml
+<PackageReference Include="Guacamole" Version="<version>" />
+<PackageReference Include="Guacamole.SourceGenerators" Version="<version>" PrivateAssets="all" />
+```
 
 The [changelog](https://github.com/pekkah/guacamole/blob/main/CHANGELOG.md) lists the changes in each version, and the [packages](#packages) table links to nuget.org.
 
