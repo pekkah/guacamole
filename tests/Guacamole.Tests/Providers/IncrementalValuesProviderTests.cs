@@ -248,7 +248,7 @@ public class IncrementalValuesProviderTests
 
         // Assert
         Assert.True(result.IsSuccess);
-        var items = result.Value!.ToArray();
+        var items = result.ValueOrDefault!.ToArray();
         Assert.Equal(3, items.Length);
         Assert.Equal(("A", 42), items[0]);
         Assert.Equal(("B", 42), items[1]);
@@ -277,7 +277,7 @@ public class IncrementalValuesProviderTests
 
         // Assert
         Assert.True(result.IsSuccess);
-        Assert.Empty(result.Value!);
+        Assert.Empty(result.ValueOrDefault!);
     }
 
     /// <summary>
@@ -302,7 +302,7 @@ public class IncrementalValuesProviderTests
 
         // Assert
         Assert.True(result.IsSuccess);
-        var items = result.Value!.ToArray();
+        var items = result.ValueOrDefault!.ToArray();
         Assert.Equal(5, items.Length);
         Assert.Equal("A", items[0]);
         Assert.Equal("B", items[1]);
@@ -333,7 +333,7 @@ public class IncrementalValuesProviderTests
 
         // Assert
         Assert.True(result.IsSuccess);
-        var items = result.Value!.ToArray();
+        var items = result.ValueOrDefault!.ToArray();
         Assert.Equal(3, items.Length);
         Assert.Equal(1, items[0]);
         Assert.Equal(2, items[1]);
@@ -364,7 +364,7 @@ public class IncrementalValuesProviderTests
 
         // Assert
         Assert.True(result.IsSuccess);
-        var items = result.Value!.ToArray();
+        var items = result.ValueOrDefault!.ToArray();
         Assert.Equal(3, items.Length);
         Assert.Equal("A", items[0]);
         Assert.Equal("B", items[1]);
@@ -395,7 +395,7 @@ public class IncrementalValuesProviderTests
 
         // Assert
         Assert.True(result.IsSuccess);
-        var items = result.Value!.ToArray();
+        var items = result.ValueOrDefault!.ToArray();
         Assert.Equal(9, items.Length);
         Assert.Equal(new[] { 1, 2, 3, 4, 5, 6, 7, 8, 9 }, items);
     }
@@ -425,7 +425,7 @@ public class IncrementalValuesProviderTests
 
         // Assert
         Assert.True(result.IsSuccess);
-        var items = result.Value!.ToArray();
+        var items = result.ValueOrDefault!.ToArray();
         Assert.Equal(6, items.Length);
         Assert.Equal(new[] { "A", "B", "C", "D", "E", "F" }, items);
     }
@@ -454,7 +454,7 @@ public class IncrementalValuesProviderTests
 
         // Assert
         Assert.True(result.IsSuccess);
-        var items = result.Value!.ToArray();
+        var items = result.ValueOrDefault!.ToArray();
         Assert.Equal(3, items.Length);
         Assert.Equal(new[] { 1, 2, 3 }, items);
     }

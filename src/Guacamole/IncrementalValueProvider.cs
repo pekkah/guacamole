@@ -113,7 +113,7 @@ public readonly record struct IncrementalValueProvider<T>
         {
             var result = GetValue();
             if (result.IsSuccess)
-                return result.Value!;
+                return result.ValueOrDefault!;
 
             throw NoValueException(result);
         }
@@ -133,7 +133,7 @@ public readonly record struct IncrementalValueProvider<T>
         var result = GetValue();
         if (result.IsSuccess)
         {
-            value = result.Value!;
+            value = result.ValueOrDefault!;
             return true;
         }
 
@@ -210,15 +210,16 @@ public readonly record struct IncrementalValuesProvider<T>
     /// collections are compared element-wise (in order) with the node's comparer.
     /// </para>
     /// <para>
-    /// The values are a read-only view (an <see cref="IReadOnlyList{T}"/>; its <see cref="IList{T}"/>
-    /// mutators throw <see cref="NotSupportedException"/>) of the cached result, which the pipeline
+    /// The values are a read-only view (an <see cref="IReadOnlyList{T}"/> with indexed access; casting
+    /// it to <see cref="IList{T}"/> and calling a mutator throws <see cref="NotSupportedException"/>) of
+    /// the cached result, which the pipeline
     /// shares with downstream stages, <c>Collect()</c> results and source snapshots. It cannot be cast
     /// to an array or modified, stays valid (and unchanged) after later source changes, and reading an
     /// unchanged provider again returns the same view without allocating.
     /// </para>
     /// </remarks>
     /// <returns>Result containing the computed values or error</returns>
-    public Result<IEnumerable<T>, ComputationError> GetValues()
+    public Result<IReadOnlyList<T>, ComputationError> GetValues()
     {
         var graph = Graph;
 
@@ -228,25 +229,28 @@ public readonly record struct IncrementalValuesProvider<T>
             && entry.VerifiedAtRevision >= graph.SharedState.Revision)
         {
             if (entry.IsNone)
-                return Result<IEnumerable<T>, ComputationError>.None;
+                return Result<IReadOnlyList<T>, ComputationError>.None;
             if (entry.Value is T[] values)
-                return Result<IEnumerable<T>, ComputationError>.Success(View(entry, values));
+                return Result<IReadOnlyList<T>, ComputationError>.Success(View(entry, values));
         }
 
         var result = CollectionNodeHandle<T>.For(Node, graph).Evaluate(new GraphEvaluator(graph), out _, Metadata);
-        if (!result.IsSuccess || result.Value is null)
-            return result;
+        if (result.IsNone)
+            return Result<IReadOnlyList<T>, ComputationError>.None;
+        if (result.IsError)
+            return Result<IReadOnlyList<T>, ComputationError>.Error(result.ErrorValue!);
 
         // The handle returns the cached array: hand out the view kept with it
-        var array = result.Value as T[] ?? result.Value.ToArray();
+        var computedValues = result.ValueOrDefault!;
+        var array = computedValues as T[] ?? computedValues.ToArray();
         if (graph.ValueCache.TryGet(Node.Id, out cached)
             && cached is CachedNodeValue computed
             && ReferenceEquals(computed.Value, array))
         {
-            return Result<IEnumerable<T>, ComputationError>.Success(View(computed, array));
+            return Result<IReadOnlyList<T>, ComputationError>.Success(View(computed, array));
         }
 
-        return Result<IEnumerable<T>, ComputationError>.Success(Wrap(array));
+        return Result<IReadOnlyList<T>, ComputationError>.Success(Wrap(array));
     }
 
     /// <summary>
@@ -254,13 +258,13 @@ public readonly record struct IncrementalValuesProvider<T>
     /// <see cref="GetValues"/>).
     /// Throws if computation fails. Use GetValues() for Result-based error handling.
     /// </summary>
-    public IEnumerable<T> Values
+    public IReadOnlyList<T> Values
     {
         get
         {
             var result = GetValues();
             if (result.IsSuccess)
-                return result.Value!;
+                return result.ValueOrDefault!;
 
             throw new InvalidOperationException(
                 $"Failed to compute values: {result.ErrorValue?.Message ?? "Unknown error"}");
@@ -268,7 +272,7 @@ public readonly record struct IncrementalValuesProvider<T>
     }
 
     // The read-only view of a cached array, created once per cached value
-    private static IEnumerable<T> View(CachedNodeValue entry, T[] values)
+    private static IReadOnlyList<T> View(CachedNodeValue entry, T[] values)
     {
         if (entry.View is ReadOnlyCollection<T> view)
             return view;

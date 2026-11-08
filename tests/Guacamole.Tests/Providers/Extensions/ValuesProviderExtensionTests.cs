@@ -43,7 +43,7 @@ public class ValuesProviderExtensionTests
 
         // Assert
         Assert.True(result.IsSuccess);
-        var values = result.Value!.ToArray();
+        var values = result.ValueOrDefault!.ToArray();
         Assert.Equal(new[] { 1, 10, 2, 20, 3, 30 }, values);
     }
 
@@ -64,7 +64,7 @@ public class ValuesProviderExtensionTests
 
         // Assert
         Assert.True(result.IsSuccess);
-        Assert.Equal(new[] { 1, 2, 3, 4, 5 }, result.Value!.ToArray());
+        Assert.Equal(new[] { 1, 2, 3, 4, 5 }, result.ValueOrDefault!.ToArray());
     }
 
     [Fact]
@@ -84,7 +84,7 @@ public class ValuesProviderExtensionTests
 
         // Assert
         Assert.True(result.IsSuccess);
-        Assert.Equal(new[] { 2, 4, 6 }, result.Value!.ToArray());
+        Assert.Equal(new[] { 2, 4, 6 }, result.ValueOrDefault!.ToArray());
     }
 
     [Fact]
@@ -104,6 +104,6 @@ public class ValuesProviderExtensionTests
 
         // Assert
         Assert.True(result.IsSuccess);
-        Assert.Equal(new[] { 2, 4 }, result.Value!.ToArray());
+        Assert.Equal(new[] { 2, 4 }, result.ValueOrDefault!.ToArray());
     }
 }

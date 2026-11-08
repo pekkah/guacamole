@@ -19,31 +19,32 @@ public readonly record struct ProviderMetadata(
     string? PipelineStage = null)
 {
     /// <summary>
-    /// Creates ProviderMetadata with just a tracking name, recording the caller's location as
+    /// Creates metadata with a tracking name and the caller's source location as
     /// <see cref="CreationLocation"/>.
     /// </summary>
-    /// <remarks>
-    /// Call it with a named argument, <c>new ProviderMetadata(trackingName: "parse")</c>: a single
-    /// positional string argument also matches the primary constructor, so <c>new ProviderMetadata("parse")</c>
-    /// does not compile (CS0121).
-    /// </remarks>
+    /// <param name="trackingName">Human-readable identifier for debugging (non-empty)</param>
+    /// <param name="callerFilePath">Automatically captured file path; do not pass explicitly</param>
+    /// <param name="callerLineNumber">Automatically captured line number; do not pass explicitly</param>
+    /// <param name="callerMemberName">Automatically captured member name; do not pass explicitly</param>
+    /// <returns>Metadata with <see cref="TrackingName"/>, <see cref="CreationLocation"/> and empty <see cref="Tags"/></returns>
     /// <exception cref="ArgumentNullException"><paramref name="trackingName"/> is <c>null</c>.</exception>
     /// <exception cref="ArgumentException"><paramref name="trackingName"/> is empty or whitespace.</exception>
-    /// <param name="trackingName">Human-readable identifier for debugging</param>
-    /// <param name="callerFilePath">Automatically captured file path</param>
-    /// <param name="callerLineNumber">Automatically captured line number</param>
-    /// <param name="callerMemberName">Automatically captured member name</param>
-    public ProviderMetadata(
+    /// <remarks>
+    /// Use <c>new ProviderMetadata(TrackingName: name)</c> for metadata without a creation location.
+    /// </remarks>
+    public static ProviderMetadata Named(
         string trackingName,
         [CallerFilePath] string callerFilePath = "",
         [CallerLineNumber] int callerLineNumber = 0,
         [CallerMemberName] string callerMemberName = "")
-        : this(
-            TrackingName: ValidateTrackingName(trackingName),
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(trackingName);
+
+        return new ProviderMetadata(
+            TrackingName: trackingName,
             CreationLocation: new SourceLocation(callerFilePath, callerLineNumber, 0, callerMemberName),
             Tags: ImmutableArray<string>.Empty,
-            PipelineStage: null)
-    {
+            PipelineStage: null);
     }
 
     /// <summary>

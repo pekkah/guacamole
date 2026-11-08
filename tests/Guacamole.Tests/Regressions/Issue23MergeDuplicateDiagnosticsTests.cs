@@ -88,6 +88,6 @@ public partial class Issue23MergeDuplicateDiagnosticsTests
     {
         var result = provider.GetValues();
         Assert.True(result.IsSuccess, result.ToString());
-        return result.Value!.ToArray();
+        return result.ValueOrDefault!.ToArray();
     }
 }

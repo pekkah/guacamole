@@ -32,9 +32,9 @@ public class IncrementalComputationEngineTests
 
         // Assert
         Assert.True(result1.IsSuccess);
-        Assert.Equal(42, result1.Value);
+        Assert.Equal(42, result1.ValueOrDefault);
         Assert.True(result2.IsSuccess);
-        Assert.Equal(42, result2.Value);
+        Assert.Equal(42, result2.ValueOrDefault);
 
         // Source should only compute once - second call uses cache!
         Assert.Equal(1, computeCount);
@@ -71,9 +71,9 @@ public class IncrementalComputationEngineTests
 
         // Assert
         Assert.True(result1.IsSuccess);
-        Assert.Equal(25, result1.Value);
+        Assert.Equal(25, result1.ValueOrDefault);
         Assert.True(result2.IsSuccess);
-        Assert.Equal(25, result2.Value);
+        Assert.Equal(25, result2.ValueOrDefault);
 
         // Source should only compute once
         Assert.Equal(1, sourceComputeCount);
@@ -106,9 +106,9 @@ public class IncrementalComputationEngineTests
 
         // Assert
         Assert.True(result1.IsSuccess);
-        Assert.Equal(new[] { 1, 2, 3, 4, 5 }, result1.Value!.ToArray());
+        Assert.Equal(new[] { 1, 2, 3, 4, 5 }, result1.ValueOrDefault!.ToArray());
         Assert.True(result2.IsSuccess);
-        Assert.Equal(new[] { 1, 2, 3, 4, 5 }, result2.Value!.ToArray());
+        Assert.Equal(new[] { 1, 2, 3, 4, 5 }, result2.ValueOrDefault!.ToArray());
 
         // Source should only compute once - second call uses cache
         Assert.Equal(1, computeCount);
@@ -145,11 +145,11 @@ public class IncrementalComputationEngineTests
         // Assert
         Assert.True(result1.IsSuccess);
         var expected = new[] { 4, 8, 12, 16, 20 };
-        Assert.Equal(expected, result1.Value!.ToArray());
+        Assert.Equal(expected, result1.ValueOrDefault!.ToArray());
         Assert.True(result2.IsSuccess);
-        Assert.Equal(expected, result2.Value!.ToArray());
+        Assert.Equal(expected, result2.ValueOrDefault!.ToArray());
         Assert.True(result3.IsSuccess);
-        Assert.Equal(expected, result3.Value!.ToArray());
+        Assert.Equal(expected, result3.ValueOrDefault!.ToArray());
 
         // Source should only compute once even with 3 retrievals
         Assert.Equal(1, sourceComputeCount);
@@ -182,9 +182,9 @@ public class IncrementalComputationEngineTests
 
         // Assert
         Assert.True(result1.IsSuccess);
-        Assert.Equal((42, "test"), result1.Value);
+        Assert.Equal((42, "test"), result1.ValueOrDefault);
         Assert.True(result2.IsSuccess);
-        Assert.Equal((42, "test"), result2.Value);
+        Assert.Equal((42, "test"), result2.ValueOrDefault);
 
         // Each source should only compute once
         Assert.Equal(1, compute1Count);
@@ -218,11 +218,11 @@ public class IncrementalComputationEngineTests
 
         // Assert
         Assert.True(result1.IsSuccess);
-        Assert.Equal(25, result1.Value);
+        Assert.Equal(25, result1.ValueOrDefault);
         Assert.True(result2.IsSuccess);
-        Assert.Equal(25, result2.Value);
+        Assert.Equal(25, result2.ValueOrDefault);
         Assert.True(result3.IsSuccess);
-        Assert.Equal(25, result3.Value);
+        Assert.Equal(25, result3.ValueOrDefault);
 
         // With caching, each stage computes exactly once
         Assert.Equal(1, sourceComputeCount);

@@ -35,14 +35,14 @@ public class SourceTests
     {
         using var context = new ApiContext();
         var changes = RecordChanges(context);
-        var before = DateTime.UtcNow;
+        var before = DateTimeOffset.UtcNow;
 
         context.ItemsSource.Push(new Item("a", 1));
 
         var change = Assert.Single(changes);
         Assert.Equal("ApiContext.Items", change.SourceId);
-        Assert.Equal(DateTimeKind.Utc, change.Timestamp.Kind);
-        Assert.InRange(change.Timestamp, before, DateTime.UtcNow);
+        Assert.Equal(TimeSpan.Zero, change.Timestamp.Offset);
+        Assert.InRange(change.Timestamp, before, DateTimeOffset.UtcNow);
     }
 
     [Fact]

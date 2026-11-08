@@ -2,12 +2,87 @@
 
 This guide covers the breaking API changes made before 1.0:
 
+- [API review cleanup (#83)](#api-review-cleanup-83)
 - [Namespace consolidation](#namespace-consolidation)
 - [Internal types and members](#internal-types-and-members)
 - [Single-value `Where` produces "no value"](#single-value-where-produces-no-value)
 - [Removed settings and dead code](#removed-settings-and-dead-code)
 - [Collection sources keep insertion order](#collection-sources-keep-insertion-order)
 - [From mutation-based to push-based sources](#from-mutation-based-to-push-based-sources)
+
+## API Review Cleanup (#83)
+
+An architecture review of the public API before 1.0 removed dead members and made the remaining contracts consistent. Most changes are renames that the compiler points out.
+
+| Before | After |
+|--------|-------|
+| `[ComputingContext(GenerateAsyncMethods = ..., GenerateBatchMethods = ..., Name = ...)]` | `[ComputingContext]` |
+| `GetValues()` → `Result<IEnumerable<T>, ComputationError>`, `.Values` → `IEnumerable<T>` | `Result<IReadOnlyList<T>, ComputationError>`, `IReadOnlyList<T>` |
+| collection `RegisterOutput(provider, Action<IEnumerable<T>, ComputingContextBase>)` | `Action<IReadOnlyList<T>, ComputingContextBase>` |
+| `void RegisterOutput(...)` | `IDisposable RegisterOutput(...)` |
+| `result.Value` (on `Result<TValue, TError>`) | `result.ValueOrDefault` |
+| `AddGuacamoleCore`, `GuacamoleCoreOptions` | `AddGuacamole`, `GuacamoleOptions` |
+| `ProviderOptions`, `ProviderOptions.DefaultTags`, `IProviderMetadataFactory` | removed |
+| `SourceChangedEventArgs.Timestamp` (`DateTime`) | `DateTimeOffset` |
+| `ProviderMetadata(string trackingName, [CallerFilePath] ...)` constructor | `ProviderMetadata.Named(trackingName)` |
+
+New: `Merge(other, comparer)`.
+
+### `ComputingContextAttribute` has no properties
+
+`GenerateAsyncMethods`, `GenerateBatchMethods` and `Name` were left over from the mutation-based design: the source generator never read them. Remove the arguments: `[ComputingContext(GenerateAsyncMethods = false)]` becomes `[ComputingContext]`. Generated code is unchanged.
+
+### Collection values are `IReadOnlyList<T>`
+
+`IncrementalValuesProvider<T>.GetValues()` returns `Result<IReadOnlyList<T>, ComputationError>` (was `Result<IEnumerable<T>, ComputationError>`), `.Values` returns `IReadOnlyList<T>` (was `IEnumerable<T>`), and the collection `RegisterOutput` handler is an `Action<IReadOnlyList<T>, ComputingContextBase>` (was `Action<IEnumerable<T>, ComputingContextBase>`). The values were already a read-only list view of the cached array (#69); now the type says so, so you can use `Count` and the indexer without LINQ. Cached reads still return the same view without allocating.
+
+Code that assigns the values to `IEnumerable<T>` keeps compiling. Explicitly typed lambdas (`(IEnumerable<T> items, ComputingContextBase ctx) => ...`) and variables of type `Result<IEnumerable<T>, ComputationError>` need the new type.
+
+### `RegisterOutput` returns `IDisposable`
+
+Both `RegisterOutput` overloads return an `IDisposable` registration (they returned `void`). Disposing it unregisters just that handler; disposing it twice, or after the context was disposed, does nothing. Existing calls that ignore the return value keep compiling. Code that passed a method group of `RegisterOutput` to an `Action<...>` delegate needs a `Func<..., IDisposable>` or a lambda.
+
+### `Result.Value` is now `Result.ValueOrDefault`
+
+`Result<TValue, TError>.Value` returned `default` for None and errors, while the providers' `.Value` throws: the same name had opposite contracts. It is renamed to `ValueOrDefault`, with unchanged behavior; the providers' throwing `.Value`/`.Values` are unchanged.
+
+```csharp
+// Before
+var result = provider.GetValue();
+if (result.IsSuccess) Use(result.Value);
+
+// After
+var result = provider.GetValue();
+if (result.IsSuccess) Use(result.ValueOrDefault);
+```
+
+`IsSuccess`, `IsNone`, `IsError`, `ErrorValue`, `Match`, `GetValueOrDefault(...)`, `Map`, `Bind` and `MapError` are unchanged. A search for `.GetValue().Value`, `.GetValues().Value` and `result.Value` finds most call sites; the compiler reports the rest.
+
+### Dependency-injection surface
+
+| Before | After |
+|--------|-------|
+| `services.AddGuacamoleCore()` / `AddGuacamoleCore(Action<GuacamoleCoreOptions>)` | `services.AddGuacamole()` / `AddGuacamole(Action<GuacamoleOptions>)` |
+| `GuacamoleCoreOptions` | `GuacamoleOptions` (no settings yet) |
+| `GuacamoleCoreOptions.ProviderOptions`, `ProviderOptions`, `ProviderOptions.DefaultTags` | removed |
+| `IProviderMetadataFactory` (and its DI registration) | removed |
+
+Nothing in the framework read `DefaultTags` or resolved `IProviderMetadataFactory`: providers get their metadata from operators such as `WithTrackingName`, never from the container. If you used the factory to create metadata, create it directly, for example `ProviderMetadata.Named("parse").WithTags("app", "x")`. Contexts are still registered like any other service (`services.AddScoped<MyContext>()`).
+
+### `ProviderMetadata.Named` replaces the tracking-name constructor
+
+`ProviderMetadata` had a constructor `(string trackingName, [CallerFilePath] string callerFilePath = "", ...)` next to the record's positional constructor, so `new ProviderMetadata("parse")` did not compile (CS0121, ambiguous call), and a second string argument silently became the caller file path (#90). The caller-info constructor is now a factory:
+
+| Want | Write |
+|------|-------|
+| Tracking name and the caller's location as `CreationLocation` | `ProviderMetadata.Named("parse")` |
+| Tracking name only | `new ProviderMetadata("parse")` or `new ProviderMetadata(TrackingName: "parse")` |
+
+Source providers no longer carry a bogus `CreationLocation` built from a description string: their metadata is `TrackingName = "Source: {sourceId}"` with tags `source` and `value-source` or `collection-source`.
+
+### `SourceChangedEventArgs.Timestamp` is a `DateTimeOffset`
+
+`SourceChangedEventArgs.Timestamp` and the constructor's `timestamp` parameter are `DateTimeOffset` (were `DateTime`). Sources still record UTC (`Offset` is zero). Use `Timestamp.UtcDateTime` where a `DateTime` is needed.
 
 ## Namespace Consolidation
 
@@ -73,8 +148,8 @@ Several options were accepted but never had any effect. They were removed rather
 |---------|-------|
 | `GuacamoleCoreOptions.CacheOptions` (`CacheOptions.DefaultCapacity`, `EnableStatistics`, `CleanupIntervalMs`) | Contexts never used the DI-registered cache; each context's graph had a hardcoded 10,000-entry cache. Override `ComputingContextBase.CacheCapacity` instead (see below). |
 | `GuacamoleCoreOptions.PipelineOptions` (`MaxDependencyDepth`, `EnablePerformanceMetrics`, `ComputationTimeoutMs`) | Never read. |
-| `ProviderOptions.EnableProfiling`, `ProviderOptions.EnableMetadataTracking` | Never read (the latter only by the removed node-based factories). `ProviderOptions.DefaultTags` remains and is applied by `IProviderMetadataFactory`. |
-| DI registrations of `ICache<string, object>`, `ICacheStatisticsProvider`, `ComputationGraph` and the node-based factories | Unused; `AddGuacamoleCore` now registers `GuacamoleCoreOptions` and `IProviderMetadataFactory`. |
+| `ProviderOptions.EnableProfiling`, `ProviderOptions.EnableMetadataTracking` | Never read (the latter only by the removed node-based factories). `ProviderOptions.DefaultTags` and `IProviderMetadataFactory` were removed later as well (see [Dependency-injection surface](#dependency-injection-surface)). |
+| DI registrations of `ICache<string, object>`, `ICacheStatisticsProvider`, `ComputationGraph` and the node-based factories | Unused; `AddGuacamole` (formerly `AddGuacamoleCore`) now registers only `GuacamoleOptions`. |
 | `MetricsConfiguration.EnableDetailedTracing`, `TracingSampleRate`, `MaxTrackingNamesPerProcess`, `EnableProviderMetrics`, `EnableMemoryMetrics`, `MinimumDurationThresholdMs`, `RecordIndividualNodePerformance`, `TrackInvalidationCascades`, `IsValid()` | Never read. Tracing needs no switch: activities are only created while a listener is attached. `With(...)` now takes `enableGraphMetrics` instead of `enableDetailedTracing`. |
 | `GuacamoleMetrics.CacheInvalidationsTotal`, `ProviderTransformationsTotal`, `ProvidersCreatedTotal`, `MemoryUsageEstimated` | Never recorded. |
 | `ComputingContextBase.Lock` | Never used by the framework. Use your own lock if a derived context needs one. |

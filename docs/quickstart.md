@@ -60,7 +60,7 @@ Sources are where data enters the graph:
 **Providers** are immutable descriptions of a value in the pipeline:
 
 - **`IncrementalValueProvider<T>`** - a single value (`GetValue()`, `.Value`)
-- **`IncrementalValuesProvider<T>`** - a collection of values (`GetValues()`, `.Values`); the values are a read-only view of the cached result (copy them with `ToArray()` if you need an array to modify)
+- **`IncrementalValuesProvider<T>`** - a collection of values (`GetValues()`, `.Values`); the values are an `IReadOnlyList<T>` (indexable, with `Count`), a read-only view of the cached result (copy them with `ToArray()` if you need an array to modify)
 
 Providers are **lazy**: nothing is computed until a provider is read.
 
@@ -126,7 +126,7 @@ context.SourceCodeSource.Set("let x = 42");
 var result = context.SourceCode.GetValue();
 if (result.IsSuccess)
 {
-    Console.WriteLine($"Source: {result.Value}");
+    Console.WriteLine($"Source: {result.ValueOrDefault}");
 }
 ```
 
@@ -147,7 +147,7 @@ IncrementalValueProvider<int> tokenCount = tokens.Select(t => t.Length);
 
 **Single value (`IncrementalValueProvider<T>`):** `Select`, `Where`, `Combine(other)`, `SelectMany` (returns a collection provider).
 
-**Collection (`IncrementalValuesProvider<T>`):** `Select`, `Where`, `SelectMany`, `Collect()` (returns `IncrementalValueProvider<ImmutableArray<T>>`, compared element-wise; `Collect(comparer)` compares the items with a custom comparer), `Combine(singleValue)`, `Merge(other)`, `Flatten()`.
+**Collection (`IncrementalValuesProvider<T>`):** `Select`, `Where`, `SelectMany`, `Collect()` (returns `IncrementalValueProvider<ImmutableArray<T>>`, compared element-wise; `Collect(comparer)` compares the items with a custom comparer), `Combine(singleValue)`, `Merge(other)` / `Merge(other, comparer)` (first, then second), `Flatten()` (an `IncrementalValuesProvider<ImmutableArray<T>>`, or an `IncrementalValueProvider<ImmutableArray<ImmutableArray<T>>>`, to an `IncrementalValuesProvider<T>`).
 
 `Select`, `Where` and `SelectMany` have overloads that take an `IEqualityComparer<T>` for the result values.
 
@@ -302,9 +302,9 @@ Change detection uses equality everywhere (source contents, computed values, out
 ```csharp
 var context = new BuildContext(new Compiler());
 
-context.RegisterOutput(context.Compiled, (units, ctx) =>
+using var registration = context.RegisterOutput(context.Compiled, (units, ctx) =>
 {
-    Console.WriteLine($"Compiled {units.Count()} files");
+    Console.WriteLine($"Compiled {units.Count} files");
 });
 
 context.SourcesSource.Push(new SourceFile("Main.cs", "a b"));
@@ -316,7 +316,8 @@ Handler behavior:
 - A handler is called only if its provider computes a value (not an error, and not "no value" from a `Where`) and the value differs from the last value delivered to that handler.
 - Handlers run synchronously on the thread that changed the source.
 - If handlers throw, the remaining handlers still run and the exceptions are rethrown together as an `AggregateException` from the `Push`/`Set`/... call.
-- After `Dispose()`, the context no longer listens to its sources and its handlers are dropped.
+- `RegisterOutput` returns an `IDisposable`: disposing it unregisters that handler only (disposing twice is a no-op).
+- After `Dispose()`, the context no longer listens to its sources and all of its handlers are dropped.
 
 ## Troubleshooting
 

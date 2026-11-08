@@ -301,7 +301,7 @@ internal sealed class SelectValueNode<TSource, TResult> : IComputationNode<TResu
             if (sourceResult.IsNone)
                 return Result<TResult, ComputationError>.None;
 
-            var result = _selector(sourceResult.Value!);
+            var result = _selector(sourceResult.ValueOrDefault!);
             return Result<TResult, ComputationError>.Success(result);
         }
         catch (Exception ex)
@@ -346,7 +346,7 @@ internal sealed class WhereValueNode<T> : IComputationNode<T>, IHasComparer<T>
                 return sourceResult; // error or no value: propagate without running the predicate
 
             // A rejected value is "no value", not an error
-            return _predicate(sourceResult.Value!)
+            return _predicate(sourceResult.ValueOrDefault!)
                 ? sourceResult
                 : Result<T, ComputationError>.None;
         }
@@ -408,7 +408,7 @@ internal sealed class CombineValueNode<TFirst, TSecond> : IComputationNode<(TFir
             if (firstResult.IsNone || secondResult.IsNone)
                 return Result<(TFirst, TSecond), ComputationError>.None;
 
-            return Result<(TFirst, TSecond), ComputationError>.Success((firstResult.Value!, secondResult.Value!));
+            return Result<(TFirst, TSecond), ComputationError>.Success((firstResult.ValueOrDefault!, secondResult.ValueOrDefault!));
         }
         catch (Exception ex)
         {
@@ -456,7 +456,7 @@ internal sealed class SelectManyFromValueNode<TSource, TResult> : ICollectionCom
                 return Result<IEnumerable<TResult>, ComputationError>.Success(Array.Empty<TResult>());
 
             // Materialize the selector result to avoid multiple enumerations when cached
-            var results = _selector(sourceResult.Value!);
+            var results = _selector(sourceResult.ValueOrDefault!);
             var materialized = results as TResult[] ?? results.ToArray();
             return Result<IEnumerable<TResult>, ComputationError>.Success(materialized);
         }

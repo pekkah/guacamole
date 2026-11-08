@@ -43,7 +43,7 @@ public class CachingBenchmarks
 
         // Execute with empty cache
         var result = _provider.GetValue();
-        _ = result.Value;
+        _ = result.ValueOrDefault;
     }
 
     [Benchmark]
@@ -51,7 +51,7 @@ public class CachingBenchmarks
     {
         // Execute with populated cache (from Setup and previous warm executions)
         var result = _provider.GetValue();
-        _ = result.Value;
+        _ = result.ValueOrDefault;
     }
 
     [Benchmark]

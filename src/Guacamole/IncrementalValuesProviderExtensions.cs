@@ -365,6 +365,39 @@ public static class IncrementalValuesProviderExtensions
     }
 
     /// <summary>
+    /// Merges two values providers into a single provider containing all values from both collections,
+    /// comparing values with a custom equality comparer.
+    /// </summary>
+    /// <typeparam name="T">Value type</typeparam>
+    /// <param name="first">First values provider</param>
+    /// <param name="second">Second values provider</param>
+    /// <param name="comparer">Custom equality comparer for values: used to decide whether either input,
+    /// and the merged result, changed</param>
+    /// <param name="metadata">Optional metadata for the new provider</param>
+    /// <returns>A new values provider with all values from both inputs (first, then second)</returns>
+    /// <remarks>
+    /// Equivalent to
+    /// <c>first.Collect(comparer).Combine(second.Collect(comparer)).SelectMany(tuple =&gt; tuple.Item1.Concat(tuple.Item2), comparer)</c>;
+    /// see <see cref="Merge{T}(IncrementalValuesProvider{T}, IncrementalValuesProvider{T}, ProviderMetadata)"/>.
+    /// Identical calls (same inputs and comparer) reuse their nodes.
+    /// </remarks>
+    public static IncrementalValuesProvider<T> Merge<T>(
+        this IncrementalValuesProvider<T> first,
+        IncrementalValuesProvider<T> second,
+        IEqualityComparer<T> comparer,
+        ProviderMetadata metadata = default)
+    {
+        ArgumentNullException.ThrowIfNull(comparer);
+
+        var combined = first.Collect(comparer).Combine(second.Collect(comparer));
+
+        return combined.SelectMany(
+            tuple => tuple.Item1.Concat(tuple.Item2),
+            comparer,
+            metadata);
+    }
+
+    /// <summary>
     /// Flattens a nested collection from a single value provider into a flat values provider.
     /// Useful after operations that produce nested arrays, such as grouping or batching.
     /// </summary>
@@ -514,7 +547,7 @@ internal sealed class SelectManyValuesNode<TSource, TResult> : ICollectionComput
 
             // Unchanged items reuse their previous results without running the selector.
             // Materialize inside the try so selector exceptions become error results.
-            var input = sourceResult.Value as TSource[] ?? sourceResult.Value!.ToArray();
+            var input = sourceResult.ValueOrDefault as TSource[] ?? sourceResult.ValueOrDefault!.ToArray();
             var perItem = _memo.Apply(input, item => _selector(item).ToArray(), _source, out var step);
 
             var state = Volatile.Read(ref _state);
@@ -702,9 +735,9 @@ internal sealed class CollectValuesNode<T> : IComputationNode<ImmutableArray<T>>
                 return Result<ImmutableArray<T>, ComputationError>.Error(sourceResult.ErrorValue!);
 
             // Arrays read from upstream stages and sources are immutable snapshots: share them
-            var collected = sourceResult.Value is T[] array
+            var collected = sourceResult.ValueOrDefault is T[] array
                 ? ImmutableCollectionsMarshal.AsImmutableArray(array)
-                : sourceResult.Value!.ToImmutableArray();
+                : sourceResult.ValueOrDefault!.ToImmutableArray();
             return Result<ImmutableArray<T>, ComputationError>.Success(collected);
         }
         catch (Exception ex)
@@ -769,7 +802,7 @@ internal sealed class SelectValuesNode<TSource, TResult> : ICollectionComputatio
 
             // Unchanged items reuse their previous results without running the selector.
             // Materialize inside the try so selector exceptions become error results.
-            var results = _memo.Apply(sourceResult.Value!, _selector, _source, out var step);
+            var results = _memo.Apply(sourceResult.ValueOrDefault!, _selector, _source, out var step);
 
             // The results are the memo's values, aligned with the input: their delta is the input's,
             // without the replacements by an identical result
@@ -846,7 +879,7 @@ internal sealed class WhereValuesNode<T> : ICollectionComputationNode<T>, IHasCo
 
             // Unchanged items reuse their previous verdicts without running the predicate.
             // Materialize inside the try so predicate exceptions become error results.
-            var items = sourceResult.Value as T[] ?? sourceResult.Value!.ToArray();
+            var items = sourceResult.ValueOrDefault as T[] ?? sourceResult.ValueOrDefault!.ToArray();
             var keep = _memo.Apply(items, _predicate, _source, out var step);
 
             var state = Volatile.Read(ref _state);
@@ -1032,8 +1065,8 @@ internal sealed class CombineValuesWithValueNode<TLeft, TRight> : ICollectionCom
                 return Result<IEnumerable<(TLeft, TRight)>, ComputationError>.Success(Array.Empty<(TLeft, TRight)>());
             }
 
-            var left = leftResult.Value as TLeft[] ?? leftResult.Value!.ToArray();
-            var right = rightResult.Value!;
+            var left = leftResult.ValueOrDefault as TLeft[] ?? leftResult.ValueOrDefault!.ToArray();
+            var right = rightResult.ValueOrDefault!;
 
             // Only the left items changed since the previous output: pair the edited ones
             var state = Volatile.Read(ref _state);

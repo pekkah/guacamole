@@ -200,7 +200,7 @@ public class IncrementalValueProviderTests
 
         // Assert
         Assert.True(computeResult.IsSuccess);
-        var items = computeResult.Value!.ToArray();
+        var items = computeResult.ValueOrDefault!.ToArray();
         Assert.Equal(3, items.Length);
         Assert.Equal("a", items[0]);
         Assert.Equal("b", items[1]);
@@ -225,7 +225,7 @@ public class IncrementalValueProviderTests
 
         // Assert
         Assert.True(computeResult.IsSuccess);
-        Assert.Empty(computeResult.Value!);
+        Assert.Empty(computeResult.ValueOrDefault!);
     }
 }
 

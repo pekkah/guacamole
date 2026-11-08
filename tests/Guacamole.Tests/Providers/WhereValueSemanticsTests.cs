@@ -41,7 +41,7 @@ public partial class WhereValueSemanticsTests
 
         Assert.True(result.IsSuccess);
         Assert.False(result.IsNone);
-        Assert.Equal(5, result.Value);
+        Assert.Equal(5, result.ValueOrDefault);
     }
 
     [Fact]

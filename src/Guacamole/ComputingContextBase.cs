@@ -21,7 +21,7 @@ namespace Guacamole;
 public abstract partial class ComputingContextBase : IDisposable
 {
     private volatile bool _disposed;
-    private readonly List<IOutputRegistration> _outputRegistrations = new();
+    private readonly List<OutputRegistrationBase> _outputRegistrations = new();
     private readonly List<Action> _sourceUnsubscriptions = new();
     private readonly object _registrationsLock = new();
 
@@ -168,6 +168,11 @@ public abstract partial class ComputingContextBase : IDisposable
             _disposed = true;
             unsubscriptions = _sourceUnsubscriptions.ToArray();
             _sourceUnsubscriptions.Clear();
+            foreach (var registration in _outputRegistrations)
+            {
+                registration.MarkDisposed();
+            }
+
             _outputRegistrations.Clear();
         }
 
@@ -265,7 +270,8 @@ public abstract partial class ComputingContextBase : IDisposable
     /// <summary>
     /// Registers an output handler that will be called when sources change.
     /// Similar to Roslyn's RegisterSourceOutput - handlers are called after changes occur
-    /// and the provider's value is recomputed.
+    /// and the provider's value is recomputed, and only when the value changed (by the provider's
+    /// comparer) since the handler last ran.
     /// The handler is not called while the provider has no value (a <c>Where</c> upstream
     /// rejected its input) or its computation fails.
     /// </summary>
@@ -275,51 +281,76 @@ public abstract partial class ComputingContextBase : IDisposable
     /// value (including a <c>null</c> value) differs from the value last delivered to it, by the
     /// provider's comparer. Exceptions thrown by handlers are collected and rethrown as one
     /// <see cref="AggregateException"/> from the source operation, after all handlers have run.
+    /// <para>
+    /// Disposing the returned registration is thread-safe and idempotent: once it returns, no new call
+    /// of the handler starts (a call already running on another thread completes). Other handlers,
+    /// including other registrations of the same handler, are not affected.
+    /// </para>
     /// </remarks>
     /// <typeparam name="T">The type of value produced by the provider</typeparam>
     /// <param name="provider">The provider whose output should trigger the handler</param>
     /// <param name="handler">Action to execute with the computed value and context</param>
+    /// <returns>
+    /// A registration that unregisters this handler when disposed (see the remarks). Disposing the
+    /// context unregisters all handlers.
+    /// </returns>
     /// <exception cref="ArgumentNullException"><paramref name="handler"/> is <c>null</c>.</exception>
     /// <exception cref="ObjectDisposedException">The context has been disposed.</exception>
-    public void RegisterOutput<T>(
+    public IDisposable RegisterOutput<T>(
         IncrementalValueProvider<T> provider,
         Action<T, ComputingContextBase> handler)
     {
         ArgumentNullException.ThrowIfNull(handler);
 
-        AddOutputRegistration(new OutputRegistration<T>(provider, handler));
+        return AddOutputRegistration(new OutputRegistration<T>(this, provider, handler));
     }
 
     /// <summary>
     /// Registers an output handler for collection providers.
     /// Similar to Roslyn's RegisterSourceOutput - handlers are called after changes occur
-    /// and the provider's values are recomputed.
+    /// and the provider's values are recomputed, and only when the values changed (item by item, in
+    /// order, by the provider's comparer) since the handler last ran.
     /// </summary>
     /// <typeparam name="T">The type of items in the collection</typeparam>
     /// <param name="provider">The collection provider whose output should trigger the handler</param>
     /// <param name="handler">Action to execute with the computed values (a read-only view, see
     /// <see cref="IncrementalValuesProvider{T}.GetValues"/>) and context</param>
+    /// <returns>
+    /// A registration that unregisters this handler when disposed (see the remarks of
+    /// <see cref="RegisterOutput{T}(IncrementalValueProvider{T}, Action{T, ComputingContextBase})"/>).
+    /// Disposing the context unregisters all handlers.
+    /// </returns>
     /// <remarks>
     /// Called as described for the single-value overload; the values are compared with the last
     /// delivered ones item by item, in order, with the provider's comparer.
     /// </remarks>
     /// <exception cref="ArgumentNullException"><paramref name="handler"/> is <c>null</c>.</exception>
     /// <exception cref="ObjectDisposedException">The context has been disposed.</exception>
-    public void RegisterOutput<T>(
+    public IDisposable RegisterOutput<T>(
         IncrementalValuesProvider<T> provider,
-        Action<IEnumerable<T>, ComputingContextBase> handler)
+        Action<IReadOnlyList<T>, ComputingContextBase> handler)
     {
         ArgumentNullException.ThrowIfNull(handler);
 
-        AddOutputRegistration(new CollectionOutputRegistration<T>(provider, handler));
+        return AddOutputRegistration(new CollectionOutputRegistration<T>(this, provider, handler));
     }
 
-    private void AddOutputRegistration(IOutputRegistration registration)
+    private OutputRegistrationBase AddOutputRegistration(OutputRegistrationBase registration)
     {
         lock (_registrationsLock)
         {
             ThrowIfDisposed();
             _outputRegistrations.Add(registration);
+        }
+
+        return registration;
+    }
+
+    private void RemoveOutputRegistration(OutputRegistrationBase registration)
+    {
+        lock (_registrationsLock)
+        {
+            _outputRegistrations.Remove(registration);
         }
     }
 
@@ -337,7 +368,7 @@ public abstract partial class ComputingContextBase : IDisposable
     {
         // Capture registrations under lock, then execute handlers outside lock
         // to avoid holding lock during potentially long-running handler execution
-        IOutputRegistration[] registrations;
+        OutputRegistrationBase[] registrations;
 
         lock (_registrationsLock)
         {
@@ -365,14 +396,37 @@ public abstract partial class ComputingContextBase : IDisposable
         }
     }
 
-    // Internal interface for output registrations
-    private interface IOutputRegistration
+    // Base class of output registrations, and the handle RegisterOutput returns
+    private abstract class OutputRegistrationBase : IDisposable
     {
-        void Execute(ComputingContextBase context);
+        private readonly ComputingContextBase _context;
+        private volatile bool _disposed;
+
+        protected OutputRegistrationBase(ComputingContextBase context)
+        {
+            _context = context;
+        }
+
+        // Checked right before the handler runs, so that no new call starts once Dispose returned
+        protected bool IsDisposed => _disposed;
+
+        public abstract void Execute(ComputingContextBase context);
+
+        // Called by the context's Dispose (under its lock) for every remaining registration
+        public void MarkDisposed() => _disposed = true;
+
+        public void Dispose()
+        {
+            if (_disposed)
+                return;
+
+            _disposed = true;
+            _context.RemoveOutputRegistration(this);
+        }
     }
 
     // Registration for single-value providers
-    private sealed class OutputRegistration<T> : IOutputRegistration
+    private sealed class OutputRegistration<T> : OutputRegistrationBase
     {
         private readonly IncrementalValueProvider<T> _provider;
         private readonly Action<T, ComputingContextBase> _handler;
@@ -380,7 +434,8 @@ public abstract partial class ComputingContextBase : IDisposable
         private T? _lastValue;
         private bool _hasExecuted;
 
-        public OutputRegistration(IncrementalValueProvider<T> provider, Action<T, ComputingContextBase> handler)
+        public OutputRegistration(ComputingContextBase context, IncrementalValueProvider<T> provider, Action<T, ComputingContextBase> handler)
+            : base(context)
         {
             _provider = provider;
             _handler = handler;
@@ -389,8 +444,11 @@ public abstract partial class ComputingContextBase : IDisposable
             _comparer = provider.Node is IHasComparer<T> withComparer ? withComparer.Comparer : DefaultEqualityComparer<T>.Instance;
         }
 
-        public void Execute(ComputingContextBase context)
+        public override void Execute(ComputingContextBase context)
         {
+            if (IsDisposed)
+                return;
+
             var result = _provider.GetValue();
             if (result.IsNone)
             {
@@ -404,11 +462,14 @@ public abstract partial class ComputingContextBase : IDisposable
             // A null computed value is a value too (not an error and not "no value"): deliver it
             if (result.IsSuccess)
             {
-                var value = result.Value!;
+                var value = result.ValueOrDefault!;
 
                 // Only call handler if value changed (Roslyn-style incremental computation)
                 if (!_hasExecuted || !_comparer.Equals(_lastValue!, value))
                 {
+                    if (IsDisposed)
+                        return;
+
                     _lastValue = value;
                     _hasExecuted = true;
                     _handler(value, context);
@@ -418,15 +479,16 @@ public abstract partial class ComputingContextBase : IDisposable
     }
 
     // Registration for collection providers
-    private sealed class CollectionOutputRegistration<T> : IOutputRegistration
+    private sealed class CollectionOutputRegistration<T> : OutputRegistrationBase
     {
         private readonly IncrementalValuesProvider<T> _provider;
-        private readonly Action<IEnumerable<T>, ComputingContextBase> _handler;
+        private readonly Action<IReadOnlyList<T>, ComputingContextBase> _handler;
         private readonly IEqualityComparer<T> _comparer;
-        private IEnumerable<T>? _lastValue;
+        private IReadOnlyList<T>? _lastValue;
         private bool _hasExecuted;
 
-        public CollectionOutputRegistration(IncrementalValuesProvider<T> provider, Action<IEnumerable<T>, ComputingContextBase> handler)
+        public CollectionOutputRegistration(ComputingContextBase context, IncrementalValuesProvider<T> provider, Action<IReadOnlyList<T>, ComputingContextBase> handler)
+            : base(context)
         {
             _provider = provider;
             _handler = handler;
@@ -434,22 +496,28 @@ public abstract partial class ComputingContextBase : IDisposable
             _comparer = provider.Node is IHasComparer<T> withComparer ? withComparer.Comparer : DefaultEqualityComparer<T>.Instance;
         }
 
-        public void Execute(ComputingContextBase context)
+        public override void Execute(ComputingContextBase context)
         {
+            if (IsDisposed)
+                return;
+
             var result = _provider.GetValues();
-            if (result.IsSuccess && result.Value != null)
+            if (result.IsSuccess && result.ValueOrDefault != null)
             {
                 // A read-only view of an immutable cached array (see GetValues), so it can be kept
                 // for the next comparison without copying it
-                var current = result.Value;
+                var current = result.ValueOrDefault;
 
                 // Compare item by item; only call the handler if the collection changed
                 if (!_hasExecuted || _lastValue == null
                     || !(ReferenceEquals(_lastValue, current) || _lastValue.SequenceEqual(current, _comparer)))
                 {
+                    if (IsDisposed)
+                        return;
+
                     _lastValue = current;
                     _hasExecuted = true;
-                    _handler(result.Value, context);
+                    _handler(current, context);
                 }
             }
         }

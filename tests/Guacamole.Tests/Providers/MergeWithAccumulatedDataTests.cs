@@ -46,7 +46,7 @@ public class MergeWithAccumulatedDataTests
 
         // Assert - This WILL have duplicates, which is CORRECT behavior for this pattern!
         Assert.True(result.IsSuccess);
-        var diagnostics = result.Value!.ToArray();
+        var diagnostics = result.ValueOrDefault!.ToArray();
 
         // We get [TYPE001, TYPE001, MATCH001] because TYPE001 is in BOTH streams
         Assert.Equal(3, diagnostics.Length);
@@ -87,7 +87,7 @@ public class MergeWithAccumulatedDataTests
 
         // Assert - No duplicates
         Assert.True(result.IsSuccess);
-        var diagnostics = result.Value!.ToArray();
+        var diagnostics = result.ValueOrDefault!.ToArray();
 
         Assert.Equal(2, diagnostics.Length);
         Assert.Equal("TYPE001", diagnostics[0]);
@@ -115,7 +115,7 @@ public class MergeWithAccumulatedDataTests
 
         // Assert - No duplicates, all diagnostics present
         Assert.True(result.IsSuccess);
-        var diagnostics = result.Value!.ToArray();
+        var diagnostics = result.ValueOrDefault!.ToArray();
 
         Assert.Equal(2, diagnostics.Length);
         Assert.Equal("TYPE001", diagnostics[0]);

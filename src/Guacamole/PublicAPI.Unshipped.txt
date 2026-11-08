@@ -1,0 +1,227 @@
+#nullable enable
+const Guacamole.ComputingContextBase.DefaultCacheCapacity = 10000 -> int
+Guacamole.ComputationError
+Guacamole.ComputationError.ComputationError(Guacamole.ComputationError! original) -> void
+Guacamole.ComputationError.ComputationError(string! Message, Guacamole.ComputationError? InnerError = null, Guacamole.SourceLocation? SourceLocation = null, string? DiagnosticId = null) -> void
+Guacamole.ComputationError.Deconstruct(out string! Message, out Guacamole.ComputationError? InnerError, out Guacamole.SourceLocation? SourceLocation, out string? DiagnosticId) -> void
+Guacamole.ComputationError.DiagnosticId.get -> string?
+Guacamole.ComputationError.DiagnosticId.init -> void
+Guacamole.ComputationError.InnerError.get -> Guacamole.ComputationError?
+Guacamole.ComputationError.InnerError.init -> void
+Guacamole.ComputationError.Message.get -> string!
+Guacamole.ComputationError.Message.init -> void
+Guacamole.ComputationError.SourceLocation.get -> Guacamole.SourceLocation?
+Guacamole.ComputationError.SourceLocation.init -> void
+Guacamole.ComputingContextAttribute
+Guacamole.ComputingContextAttribute.ComputingContextAttribute() -> void
+Guacamole.ComputingContextBase
+Guacamole.ComputingContextBase.ComputingContextBase() -> void
+Guacamole.ComputingContextBase.CreateSource<T>(string! sourceId) -> Guacamole.IIncrementalSource<T>!
+Guacamole.ComputingContextBase.CreateValueSource<T>(string! sourceId) -> Guacamole.IIncrementalValueSource<T>!
+Guacamole.ComputingContextBase.IsDisposed.get -> bool
+Guacamole.ComputingContextBase.RegisterOutput<T>(Guacamole.IncrementalValueProvider<T> provider, System.Action<T, Guacamole.ComputingContextBase!>! handler) -> System.IDisposable!
+Guacamole.ComputingContextBase.RegisterOutput<T>(Guacamole.IncrementalValuesProvider<T> provider, System.Action<System.Collections.Generic.IReadOnlyList<T>!, Guacamole.ComputingContextBase!>! handler) -> System.IDisposable!
+Guacamole.ComputingContextBase.ThrowIfDisposed() -> void
+Guacamole.ComputingContextBase.TriggerOutputs() -> void
+Guacamole.ComputingContextBase.TrimUnusedNodes() -> int
+Guacamole.DiagnosticProviderExtensions
+Guacamole.Diagnostics.GuacamoleMetrics
+Guacamole.Diagnostics.MetricsConfiguration
+Guacamole.Diagnostics.MetricsConfiguration.<Clone>$() -> Guacamole.Diagnostics.MetricsConfiguration!
+Guacamole.Diagnostics.MetricsConfiguration.CollectPipelineStageDimensions.get -> bool
+Guacamole.Diagnostics.MetricsConfiguration.CollectPipelineStageDimensions.init -> void
+Guacamole.Diagnostics.MetricsConfiguration.CollectTrackingNameDimensions.get -> bool
+Guacamole.Diagnostics.MetricsConfiguration.CollectTrackingNameDimensions.init -> void
+Guacamole.Diagnostics.MetricsConfiguration.EnableCacheMetrics.get -> bool
+Guacamole.Diagnostics.MetricsConfiguration.EnableCacheMetrics.init -> void
+Guacamole.Diagnostics.MetricsConfiguration.EnableComputationMetrics.get -> bool
+Guacamole.Diagnostics.MetricsConfiguration.EnableComputationMetrics.init -> void
+Guacamole.Diagnostics.MetricsConfiguration.EnableGraphMetrics.get -> bool
+Guacamole.Diagnostics.MetricsConfiguration.EnableGraphMetrics.init -> void
+Guacamole.Diagnostics.MetricsConfiguration.Equals(Guacamole.Diagnostics.MetricsConfiguration? other) -> bool
+Guacamole.Diagnostics.MetricsConfiguration.MetricsConfiguration() -> void
+Guacamole.Diagnostics.MetricsConfiguration.With(bool? enableComputationMetrics = null, bool? enableCacheMetrics = null, bool? enableGraphMetrics = null) -> Guacamole.Diagnostics.MetricsConfiguration!
+Guacamole.GuacamoleOptions
+Guacamole.GuacamoleOptions.GuacamoleOptions() -> void
+Guacamole.IBatchOperation<T>
+Guacamole.IBatchOperation<T>.Commit() -> void
+Guacamole.IBatchOperation<T>.Push(T item) -> void
+Guacamole.IBatchOperation<T>.Remove(T item) -> void
+Guacamole.IBatchOperation<T>.Replace(T oldItem, T newItem) -> void
+Guacamole.IBatchOperation<T>.Rollback() -> void
+Guacamole.IIncrementalSource<T>
+Guacamole.IIncrementalSource<T>.AsProvider() -> Guacamole.IncrementalValuesProvider<T>
+Guacamole.IIncrementalSource<T>.Changed -> System.EventHandler<Guacamole.SourceChangedEventArgs!>?
+Guacamole.IIncrementalSource<T>.Clear() -> void
+Guacamole.IIncrementalSource<T>.GetSnapshot() -> System.Collections.Generic.IReadOnlyCollection<T>!
+Guacamole.IIncrementalSource<T>.Push(T item) -> void
+Guacamole.IIncrementalSource<T>.Remove(T item) -> void
+Guacamole.IIncrementalSource<T>.Replace(T oldItem, T newItem) -> void
+Guacamole.IIncrementalSource<T>.SourceId.get -> string!
+Guacamole.IIncrementalValueSource<T>
+Guacamole.IIncrementalValueSource<T>.AsProvider() -> Guacamole.IncrementalValueProvider<T>
+Guacamole.IIncrementalValueSource<T>.Changed -> System.EventHandler<Guacamole.SourceChangedEventArgs!>?
+Guacamole.IIncrementalValueSource<T>.GetValue() -> T?
+Guacamole.IIncrementalValueSource<T>.Set(T value) -> void
+Guacamole.IIncrementalValueSource<T>.SourceId.get -> string!
+Guacamole.IncrementalSourceExtensions
+Guacamole.IncrementalValueProvider<T>
+Guacamole.IncrementalValueProvider<T>.Equals(Guacamole.IncrementalValueProvider<T> other) -> bool
+Guacamole.IncrementalValueProvider<T>.GetValue() -> Guacamole.Result<T, Guacamole.ComputationError!>
+Guacamole.IncrementalValueProvider<T>.IncrementalValueProvider() -> void
+Guacamole.IncrementalValueProvider<T>.Metadata.get -> Guacamole.ProviderMetadata
+Guacamole.IncrementalValueProvider<T>.TryGetValue(out T value) -> bool
+Guacamole.IncrementalValueProvider<T>.Value.get -> T
+Guacamole.IncrementalValueProviderExtensions
+Guacamole.IncrementalValuesProvider<T>
+Guacamole.IncrementalValuesProvider<T>.Equals(Guacamole.IncrementalValuesProvider<T> other) -> bool
+Guacamole.IncrementalValuesProvider<T>.GetValues() -> Guacamole.Result<System.Collections.Generic.IReadOnlyList<T>!, Guacamole.ComputationError!>
+Guacamole.IncrementalValuesProvider<T>.IncrementalValuesProvider() -> void
+Guacamole.IncrementalValuesProvider<T>.Metadata.get -> Guacamole.ProviderMetadata
+Guacamole.IncrementalValuesProvider<T>.Values.get -> System.Collections.Generic.IReadOnlyList<T>!
+Guacamole.IncrementalValuesProviderExtensions
+Guacamole.ProviderMetadata
+Guacamole.ProviderMetadata.CreationLocation.get -> Guacamole.SourceLocation?
+Guacamole.ProviderMetadata.CreationLocation.init -> void
+Guacamole.ProviderMetadata.Deconstruct(out string? TrackingName, out Guacamole.SourceLocation? CreationLocation, out System.Collections.Immutable.ImmutableArray<string!> Tags, out string? PipelineStage) -> void
+Guacamole.ProviderMetadata.Equals(Guacamole.ProviderMetadata other) -> bool
+Guacamole.ProviderMetadata.PipelineStage.get -> string?
+Guacamole.ProviderMetadata.PipelineStage.init -> void
+Guacamole.ProviderMetadata.ProviderMetadata() -> void
+Guacamole.ProviderMetadata.ProviderMetadata(string? TrackingName = null, Guacamole.SourceLocation? CreationLocation = null, System.Collections.Immutable.ImmutableArray<string!> Tags = default(System.Collections.Immutable.ImmutableArray<string!>), string? PipelineStage = null) -> void
+Guacamole.ProviderMetadata.Tags.get -> System.Collections.Immutable.ImmutableArray<string!>
+Guacamole.ProviderMetadata.Tags.init -> void
+Guacamole.ProviderMetadata.TrackingName.get -> string?
+Guacamole.ProviderMetadata.TrackingName.init -> void
+Guacamole.ProviderMetadata.WithPipelineStage(string! pipelineStage) -> Guacamole.ProviderMetadata
+Guacamole.ProviderMetadata.WithTags(params string![]! tags) -> Guacamole.ProviderMetadata
+Guacamole.ProviderMetadata.WithTrackingName(string! trackingName) -> Guacamole.ProviderMetadata
+Guacamole.Result<TValue, TError>
+Guacamole.Result<TValue, TError>.Bind<TResult>(System.Func<TValue, Guacamole.Result<TResult, TError>>! binder) -> Guacamole.Result<TResult, TError>
+Guacamole.Result<TValue, TError>.Equals(Guacamole.Result<TValue, TError> other) -> bool
+Guacamole.Result<TValue, TError>.ErrorValue.get -> TError?
+Guacamole.Result<TValue, TError>.GetValueOrDefault(System.Func<TError, TValue>! getDefault) -> TValue
+Guacamole.Result<TValue, TError>.GetValueOrDefault(TValue defaultValue) -> TValue
+Guacamole.Result<TValue, TError>.IsError.get -> bool
+Guacamole.Result<TValue, TError>.IsNone.get -> bool
+Guacamole.Result<TValue, TError>.IsSuccess.get -> bool
+Guacamole.Result<TValue, TError>.Map<TResult>(System.Func<TValue, TResult>! mapper) -> Guacamole.Result<TResult, TError>
+Guacamole.Result<TValue, TError>.MapError<TNewError>(System.Func<TError, TNewError>! mapper) -> Guacamole.Result<TValue, TNewError>
+Guacamole.Result<TValue, TError>.Match(System.Action<TValue>! onSuccess, System.Action! onNone, System.Action<TError>! onError) -> void
+Guacamole.Result<TValue, TError>.Match(System.Action<TValue>! onSuccess, System.Action<TError>! onError) -> void
+Guacamole.Result<TValue, TError>.Match<TResult>(System.Func<TValue, TResult>! onSuccess, System.Func<TError, TResult>! onError) -> TResult
+Guacamole.Result<TValue, TError>.Match<TResult>(System.Func<TValue, TResult>! onSuccess, System.Func<TResult>! onNone, System.Func<TError, TResult>! onError) -> TResult
+Guacamole.Result<TValue, TError>.Result() -> void
+Guacamole.Result<TValue, TError>.ValueOrDefault.get -> TValue?
+Guacamole.ServiceCollectionExtensions
+Guacamole.SourceChangedEventArgs
+Guacamole.SourceChangedEventArgs.SourceChangedEventArgs(string! sourceId, System.DateTimeOffset timestamp) -> void
+Guacamole.SourceChangedEventArgs.SourceId.get -> string!
+Guacamole.SourceChangedEventArgs.Timestamp.get -> System.DateTimeOffset
+Guacamole.SourceLocation
+Guacamole.SourceLocation.ColumnNumber.get -> int
+Guacamole.SourceLocation.ColumnNumber.init -> void
+Guacamole.SourceLocation.Deconstruct(out string! FileName, out int LineNumber, out int ColumnNumber, out string! MemberName) -> void
+Guacamole.SourceLocation.Equals(Guacamole.SourceLocation other) -> bool
+Guacamole.SourceLocation.FileName.get -> string!
+Guacamole.SourceLocation.FileName.init -> void
+Guacamole.SourceLocation.LineNumber.get -> int
+Guacamole.SourceLocation.LineNumber.init -> void
+Guacamole.SourceLocation.MemberName.get -> string!
+Guacamole.SourceLocation.MemberName.init -> void
+Guacamole.SourceLocation.SourceLocation() -> void
+Guacamole.SourceLocation.SourceLocation(string! FileName, int LineNumber, int ColumnNumber, string! MemberName) -> void
+override Guacamole.ComputationError.Equals(object? obj) -> bool
+override Guacamole.ComputationError.GetHashCode() -> int
+override Guacamole.ComputationError.ToString() -> string!
+override Guacamole.Diagnostics.MetricsConfiguration.Equals(object? obj) -> bool
+override Guacamole.Diagnostics.MetricsConfiguration.GetHashCode() -> int
+override Guacamole.Diagnostics.MetricsConfiguration.ToString() -> string!
+override Guacamole.IncrementalValueProvider<T>.GetHashCode() -> int
+override Guacamole.IncrementalValuesProvider<T>.GetHashCode() -> int
+override Guacamole.ProviderMetadata.GetHashCode() -> int
+override Guacamole.Result<TValue, TError>.Equals(object? obj) -> bool
+override Guacamole.Result<TValue, TError>.GetHashCode() -> int
+override Guacamole.Result<TValue, TError>.ToString() -> string!
+override Guacamole.SourceLocation.GetHashCode() -> int
+override Guacamole.SourceLocation.ToString() -> string!
+static Guacamole.ComputationError.FromException(System.Exception! exception, string? diagnosticId = null) -> Guacamole.ComputationError!
+static Guacamole.ComputationError.operator !=(Guacamole.ComputationError? left, Guacamole.ComputationError? right) -> bool
+static Guacamole.ComputationError.operator ==(Guacamole.ComputationError? left, Guacamole.ComputationError? right) -> bool
+static Guacamole.DiagnosticProviderExtensions.WithPipelineStage<T>(this Guacamole.IncrementalValueProvider<T> provider, string! pipelineStage) -> Guacamole.IncrementalValueProvider<T>
+static Guacamole.DiagnosticProviderExtensions.WithPipelineStage<T>(this Guacamole.IncrementalValuesProvider<T> provider, string! pipelineStage) -> Guacamole.IncrementalValuesProvider<T>
+static Guacamole.DiagnosticProviderExtensions.WithTags<T>(this Guacamole.IncrementalValueProvider<T> provider, params string![]! tags) -> Guacamole.IncrementalValueProvider<T>
+static Guacamole.DiagnosticProviderExtensions.WithTags<T>(this Guacamole.IncrementalValuesProvider<T> provider, params string![]! tags) -> Guacamole.IncrementalValuesProvider<T>
+static Guacamole.DiagnosticProviderExtensions.WithTrackingName<T>(this Guacamole.IncrementalValueProvider<T> provider, string! trackingName, string! callerFilePath = "", int callerLineNumber = 0, string! callerMemberName = "") -> Guacamole.IncrementalValueProvider<T>
+static Guacamole.DiagnosticProviderExtensions.WithTrackingName<T>(this Guacamole.IncrementalValuesProvider<T> provider, string! trackingName, string! callerFilePath = "", int callerLineNumber = 0, string! callerMemberName = "") -> Guacamole.IncrementalValuesProvider<T>
+static Guacamole.Diagnostics.GuacamoleMetrics.Dispose() -> void
+static Guacamole.Diagnostics.MetricsConfiguration.Current.get -> Guacamole.Diagnostics.MetricsConfiguration!
+static Guacamole.Diagnostics.MetricsConfiguration.operator !=(Guacamole.Diagnostics.MetricsConfiguration? left, Guacamole.Diagnostics.MetricsConfiguration? right) -> bool
+static Guacamole.Diagnostics.MetricsConfiguration.operator ==(Guacamole.Diagnostics.MetricsConfiguration? left, Guacamole.Diagnostics.MetricsConfiguration? right) -> bool
+static Guacamole.Diagnostics.MetricsConfiguration.SetGlobal(Guacamole.Diagnostics.MetricsConfiguration! configuration) -> void
+static Guacamole.IncrementalSourceExtensions.BeginBatch<T>(this Guacamole.IIncrementalSource<T>! source) -> Guacamole.IBatchOperation<T>!
+static Guacamole.IncrementalSourceExtensions.PushRange<T>(this Guacamole.IIncrementalSource<T>! source, System.Collections.Generic.IEnumerable<T>! items) -> void
+static Guacamole.IncrementalValueProvider<T>.operator !=(Guacamole.IncrementalValueProvider<T> left, Guacamole.IncrementalValueProvider<T> right) -> bool
+static Guacamole.IncrementalValueProvider<T>.operator ==(Guacamole.IncrementalValueProvider<T> left, Guacamole.IncrementalValueProvider<T> right) -> bool
+static Guacamole.IncrementalValueProviderExtensions.Combine<TFirst, TSecond>(this Guacamole.IncrementalValueProvider<TFirst> first, Guacamole.IncrementalValueProvider<TSecond> second, Guacamole.ProviderMetadata metadata = default(Guacamole.ProviderMetadata)) -> Guacamole.IncrementalValueProvider<(TFirst, TSecond)>
+static Guacamole.IncrementalValueProviderExtensions.Select<TSource, TResult>(this Guacamole.IncrementalValueProvider<TSource> source, System.Func<TSource, TResult>! selector, Guacamole.ProviderMetadata metadata = default(Guacamole.ProviderMetadata)) -> Guacamole.IncrementalValueProvider<TResult>
+static Guacamole.IncrementalValueProviderExtensions.Select<TSource, TResult>(this Guacamole.IncrementalValueProvider<TSource> source, System.Func<TSource, TResult>! selector, System.Collections.Generic.IEqualityComparer<TResult>! comparer, Guacamole.ProviderMetadata metadata = default(Guacamole.ProviderMetadata)) -> Guacamole.IncrementalValueProvider<TResult>
+static Guacamole.IncrementalValueProviderExtensions.SelectMany<TSource, TResult>(this Guacamole.IncrementalValueProvider<TSource> source, System.Func<TSource, System.Collections.Generic.IEnumerable<TResult>!>! selector, Guacamole.ProviderMetadata metadata = default(Guacamole.ProviderMetadata)) -> Guacamole.IncrementalValuesProvider<TResult>
+static Guacamole.IncrementalValueProviderExtensions.SelectMany<TSource, TResult>(this Guacamole.IncrementalValueProvider<TSource> source, System.Func<TSource, System.Collections.Generic.IEnumerable<TResult>!>! selector, System.Collections.Generic.IEqualityComparer<TResult>! comparer, Guacamole.ProviderMetadata metadata = default(Guacamole.ProviderMetadata)) -> Guacamole.IncrementalValuesProvider<TResult>
+static Guacamole.IncrementalValueProviderExtensions.Where<T>(this Guacamole.IncrementalValueProvider<T> source, System.Func<T, bool>! predicate, Guacamole.ProviderMetadata metadata = default(Guacamole.ProviderMetadata)) -> Guacamole.IncrementalValueProvider<T>
+static Guacamole.IncrementalValueProviderExtensions.Where<T>(this Guacamole.IncrementalValueProvider<T> source, System.Func<T, bool>! predicate, System.Collections.Generic.IEqualityComparer<T>! comparer, Guacamole.ProviderMetadata metadata = default(Guacamole.ProviderMetadata)) -> Guacamole.IncrementalValueProvider<T>
+static Guacamole.IncrementalValuesProvider<T>.operator !=(Guacamole.IncrementalValuesProvider<T> left, Guacamole.IncrementalValuesProvider<T> right) -> bool
+static Guacamole.IncrementalValuesProvider<T>.operator ==(Guacamole.IncrementalValuesProvider<T> left, Guacamole.IncrementalValuesProvider<T> right) -> bool
+static Guacamole.IncrementalValuesProviderExtensions.Collect<T>(this Guacamole.IncrementalValuesProvider<T> source, Guacamole.ProviderMetadata metadata = default(Guacamole.ProviderMetadata)) -> Guacamole.IncrementalValueProvider<System.Collections.Immutable.ImmutableArray<T>>
+static Guacamole.IncrementalValuesProviderExtensions.Collect<T>(this Guacamole.IncrementalValuesProvider<T> source, System.Collections.Generic.IEqualityComparer<T>! comparer, Guacamole.ProviderMetadata metadata = default(Guacamole.ProviderMetadata)) -> Guacamole.IncrementalValueProvider<System.Collections.Immutable.ImmutableArray<T>>
+static Guacamole.IncrementalValuesProviderExtensions.Combine<TLeft, TRight>(this Guacamole.IncrementalValuesProvider<TLeft> left, Guacamole.IncrementalValueProvider<TRight> right, Guacamole.ProviderMetadata metadata = default(Guacamole.ProviderMetadata)) -> Guacamole.IncrementalValuesProvider<(TLeft Left, TRight Right)>
+static Guacamole.IncrementalValuesProviderExtensions.Flatten<T>(this Guacamole.IncrementalValueProvider<System.Collections.Immutable.ImmutableArray<System.Collections.Immutable.ImmutableArray<T>>> source, Guacamole.ProviderMetadata metadata = default(Guacamole.ProviderMetadata)) -> Guacamole.IncrementalValuesProvider<T>
+static Guacamole.IncrementalValuesProviderExtensions.Flatten<T>(this Guacamole.IncrementalValuesProvider<System.Collections.Immutable.ImmutableArray<T>> source, Guacamole.ProviderMetadata metadata = default(Guacamole.ProviderMetadata)) -> Guacamole.IncrementalValuesProvider<T>
+static Guacamole.IncrementalValuesProviderExtensions.Merge<T>(this Guacamole.IncrementalValuesProvider<T> first, Guacamole.IncrementalValuesProvider<T> second, Guacamole.ProviderMetadata metadata = default(Guacamole.ProviderMetadata)) -> Guacamole.IncrementalValuesProvider<T>
+static Guacamole.IncrementalValuesProviderExtensions.Merge<T>(this Guacamole.IncrementalValuesProvider<T> first, Guacamole.IncrementalValuesProvider<T> second, System.Collections.Generic.IEqualityComparer<T>! comparer, Guacamole.ProviderMetadata metadata = default(Guacamole.ProviderMetadata)) -> Guacamole.IncrementalValuesProvider<T>
+static Guacamole.IncrementalValuesProviderExtensions.Select<TSource, TResult>(this Guacamole.IncrementalValuesProvider<TSource> source, System.Func<TSource, TResult>! selector, Guacamole.ProviderMetadata metadata = default(Guacamole.ProviderMetadata)) -> Guacamole.IncrementalValuesProvider<TResult>
+static Guacamole.IncrementalValuesProviderExtensions.Select<TSource, TResult>(this Guacamole.IncrementalValuesProvider<TSource> source, System.Func<TSource, TResult>! selector, System.Collections.Generic.IEqualityComparer<TResult>! comparer, Guacamole.ProviderMetadata metadata = default(Guacamole.ProviderMetadata)) -> Guacamole.IncrementalValuesProvider<TResult>
+static Guacamole.IncrementalValuesProviderExtensions.SelectMany<TSource, TResult>(this Guacamole.IncrementalValuesProvider<TSource> source, System.Func<TSource, System.Collections.Generic.IEnumerable<TResult>!>! selector, Guacamole.ProviderMetadata metadata = default(Guacamole.ProviderMetadata)) -> Guacamole.IncrementalValuesProvider<TResult>
+static Guacamole.IncrementalValuesProviderExtensions.SelectMany<TSource, TResult>(this Guacamole.IncrementalValuesProvider<TSource> source, System.Func<TSource, System.Collections.Generic.IEnumerable<TResult>!>! selector, System.Collections.Generic.IEqualityComparer<TResult>! comparer, Guacamole.ProviderMetadata metadata = default(Guacamole.ProviderMetadata)) -> Guacamole.IncrementalValuesProvider<TResult>
+static Guacamole.IncrementalValuesProviderExtensions.Where<T>(this Guacamole.IncrementalValuesProvider<T> source, System.Func<T, bool>! predicate, Guacamole.ProviderMetadata metadata = default(Guacamole.ProviderMetadata)) -> Guacamole.IncrementalValuesProvider<T>
+static Guacamole.IncrementalValuesProviderExtensions.Where<T>(this Guacamole.IncrementalValuesProvider<T> source, System.Func<T, bool>! predicate, System.Collections.Generic.IEqualityComparer<T>! comparer, Guacamole.ProviderMetadata metadata = default(Guacamole.ProviderMetadata)) -> Guacamole.IncrementalValuesProvider<T>
+static Guacamole.ProviderMetadata.Named(string! trackingName, string! callerFilePath = "", int callerLineNumber = 0, string! callerMemberName = "") -> Guacamole.ProviderMetadata
+static Guacamole.ProviderMetadata.operator !=(Guacamole.ProviderMetadata left, Guacamole.ProviderMetadata right) -> bool
+static Guacamole.ProviderMetadata.operator ==(Guacamole.ProviderMetadata left, Guacamole.ProviderMetadata right) -> bool
+static Guacamole.Result<TValue, TError>.Error(TError error) -> Guacamole.Result<TValue, TError>
+static Guacamole.Result<TValue, TError>.None.get -> Guacamole.Result<TValue, TError>
+static Guacamole.Result<TValue, TError>.operator !=(Guacamole.Result<TValue, TError> left, Guacamole.Result<TValue, TError> right) -> bool
+static Guacamole.Result<TValue, TError>.operator ==(Guacamole.Result<TValue, TError> left, Guacamole.Result<TValue, TError> right) -> bool
+static Guacamole.Result<TValue, TError>.Success(TValue value) -> Guacamole.Result<TValue, TError>
+static Guacamole.ServiceCollectionExtensions.AddGuacamole(this Microsoft.Extensions.DependencyInjection.IServiceCollection! services) -> Microsoft.Extensions.DependencyInjection.IServiceCollection!
+static Guacamole.ServiceCollectionExtensions.AddGuacamole(this Microsoft.Extensions.DependencyInjection.IServiceCollection! services, System.Action<Guacamole.GuacamoleOptions!>! configure) -> Microsoft.Extensions.DependencyInjection.IServiceCollection!
+static Guacamole.SourceLocation.operator !=(Guacamole.SourceLocation left, Guacamole.SourceLocation right) -> bool
+static Guacamole.SourceLocation.operator ==(Guacamole.SourceLocation left, Guacamole.SourceLocation right) -> bool
+static readonly Guacamole.Diagnostics.GuacamoleMetrics.ActivitySource -> System.Diagnostics.ActivitySource!
+static readonly Guacamole.Diagnostics.GuacamoleMetrics.CacheHitRatio -> System.Diagnostics.Metrics.Gauge<double>!
+static readonly Guacamole.Diagnostics.GuacamoleMetrics.CacheOperationsTotal -> System.Diagnostics.Metrics.Counter<long>!
+static readonly Guacamole.Diagnostics.GuacamoleMetrics.CacheSize -> System.Diagnostics.Metrics.Gauge<int>!
+static readonly Guacamole.Diagnostics.GuacamoleMetrics.ComputationDuration -> System.Diagnostics.Metrics.Histogram<double>!
+static readonly Guacamole.Diagnostics.GuacamoleMetrics.ComputationErrors -> System.Diagnostics.Metrics.Counter<long>!
+static readonly Guacamole.Diagnostics.GuacamoleMetrics.ComputationsTotal -> System.Diagnostics.Metrics.Counter<long>!
+static readonly Guacamole.Diagnostics.GuacamoleMetrics.GraphDependenciesTotal -> System.Diagnostics.Metrics.Gauge<int>!
+static readonly Guacamole.Diagnostics.GuacamoleMetrics.GraphNodesActive -> System.Diagnostics.Metrics.Gauge<int>!
+static readonly Guacamole.Diagnostics.GuacamoleMetrics.GraphOperationsTotal -> System.Diagnostics.Metrics.Counter<long>!
+static readonly Guacamole.Diagnostics.MetricsConfiguration.Development -> Guacamole.Diagnostics.MetricsConfiguration!
+static readonly Guacamole.Diagnostics.MetricsConfiguration.Disabled -> Guacamole.Diagnostics.MetricsConfiguration!
+static readonly Guacamole.Diagnostics.MetricsConfiguration.Minimal -> Guacamole.Diagnostics.MetricsConfiguration!
+static readonly Guacamole.Diagnostics.MetricsConfiguration.Production -> Guacamole.Diagnostics.MetricsConfiguration!
+virtual Guacamole.ComputationError.<Clone>$() -> Guacamole.ComputationError!
+virtual Guacamole.ComputationError.EqualityContract.get -> System.Type!
+virtual Guacamole.ComputationError.Equals(Guacamole.ComputationError? other) -> bool
+virtual Guacamole.ComputationError.PrintMembers(System.Text.StringBuilder! builder) -> bool
+virtual Guacamole.ComputingContextBase.AutoTrimInterval.get -> int
+virtual Guacamole.ComputingContextBase.CacheCapacity.get -> int
+virtual Guacamole.ComputingContextBase.Dispose() -> void
+~override Guacamole.IncrementalValueProvider<T>.Equals(object obj) -> bool
+~override Guacamole.IncrementalValueProvider<T>.ToString() -> string
+~override Guacamole.IncrementalValuesProvider<T>.Equals(object obj) -> bool
+~override Guacamole.IncrementalValuesProvider<T>.ToString() -> string
+~override Guacamole.ProviderMetadata.Equals(object obj) -> bool
+~override Guacamole.ProviderMetadata.ToString() -> string
+~override Guacamole.SourceLocation.Equals(object obj) -> bool

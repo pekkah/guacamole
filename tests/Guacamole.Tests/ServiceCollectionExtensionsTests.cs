@@ -1,4 +1,3 @@
-using System.Collections.Immutable;
 using Microsoft.Extensions.DependencyInjection;
 using Xunit;
 
@@ -7,17 +6,24 @@ namespace Guacamole.Tests;
 public class ServiceCollectionExtensionsTests
 {
     [Fact]
-    public void AddGuacamoleCore_RegistersOptionsAndMetadataFactory()
+    public void AddGuacamole_RegistersConfiguredOptions()
     {
+        GuacamoleOptions? configured = null;
         using var provider = new ServiceCollection()
-            .AddGuacamoleCore(options => options.ProviderOptions.DefaultTags = ImmutableArray.Create("app"))
+            .AddGuacamole(options => configured = options)
             .BuildServiceProvider();
 
-        var options = provider.GetRequiredService<GuacamoleCoreOptions>();
-        var factory = provider.GetRequiredService<IProviderMetadataFactory>();
+        Assert.Same(configured, provider.GetRequiredService<GuacamoleOptions>());
+    }
 
-        Assert.Equal(new[] { "app" }, options.ProviderOptions.DefaultTags);
-        Assert.Equal(new[] { "app" }, factory.Create("parse").Tags);
-        Assert.Equal(new[] { "app", "x" }, factory.Create("parse", ImmutableArray.Create("x")).Tags);
+    [Fact]
+    public void AddGuacamole_CalledTwice_KeepsFirstOptions()
+    {
+        var services = new ServiceCollection().AddGuacamole();
+        var first = Assert.Single(services, d => d.ServiceType == typeof(GuacamoleOptions)).ImplementationInstance;
+
+        services.AddGuacamole();
+
+        Assert.Same(first, Assert.Single(services, d => d.ServiceType == typeof(GuacamoleOptions)).ImplementationInstance);
     }
 }

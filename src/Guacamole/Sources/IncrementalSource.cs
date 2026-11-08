@@ -121,7 +121,7 @@ internal sealed class IncrementalSource<T> : IIncrementalSource<T>
         return new IncrementalValuesProvider<T>(
             _node,
             _graphProvider(), // Get current graph from provider
-            new ProviderMetadata($"Source: {SourceId}", "Push-based external source"));
+            new ProviderMetadata(TrackingName: $"Source: {SourceId}", Tags: SourceProviderTags.Collection));
     }
 
     /// <summary>
@@ -687,7 +687,7 @@ internal sealed class IncrementalSource<T> : IIncrementalSource<T>
     /// </summary>
     private void NotifyChanged()
     {
-        Changed?.Invoke(this, new SourceChangedEventArgs(SourceId, DateTime.UtcNow));
+        Changed?.Invoke(this, new SourceChangedEventArgs(SourceId, DateTimeOffset.UtcNow));
     }
 
     private readonly struct Slot(T item)

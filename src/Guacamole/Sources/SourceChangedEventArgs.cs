@@ -13,16 +13,16 @@ public sealed class SourceChangedEventArgs : EventArgs
     public string SourceId { get; }
 
     /// <summary>
-    /// The timestamp when the change occurred.
+    /// When the change occurred (UTC, as recorded by the source).
     /// </summary>
-    public DateTime Timestamp { get; }
+    public DateTimeOffset Timestamp { get; }
 
     /// <summary>
     /// Creates a new instance of SourceChangedEventArgs.
     /// </summary>
     /// <param name="sourceId">The identifier of the source that changed</param>
     /// <param name="timestamp">The timestamp when the change occurred</param>
-    public SourceChangedEventArgs(string sourceId, DateTime timestamp)
+    public SourceChangedEventArgs(string sourceId, DateTimeOffset timestamp)
     {
         SourceId = sourceId ?? throw new ArgumentNullException(nameof(sourceId));
         Timestamp = timestamp;

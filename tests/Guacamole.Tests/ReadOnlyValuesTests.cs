@@ -37,8 +37,8 @@ public partial class ReadOnlyValuesTests
         // Cached and freshly computed reads, through Values and GetValues
         foreach (var values in new[]
         {
-            context.Items.Values, context.Items.Values, context.Items.GetValues().Value!,
-            doubled.Values, doubled.Values, odd.Values, odd.GetValues().Value!,
+            context.Items.Values, context.Items.Values, context.Items.GetValues().ValueOrDefault!,
+            doubled.Values, doubled.Values, odd.Values, odd.GetValues().ValueOrDefault!,
         })
         {
             Assert.IsNotType<int[]>(values, exactMatch: false);
@@ -100,7 +100,7 @@ public partial class ReadOnlyValuesTests
     public void OutputHandler_ReceivesReadOnlyValues()
     {
         using var context = new ItemsContext();
-        var received = new List<IEnumerable<int>>();
+        var received = new List<IReadOnlyList<int>>();
         context.RegisterOutput(context.Items, (values, _) => received.Add(values));
 
         context.ItemsSource.Push(1);
@@ -127,7 +127,7 @@ public partial class ReadOnlyValuesTests
         Assert.Same(first, doubled.Values);
         Assert.Same(context.Items.Values, context.Items.Values);
 
-        IEnumerable<int>? read = null;
+        IReadOnlyList<int>? read = null;
         var allocated = ScalingAssert.AllocatedBytes(() =>
         {
             for (var i = 0; i < 100; i++)
@@ -147,5 +147,57 @@ public partial class ReadOnlyValuesTests
 
         Assert.Empty(values);
         Assert.Null(values as int[]);
+    }
+
+    [Fact]
+    public void Values_AreIndexableReadOnlyLists()
+    {
+        using var context = Create(10, 20, 30);
+        var doubled = context.Items.Select(x => x * 2);
+
+        IReadOnlyList<int> values = doubled.Values;
+        IReadOnlyList<int> viaResult = doubled.GetValues().ValueOrDefault!;
+
+        Assert.Equal(3, values.Count);
+        Assert.Equal(20, values[0]);
+        Assert.Equal(60, values[2]);
+        Assert.Same(values, viaResult);
+    }
+
+    [Fact]
+    public void OutputHandler_ReceivesIndexableList()
+    {
+        using var context = new ItemsContext();
+        var counts = new List<int>();
+        var lasts = new List<int>();
+        context.RegisterOutput(context.Items, (IReadOnlyList<int> values, ComputingContextBase _) =>
+        {
+            counts.Add(values.Count);
+            lasts.Add(values[values.Count - 1]);
+        });
+
+        context.ItemsSource.Push(1);
+        context.ItemsSource.Push(2);
+
+        Assert.Equal([1, 2], counts);
+        Assert.Equal([1, 2], lasts);
+    }
+
+    [Fact]
+    public void GetValues_CachedRead_DoesNotAllocate()
+    {
+        using var context = Create(1, 2, 3);
+        var doubled = context.Items.Select(x => x * 2);
+        var first = doubled.GetValues().ValueOrDefault;
+
+        IReadOnlyList<int>? read = null;
+        var allocated = ScalingAssert.AllocatedBytes(() =>
+        {
+            for (var i = 0; i < 100; i++)
+                read = doubled.GetValues().ValueOrDefault;
+        });
+
+        Assert.Equal(0, allocated);
+        Assert.Same(first, read);
     }
 }

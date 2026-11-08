@@ -3,27 +3,12 @@ using System;
 namespace Guacamole;
 
 /// <summary>
-/// Marks a class as a computing context for source generator processing.
-/// Classes with this attribute will have mutation methods generated automatically.
+/// Marks a partial class deriving from <see cref="ComputingContextBase"/> as a computing context for
+/// the Guacamole source generator, which implements its partial <see cref="IncrementalValueProvider{T}"/>
+/// and <see cref="IncrementalValuesProvider{T}"/> properties as source-backed inputs (see
+/// <c>docs/generated-code-reference.md</c>).
 /// </summary>
 [AttributeUsage(AttributeTargets.Class, AllowMultiple = false, Inherited = false)]
 public sealed class ComputingContextAttribute : Attribute
 {
-    /// <summary>
-    /// Optional name for the generated context.
-    /// If not specified, uses the class name.
-    /// </summary>
-    public string? Name { get; set; }
-
-    /// <summary>
-    /// Whether to generate async versions of mutation methods.
-    /// Default is true for compatibility with async workflows.
-    /// </summary>
-    public bool GenerateAsyncMethods { get; set; } = true;
-
-    /// <summary>
-    /// Whether to generate batch operation methods (AddRange, RemoveRange).
-    /// Default is true for efficient bulk operations.
-    /// </summary>
-    public bool GenerateBatchMethods { get; set; } = true;
 }

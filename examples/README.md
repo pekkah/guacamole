@@ -11,7 +11,7 @@ Pushing data into a source and reacting to it.
 - A computing context with one input property (`People`) and its generated `PeopleSource` accessor
 - Pushing and removing items
 - Provider extension methods (`Where`, `Collect`, `Select`)
-- Registering output handlers
+- Registering output handlers, and unregistering one by disposing its registration
 
 ### 2. [FileWatcherExample](FileWatcherExample/)
 A simulated file system watcher pushing file changes.
@@ -74,6 +74,8 @@ What happens on a change:
 - The source raises its `Changed` event synchronously
 - The context increments the source's version (cached values are revalidated lazily when read; nothing is cleared eagerly)
 - Each registered handler's provider is read, and the handler is called if the value changed since the handler last ran
+
+`RegisterOutput` returns an `IDisposable`: dispose it to unregister just that handler (`BasicSourceUsage` does this). Disposing the context drops all handlers.
 
 Note that the examples build their pipelines once, right after creating the context. Every operator call creates a new node with its own cache, so pipelines should not be rebuilt on every use.
 

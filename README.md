@@ -53,11 +53,11 @@ context.RegisterOutput(tokenCount, (count, ctx) => Console.WriteLine($"Tokens: {
 // Push data: the context is notified synchronously and runs its output handlers
 context.SourceCodeSource.Set("let x = 42");
 
-// Pull a value on demand (Result-based; use .Value to throw on error instead)
+// Pull a value on demand (Result-based; use tokenCount.Value to throw on error instead)
 var result = tokenCount.GetValue();
 if (result.IsSuccess)
 {
-    Console.WriteLine(result.Value);
+    Console.WriteLine(result.ValueOrDefault);
 }
 ```
 
@@ -135,9 +135,16 @@ values.Collect(customComparer)  // Compares the collected items with customCompa
 // Combine with single value
 values.Combine(singleValue)  // Pairs each value with the single value
 
-// Concatenate two collection providers
+// Concatenate two collection providers (first, then second)
 values.Merge(otherValues)
+values.Merge(otherValues, customComparer)  // Compares the values with customComparer
+
+// Flatten collections of collections
+arrays.Flatten()   // IncrementalValuesProvider<ImmutableArray<T>> -> IncrementalValuesProvider<T>
+nested.Flatten()   // IncrementalValueProvider<ImmutableArray<ImmutableArray<T>>> -> IncrementalValuesProvider<T>
 ```
+
+`Flatten()` is shorthand for `SelectMany(array => array)`: on a collection of arrays it is as incremental as `SelectMany` (only new or changed arrays are flattened again); on a single nested array it flattens the whole value whenever it changes. `Merge` collects both inputs, so any change to either re-concatenates both; prefer a single source with `Where` when the inputs are large and change often.
 
 How these behave:
 
@@ -149,6 +156,7 @@ How these behave:
 - **Custom equality comparers** decide whether a recomputed value counts as changed. Use records or `IEquatable<T>` types; without value equality every recomputation looks like a change.
 - **Errors are values** - exceptions thrown by your lambdas become failed `Result`s; `GetValue()`/`GetValues()` do not throw them (`.Value`/`.Values` and `TryGetValue` do, as `InvalidOperationException`). Downstream stages pass the error on without running their lambdas. Failed results (and `null` values) are not cached: a failing stage runs again each time it is read, until its inputs change and it succeeds.
 - **A filtered-out single value is "no value", not an error.** When a single-value `Where` rejects its input, `GetValue()` returns a `Result` with `IsNone == true` (`IsSuccess` and `IsError` are false). Downstream `Select`/`Where`/`Combine` propagate "no value" without running their lambdas; `SelectMany` and collection `Combine` produce no items; output handlers are not called. `.Value` throws `InvalidOperationException`; use `TryGetValue(out value)`, which returns `false` for no value (and throws only if the computation failed).
+- **`Result.ValueOrDefault` never throws.** It returns the value on success and `default` for None or an error, so check `IsSuccess` (or use `Match`) first. The providers' `.Value`/`.Values` are the throwing accessors.
 
 ## Packages
 
@@ -256,13 +264,16 @@ The generator also reports diagnostics (GUAC0003-GUAC0009) for invalid declarati
 ### Output Handlers
 
 ```csharp
-context.RegisterOutput(provider, (value, ctx) => { /* ... */ });
+IDisposable registration = context.RegisterOutput(provider, (value, ctx) => { /* ... */ });
+// later: stop just this handler
+registration.Dispose();
 ```
 
 - Handlers run synchronously, on the thread that changed a source, after **any** source of the context changes. They are not run at registration time.
 - A handler is invoked only if its provider computes a value (not an error, and not "no value" from a `Where`; a `null` value is delivered) and the value differs from the last value delivered to that handler; after a "no value" phase, a reappearing value is delivered again even if it equals the last one (the provider's comparer when it was created with one, e.g. `Select(selector, comparer)`, otherwise `EqualityComparer<T>.Default`; element-wise for collections). `Collect()` results compare element-wise (in order), so a handler on a collected provider does not run for a re-collect with equal items; other `ImmutableArray<T>`, list or dictionary values returned by a `Select` compare by reference.
 - All handlers run even if one throws; afterwards the exceptions are rethrown as one `AggregateException` from the `Push`/`Set`/... call that triggered them.
-- `Dispose()` unsubscribes the context from its sources and drops its output registrations. Its providers are no longer invalidated by source changes afterwards (they may return stale values), so do not read them.
+- `RegisterOutput` returns an `IDisposable`; disposing it unregisters that handler only (thread-safe, idempotent; no new call of the handler starts once `Dispose` returns). Collection handlers receive an `IReadOnlyList<T>`.
+- `Dispose()` on the context unsubscribes it from its sources and drops all of its output registrations. Its providers are no longer invalidated by source changes afterwards (they may return stale values), so do not read them.
 
 ### Thread Safety
 

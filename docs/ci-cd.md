@@ -137,6 +137,25 @@ Configuration=Release dotnet format guacamole.sln --verify-no-changes --no-resto
 After a plain (Debug) `dotnet build guacamole.sln`, run `dotnet format guacamole.sln --verify-no-changes`
 without the variable instead: format must evaluate the configuration you built.
 
+## Public API tracking
+
+`src/Guacamole` uses [Microsoft.CodeAnalysis.PublicApiAnalyzers](https://www.nuget.org/packages/Microsoft.CodeAnalysis.PublicApiAnalyzers).
+Every public type and member is listed in `src/Guacamole/PublicAPI.Shipped.txt` (released API)
+or `src/Guacamole/PublicAPI.Unshipped.txt` (changes since the last release). Adding public API
+without listing it (RS0016) or removing listed API (RS0017) fails the build, so API changes show
+up in review as diffs of these files.
+
+- After changing the public API, add the entries with the IDE code fix, or with
+  `dotnet format analyzers src/Guacamole/Guacamole.csproj --diagnostics RS0016 --severity info`.
+  For removed API, delete its line from `PublicAPI.Unshipped.txt`, or mark it `*REMOVED*` in front
+  of the line copied from `PublicAPI.Shipped.txt`.
+- When releasing a version, move the `PublicAPI.Unshipped.txt` entries to `PublicAPI.Shipped.txt`
+  (keep `#nullable enable` as the first line of both files).
+
+RS0026 (several overloads with optional parameters) is disabled: the operators deliberately give
+every overload a trailing optional `ProviderMetadata`. The source generator project is an
+analyzer with no public API for consumers, so it is not tracked.
+
 ## Versioning Strategy
 
 Versions are SemVer 2.0 **without build metadata**.

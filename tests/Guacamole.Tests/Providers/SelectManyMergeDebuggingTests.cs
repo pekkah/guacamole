@@ -111,7 +111,7 @@ public class SelectManyMergeDebuggingTests
 
         // Assert
         Assert.True(result.IsSuccess);
-        var diagnostics = result.Value!.ToArray();
+        var diagnostics = result.ValueOrDefault!.ToArray();
 
         _output.WriteLine($"\n=== Results ===");
         _output.WriteLine($"SelectMany1 was called {selectMany1CallCount} times");

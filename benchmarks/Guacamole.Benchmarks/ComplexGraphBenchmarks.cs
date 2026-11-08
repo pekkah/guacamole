@@ -25,6 +25,6 @@ public class ComplexGraphBenchmarks
     {
         // Execute the provider chain
         var result = _provider.GetValue();
-        _ = result.Value;
+        _ = result.ValueOrDefault;
     }
 }

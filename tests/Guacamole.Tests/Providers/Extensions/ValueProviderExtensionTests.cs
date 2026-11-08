@@ -42,7 +42,7 @@ public class ValueProviderExtensionTests
 
         // Assert
         Assert.True(result.IsSuccess);
-        Assert.Equal(84, result.Value);
+        Assert.Equal(84, result.ValueOrDefault);
     }
 
     [Fact]
@@ -62,7 +62,7 @@ public class ValueProviderExtensionTests
 
         // Assert
         Assert.True(result.IsSuccess);
-        Assert.Equal(42, result.Value);
+        Assert.Equal(42, result.ValueOrDefault);
     }
 
     [Fact]
@@ -104,6 +104,6 @@ public class ValueProviderExtensionTests
 
         // Assert
         Assert.True(result.IsSuccess);
-        Assert.Equal((10, 20), result.Value);
+        Assert.Equal((10, 20), result.ValueOrDefault);
     }
 }
