@@ -38,7 +38,7 @@ internal sealed class ComputationGraph
     internal LRUCache<string, object> ValueCache { get; }
 
     /// <summary>
-    /// Shared state for runtime-discovered nodes and dependencies.
+    /// Shared state for runtime-discovered nodes, version records and evaluation handles.
     /// This state is shared across all versions of the graph to ensure
     /// cache invalidation works correctly even as the graph evolves.
     /// </summary>
@@ -132,9 +132,7 @@ internal sealed class ComputationGraph
     {
         ArgumentNullException.ThrowIfNull(node);
 
-        using var activity = GuacamoleMetrics.ActivitySource.HasListeners()
-            ? GuacamoleMetrics.StartActivity("graph.add_node", ("node.id", node.Id), ("node.type", node.GetType().Name))
-            : null;
+        using var activity = GuacamoleMetrics.StartActivity("graph.add_node", ("node.id", node.Id), ("node.type", node.GetType().Name));
 
         // Validate NodeId uniqueness
         if (Nodes.ContainsKey(node.Id))
@@ -211,16 +209,50 @@ internal sealed class ComputationGraph
     }
 
     /// <summary>
-    /// Extension method for replacing nodes (used by tests).
+    /// Replaces the node with <paramref name="node"/>'s ID (or adds it if there is none) and
+    /// invalidates the cached values of that node and everything downstream of it (used by tests).
     /// </summary>
+    /// <remarks>
+    /// <see cref="Dependencies"/>, <see cref="Dependents"/> and <see cref="DependencyCount"/> follow
+    /// the new node's dependencies: the replaced node's edges are removed (a dependency that no node
+    /// declares any more loses its <see cref="Dependents"/> entry) and the new node's are added.
+    /// Nodes that depend on the replaced ID keep depending on it.
+    /// </remarks>
+    /// <exception cref="InvalidOperationException">The new node's dependencies would close a cycle.</exception>
     internal ComputationGraph ReplaceNode(IComputationNode node)
     {
+        ArgumentNullException.ThrowIfNull(node);
+
+        // The nodes that depend on this ID are the same before and after the replacement, so the
+        // cycle check of AddNode applies as it is
+        if (WouldCreateCycle(node))
+        {
+            throw new InvalidOperationException($"Replacing node '{node.Id}' would create a circular dependency");
+        }
+
+        var oldDependencies = Dependencies.TryGetValue(node.Id, out var replaced) ? replaced : [];
+        var newDependents = Dependents;
+        foreach (var dependency in oldDependencies.Except(node.Dependencies))
+        {
+            var remaining = newDependents[dependency].Remove(node.Id);
+            newDependents = remaining.IsEmpty ? newDependents.Remove(dependency) : newDependents.SetItem(dependency, remaining);
+        }
+
+        foreach (var dependency in node.Dependencies.Except(oldDependencies))
+        {
+            newDependents = newDependents.SetItem(
+                dependency,
+                newDependents.TryGetValue(dependency, out var existing) ? existing.Add(node.Id) : [node.Id]);
+        }
+
         var newNodes = Nodes.SetItem(node.Id, node);
+        var newDependencies = Dependencies.SetItem(node.Id, node.Dependencies);
+        var dependencyCount = DependencyCount - oldDependencies.Count + node.Dependencies.Count;
 
         // Invalidate cache for the updated node and dependents
         InvalidateCacheForNode(node.Id);
 
-        return new ComputationGraph(newNodes, Dependencies, Dependents, DependencyCount, ValueCache, _sharedState);
+        return new ComputationGraph(newNodes, newDependencies, newDependents, dependencyCount, ValueCache, _sharedState);
     }
 
     /// <summary>

@@ -206,6 +206,7 @@ public static class IncrementalSourceExtensions
     /// Begins a batch operation where multiple changes can be applied
     /// with a single cache invalidation at the end.
     /// </summary>
+    /// <exception cref="ArgumentNullException"><paramref name="source"/> is <c>null</c>.</exception>
     public static IBatchOperation<T> BeginBatch<T>(this IIncrementalSource<T> source)
     {
         ArgumentNullException.ThrowIfNull(source);
@@ -221,6 +222,8 @@ public static class IncrementalSourceExtensions
     /// is added. Other <see cref="IIncrementalSource{T}"/> implementations receive one
     /// <see cref="IIncrementalSource{T}.Push"/> call per item.
     /// </remarks>
+    /// <exception cref="ArgumentNullException"><paramref name="source"/>, <paramref name="items"/> or
+    /// one of the items is <c>null</c>.</exception>
     public static void PushRange<T>(this IIncrementalSource<T> source, IEnumerable<T> items)
     {
         ArgumentNullException.ThrowIfNull(source);

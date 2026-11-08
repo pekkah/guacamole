@@ -122,11 +122,20 @@ public static class GuacamoleMetrics
     /// Creates a new activity for tracing computation operations.
     /// Use in using statements for automatic start/stop and timing.
     /// </summary>
+    /// <remarks>
+    /// Costs nothing beyond one check when nothing listens to <see cref="ActivitySource"/>: the tags
+    /// are a <c>params</c> span (on the caller's stack, never a heap array), and no activity is
+    /// started and no tag converted unless <see cref="System.Diagnostics.ActivitySource.HasListeners"/>.
+    /// </remarks>
     /// <param name="operationName">Name of the operation being traced</param>
     /// <param name="tags">Additional tags for the activity</param>
-    /// <returns>Activity instance for tracing</returns>
-    internal static Activity? StartActivity(string operationName, params (string Key, object? Value)[] tags)
+    /// <returns>Activity instance for tracing, or <see langword="null"/> when nothing listens or
+    /// samples it</returns>
+    internal static Activity? StartActivity(string operationName, params ReadOnlySpan<(string Key, object? Value)> tags)
     {
+        if (!ActivitySource.HasListeners())
+            return null;
+
         var activity = ActivitySource.StartActivity(operationName);
 
         if (activity != null)

@@ -147,9 +147,16 @@ public abstract partial class ComputingContextBase : IDisposable
     }
 
     /// <summary>
-    /// Disposes the context and releases resources.
-    /// Generated code will override this to clear change tracking.
+    /// Disposes the context: unsubscribes it from its sources and drops its output registrations.
+    /// Calling it again does nothing.
     /// </summary>
+    /// <remarks>
+    /// The source accessors keep accepting changes, but the context no longer tracks them: its
+    /// output handlers do not run, and its providers are not invalidated, so reading them may return
+    /// values computed before the change. Do not use a disposed context's providers.
+    /// <see cref="RegisterOutput{T}(IncrementalValueProvider{T}, Action{T, ComputingContextBase})"/>
+    /// and <see cref="TrimUnusedNodes"/> throw <see cref="ObjectDisposedException"/> afterwards.
+    /// </remarks>
     public virtual void Dispose()
     {
         Action[] unsubscriptions;
@@ -262,9 +269,18 @@ public abstract partial class ComputingContextBase : IDisposable
     /// The handler is not called while the provider has no value (a <c>Where</c> upstream
     /// rejected its input) or its computation fails.
     /// </summary>
+    /// <remarks>
+    /// The handler is not called at registration. After each effective change of any source of the
+    /// context, it is called synchronously, on the thread that changed the source, if the provider's
+    /// value (including a <c>null</c> value) differs from the value last delivered to it, by the
+    /// provider's comparer. Exceptions thrown by handlers are collected and rethrown as one
+    /// <see cref="AggregateException"/> from the source operation, after all handlers have run.
+    /// </remarks>
     /// <typeparam name="T">The type of value produced by the provider</typeparam>
     /// <param name="provider">The provider whose output should trigger the handler</param>
     /// <param name="handler">Action to execute with the computed value and context</param>
+    /// <exception cref="ArgumentNullException"><paramref name="handler"/> is <c>null</c>.</exception>
+    /// <exception cref="ObjectDisposedException">The context has been disposed.</exception>
     public void RegisterOutput<T>(
         IncrementalValueProvider<T> provider,
         Action<T, ComputingContextBase> handler)
@@ -283,6 +299,12 @@ public abstract partial class ComputingContextBase : IDisposable
     /// <param name="provider">The collection provider whose output should trigger the handler</param>
     /// <param name="handler">Action to execute with the computed values (a read-only view, see
     /// <see cref="IncrementalValuesProvider{T}.GetValues"/>) and context</param>
+    /// <remarks>
+    /// Called as described for the single-value overload; the values are compared with the last
+    /// delivered ones item by item, in order, with the provider's comparer.
+    /// </remarks>
+    /// <exception cref="ArgumentNullException"><paramref name="handler"/> is <c>null</c>.</exception>
+    /// <exception cref="ObjectDisposedException">The context has been disposed.</exception>
     public void RegisterOutput<T>(
         IncrementalValuesProvider<T> provider,
         Action<IEnumerable<T>, ComputingContextBase> handler)
@@ -379,14 +401,17 @@ public abstract partial class ComputingContextBase : IDisposable
                 return;
             }
 
-            if (result.IsSuccess && result.Value != null)
+            // A null computed value is a value too (not an error and not "no value"): deliver it
+            if (result.IsSuccess)
             {
+                var value = result.Value!;
+
                 // Only call handler if value changed (Roslyn-style incremental computation)
-                if (!_hasExecuted || !_comparer.Equals(_lastValue!, result.Value))
+                if (!_hasExecuted || !_comparer.Equals(_lastValue!, value))
                 {
-                    _lastValue = result.Value;
+                    _lastValue = value;
                     _hasExecuted = true;
-                    _handler(result.Value, context);
+                    _handler(value, context);
                 }
             }
         }

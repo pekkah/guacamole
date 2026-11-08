@@ -11,20 +11,17 @@ namespace Guacamole;
 /// Thread-safe implementation of IIncrementalValueSource for single values.
 /// Raises change events when the value changes; cache invalidation is handled by the context.
 ///
-/// Note: Uses a <c>_hasValue</c> flag to distinguish between an unset value and a value explicitly set to <c>null</c>.
-/// Since <c>T?</c> can be nullable, we need this flag to know if <see cref="Set"/> has ever been called.
-/// The <see cref="Set"/> method prevents null values via <see cref="ArgumentNullException.ThrowIfNull"/>,
-/// so a null <c>_value</c> always indicates the source has never been initialized.
+/// Note: Uses a <c>_hasValue</c> flag to know whether <see cref="Set"/> has ever been called. A
+/// <c>null</c> or <c>default</c> <c>_value</c> does not tell: for value types, <c>default</c> (for
+/// example 0) is a valid value. <see cref="Set"/> rejects <c>null</c>.
 /// </summary>
 /// <typeparam name="T">Type of value in the source</typeparam>
 internal sealed class IncrementalValueSource<T> : IIncrementalValueSource<T>
 {
     private readonly ReaderWriterLockSlim _lock = new(LockRecursionPolicy.NoRecursion);
     private T? _value;
-    // Used to distinguish between "never initialized" vs "set to null".
-    // Since _value is nullable, null could mean either state.
-    // However, Set() prevents null via ArgumentNullException.ThrowIfNull,
-    // so null always means "never initialized".
+    // Whether Set() has been called: for value types, default(T) is a valid value, so _value
+    // alone cannot tell an unset source from one set to default.
     private bool _hasValue;
     private readonly Func<ComputationGraph> _graphProvider;
     private readonly IComputationNode<T> _node;
@@ -120,6 +117,25 @@ internal sealed class IncrementalValueSource<T> : IIncrementalValueSource<T>
     }
 
     /// <summary>
+    /// Gets the current value, and whether <see cref="Set"/> has been called (thread-safe read).
+    /// Unlike <see cref="GetValue"/>, this distinguishes an unset source from one set to
+    /// <c>default</c>, which matters for value types (an unset <c>int</c> source is not 0).
+    /// </summary>
+    internal bool TryGetValue(out T value)
+    {
+        _lock.EnterReadLock();
+        try
+        {
+            value = _value!;
+            return _hasValue;
+        }
+        finally
+        {
+            _lock.ExitReadLock();
+        }
+    }
+
+    /// <summary>
     /// Notifies subscribers that the source has changed.
     /// Cache invalidation is handled by the context via the Changed event.
     /// </summary>
@@ -150,10 +166,10 @@ internal sealed class IncrementalValueSource<T> : IIncrementalValueSource<T>
         {
             // Sources are the ground truth - always read fresh data, never use cache
             // The cache is for computed nodes (Select, Combine, etc.) that depend on sources
-            var value = _source.GetValue();
-            if (value == null)
+            // Checked with the flag, not by comparing with null: for a value type, an unset source
+            // holds default (for example 0), which is also a valid value
+            if (!_source.TryGetValue(out var value))
             {
-                // Since Set() prevents null values, null here means never initialized
                 return Result<T, ComputationError>.Error(
                     new ComputationError($"Source '{Id}' has never been initialized with a value"));
             }

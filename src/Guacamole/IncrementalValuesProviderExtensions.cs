@@ -36,7 +36,7 @@ public static class IncrementalValuesProviderExtensions
             () => new SelectManyValuesNode<TSource, TResult>(source.Node, selector, null));
 
         // Preserve metadata from source if no metadata is explicitly provided
-        var finalMetadata = metadata.TrackingName == null && metadata.CreationLocation == null
+        var finalMetadata = metadata == default
             ? source.Metadata
             : metadata;
 
@@ -70,7 +70,7 @@ public static class IncrementalValuesProviderExtensions
             () => new SelectManyValuesNode<TSource, TResult>(source.Node, selector, comparer));
 
         // Preserve metadata from source if no metadata is explicitly provided
-        var finalMetadata = metadata.TrackingName == null && metadata.CreationLocation == null
+        var finalMetadata = metadata == default
             ? source.Metadata
             : metadata;
 
@@ -143,7 +143,7 @@ public static class IncrementalValuesProviderExtensions
         ProviderMetadata metadata)
     {
         // Preserve metadata from source if no metadata is explicitly provided
-        var finalMetadata = metadata.TrackingName == null && metadata.CreationLocation == null
+        var finalMetadata = metadata == default
             ? source.Metadata
             : metadata;
 
@@ -174,7 +174,7 @@ public static class IncrementalValuesProviderExtensions
             () => new SelectValuesNode<TSource, TResult>(source.Node, selector, null));
 
         // Preserve metadata from source if no metadata is explicitly provided
-        var finalMetadata = metadata.TrackingName == null && metadata.CreationLocation == null
+        var finalMetadata = metadata == default
             ? source.Metadata
             : metadata;
 
@@ -208,7 +208,7 @@ public static class IncrementalValuesProviderExtensions
             () => new SelectValuesNode<TSource, TResult>(source.Node, selector, comparer));
 
         // Preserve metadata from source if no metadata is explicitly provided
-        var finalMetadata = metadata.TrackingName == null && metadata.CreationLocation == null
+        var finalMetadata = metadata == default
             ? source.Metadata
             : metadata;
 
@@ -238,7 +238,7 @@ public static class IncrementalValuesProviderExtensions
             () => new WhereValuesNode<T>(source.Node, predicate, null));
 
         // Preserve metadata from source if no metadata is explicitly provided
-        var finalMetadata = metadata.TrackingName == null && metadata.CreationLocation == null
+        var finalMetadata = metadata == default
             ? source.Metadata
             : metadata;
 
@@ -271,7 +271,7 @@ public static class IncrementalValuesProviderExtensions
             () => new WhereValuesNode<T>(source.Node, predicate, comparer));
 
         // Preserve metadata from source if no metadata is explicitly provided
-        var finalMetadata = metadata.TrackingName == null && metadata.CreationLocation == null
+        var finalMetadata = metadata == default
             ? source.Metadata
             : metadata;
 
@@ -301,7 +301,7 @@ public static class IncrementalValuesProviderExtensions
             () => new CombineValuesWithValueNode<TLeft, TRight>(left.Node, right.Node));
 
         // Preserve metadata from left provider if no metadata is explicitly provided
-        var finalMetadata = metadata.TrackingName == null && metadata.CreationLocation == null
+        var finalMetadata = metadata == default
             ? left.Metadata
             : metadata;
 
@@ -374,12 +374,11 @@ public static class IncrementalValuesProviderExtensions
     /// <returns>A new values provider with all nested values flattened into a single collection</returns>
     /// <remarks>
     /// <para>
-    /// This is a low-cost operation that uses SelectMany internally. It is fully incremental
-    /// and does not require collecting values into intermediate arrays.
-    /// </para>
-    /// <para>
-    /// <strong>Performance:</strong> Efficient and incremental-friendly. When the source changes,
-    /// only the affected nested array is re-flattened.
+    /// Equivalent to <c>source.SelectMany(nested =&gt; nested.SelectMany(inner =&gt; inner))</c>: the inner
+    /// arrays are concatenated in order. The source is a single value, so whenever it changes the
+    /// whole nested array is flattened again (it is one item; there is no per-inner-array
+    /// memoization). When nothing upstream changed, the cached result is reused, and if the source
+    /// has no value (a <c>Where</c> upstream rejected it) the result has no items.
     /// </para>
     /// </remarks>
     /// <example>
@@ -393,13 +392,15 @@ public static class IncrementalValuesProviderExtensions
     /// // Result: IncrementalValuesProvider&lt;File&gt;
     /// </code>
     ///
-    /// Common after Collect operations on already-collected data:
+    /// After collecting per-folder arrays:
     /// <code>
-    /// var batches = filesPerFolder.Select(folder => folder.Files.Collect());
+    /// var filesPerFolder = folders.Select(folder => folder.Files); // IncrementalValuesProvider&lt;ImmutableArray&lt;File&gt;&gt;
+    /// var batches = filesPerFolder.Collect();
     /// // batches is IncrementalValueProvider&lt;ImmutableArray&lt;ImmutableArray&lt;File&gt;&gt;&gt;
     ///
     /// var allFiles = batches.Flatten();
     /// // allFiles is IncrementalValuesProvider&lt;File&gt;
+    /// // (filesPerFolder.Flatten() gives the same items with per-folder memoization)
     /// </code>
     /// </example>
     public static IncrementalValuesProvider<T> Flatten<T>(
@@ -421,12 +422,9 @@ public static class IncrementalValuesProviderExtensions
     /// <returns>A new values provider with all nested collections flattened</returns>
     /// <remarks>
     /// <para>
-    /// This is a low-cost operation that uses SelectMany internally. It is fully incremental
-    /// and processes each collection independently.
-    /// </para>
-    /// <para>
-    /// <strong>Performance:</strong> Efficient and incremental-friendly. Each nested collection
-    /// is flattened independently, so changes to one collection don't affect others.
+    /// Equivalent to <c>source.SelectMany(array =&gt; array)</c>: the arrays are concatenated in the
+    /// order of the source's items. Like any collection <c>SelectMany</c>, it is memoized per item,
+    /// so a changed array is flattened again while unchanged arrays reuse their previous results.
     /// </para>
     /// </remarks>
     /// <example>

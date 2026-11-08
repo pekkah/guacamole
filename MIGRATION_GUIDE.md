@@ -130,8 +130,8 @@ See the [Generated Code Reference](docs/generated-code-reference.md).
 | `IIncrementalSource<T>` (collections) | `IIncrementalValueSource<T>` (single values) |
 |---------------------------------------|----------------------------------------------|
 | `Push(T item)` - no-op if an equal item exists | `Set(T value)` - no-op if equal to the current value; `null` throws |
-| `Remove(T item)` - no-op if missing | `GetValue()` - current value or `default` |
-| `Replace(T oldItem, T newItem)` - throws if `oldItem` is missing or `newItem` already present | |
+| `Remove(T item)` - no-op if missing | `GetValue()` - current value, or `default` before the first `Set` (the provider reports an error instead) |
+| `Replace(T oldItem, T newItem)` - throws if `oldItem` is missing or `newItem` already present; no-op if they are equal | |
 | `Clear()` | |
 | `GetSnapshot()` | |
 | `PushRange(items)`, `BeginBatch()` (extension methods in `Guacamole`) | |

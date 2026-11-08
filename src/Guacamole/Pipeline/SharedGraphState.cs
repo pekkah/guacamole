@@ -33,12 +33,6 @@ internal sealed class SharedGraphState
     public ConcurrentDictionary<string, WeakReference<IComputationNode>> RuntimeNodes { get; } = new();
 
     /// <summary>
-    /// Runtime dependency relationships for dynamically discovered nodes.
-    /// Shared across all versions of the graph.
-    /// </summary>
-    public ConcurrentDictionary<string, ImmutableHashSet<string>> RuntimeDependencies { get; } = new();
-
-    /// <summary>
     /// Version tracker for equality-based cache skipping.
     /// Tracks output versions for each node - versions only increment when
     /// the computed value actually changes (based on equality comparison).
@@ -360,21 +354,14 @@ internal sealed class SharedGraphState
         {
             // Already registered, unless the registered node with this ID has been collected
             // (IDs are unique per node, so only nodes created with explicit IDs can get here)
-            if (existing.TryGetTarget(out _)
-                || !RuntimeNodes.TryUpdate(node.Id, new WeakReference<IComputationNode>(node), existing))
-            {
-                return;
-            }
+            if (!existing.TryGetTarget(out _))
+                RuntimeNodes.TryUpdate(node.Id, new WeakReference<IComputationNode>(node), existing);
 
-            RuntimeDependencies[node.Id] = node.Dependencies;
             return;
         }
 
-        // Add to runtime collections
         if (!RuntimeNodes.TryAdd(node.Id, new WeakReference<IComputationNode>(node)))
             return; // registered concurrently
-
-        RuntimeDependencies.TryAdd(node.Id, node.Dependencies);
 
         if (_autoTrimInterval > 0)
             OnRuntimeNodeAdded();
@@ -460,8 +447,8 @@ internal sealed class SharedGraphState
     /// </summary>
     /// <remarks>
     /// <list type="number">
-    /// <item>Runtime nodes that have been garbage-collected are removed from <see cref="RuntimeNodes"/>
-    /// and <see cref="RuntimeDependencies"/>, together with their cached values and version records.
+    /// <item>Runtime nodes that have been garbage-collected are removed from <see cref="RuntimeNodes"/>,
+    /// together with their cached values and version records.
     /// A collected node can no longer be evaluated, and no live node depends on it (nodes reference
     /// their inputs), so this never affects a live pipeline.</item>
     /// <item>The node-reuse cache forgets collected nodes and stops keeping the others alive: a node
@@ -497,7 +484,6 @@ internal sealed class SharedGraphState
             if (!RuntimeNodes.TryRemove(new KeyValuePair<string, WeakReference<IComputationNode>>(id, weakNode)))
                 continue;
 
-            RuntimeDependencies.TryRemove(id, out _);
             valueCache.Remove(id);
             Versions.Remove(id);
             removed++;

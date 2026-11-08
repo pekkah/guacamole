@@ -19,8 +19,16 @@ public readonly record struct ProviderMetadata(
     string? PipelineStage = null)
 {
     /// <summary>
-    /// Creates ProviderMetadata with just a tracking name.
+    /// Creates ProviderMetadata with just a tracking name, recording the caller's location as
+    /// <see cref="CreationLocation"/>.
     /// </summary>
+    /// <remarks>
+    /// Call it with a named argument, <c>new ProviderMetadata(trackingName: "parse")</c>: a single
+    /// positional string argument also matches the primary constructor, so <c>new ProviderMetadata("parse")</c>
+    /// does not compile (CS0121).
+    /// </remarks>
+    /// <exception cref="ArgumentNullException"><paramref name="trackingName"/> is <c>null</c>.</exception>
+    /// <exception cref="ArgumentException"><paramref name="trackingName"/> is empty or whitespace.</exception>
     /// <param name="trackingName">Human-readable identifier for debugging</param>
     /// <param name="callerFilePath">Automatically captured file path</param>
     /// <param name="callerLineNumber">Automatically captured line number</param>
@@ -39,28 +47,29 @@ public readonly record struct ProviderMetadata(
     }
 
     /// <summary>
-    /// Validates that tracking name is non-empty if provided.
+    /// Validates that a tracking name is not null, empty or whitespace.
     /// </summary>
-    private static string ValidateTrackingName(string? trackingName)
+    private static string ValidateTrackingName(string trackingName)
     {
-        if (trackingName is not null && string.IsNullOrWhiteSpace(trackingName))
-        {
-            throw new ArgumentException("TrackingName must be non-empty when provided", nameof(trackingName));
-        }
-        return trackingName!;
+        ArgumentException.ThrowIfNullOrWhiteSpace(trackingName);
+        return trackingName;
     }
 
     /// <summary>
     /// Creates a copy with the specified tracking name.
     /// </summary>
+    /// <exception cref="ArgumentNullException"><paramref name="trackingName"/> is <c>null</c>.</exception>
+    /// <exception cref="ArgumentException"><paramref name="trackingName"/> is empty or whitespace.</exception>
     public ProviderMetadata WithTrackingName(string trackingName)
     {
         return this with { TrackingName = ValidateTrackingName(trackingName) };
     }
 
     /// <summary>
-    /// Creates a copy with additional tags.
+    /// Creates a copy with additional tags, appended to the existing ones.
     /// </summary>
+    /// <exception cref="ArgumentNullException"><paramref name="tags"/> is <c>null</c>.</exception>
+    /// <exception cref="ArgumentException"><paramref name="tags"/> contains duplicates.</exception>
     public ProviderMetadata WithTags(params string[] tags)
     {
         ArgumentNullException.ThrowIfNull(tags);
@@ -80,6 +89,8 @@ public readonly record struct ProviderMetadata(
     /// Creates a copy with the specified pipeline stage identifier.
     /// Used for correlating metrics across pipeline stages.
     /// </summary>
+    /// <exception cref="ArgumentNullException"><paramref name="pipelineStage"/> is <c>null</c>.</exception>
+    /// <exception cref="ArgumentException"><paramref name="pipelineStage"/> is empty or whitespace.</exception>
     public ProviderMetadata WithPipelineStage(string pipelineStage)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(pipelineStage);

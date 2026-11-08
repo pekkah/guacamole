@@ -58,7 +58,7 @@ public static class IncrementalValueProviderExtensions
             () => new SelectValueNode<TSource, TResult>(source.Node, selector, null));
 
         // Preserve metadata from source if no metadata is explicitly provided
-        var finalMetadata = metadata.TrackingName == null && metadata.CreationLocation == null
+        var finalMetadata = metadata == default
             ? source.Metadata
             : metadata;
 
@@ -92,7 +92,7 @@ public static class IncrementalValueProviderExtensions
             () => new SelectValueNode<TSource, TResult>(source.Node, selector, comparer));
 
         // Preserve metadata from source if no metadata is explicitly provided
-        var finalMetadata = metadata.TrackingName == null && metadata.CreationLocation == null
+        var finalMetadata = metadata == default
             ? source.Metadata
             : metadata;
 
@@ -128,7 +128,7 @@ public static class IncrementalValueProviderExtensions
             () => new WhereValueNode<T>(source.Node, predicate, null));
 
         // Preserve metadata from source if no metadata is explicitly provided
-        var finalMetadata = metadata.TrackingName == null && metadata.CreationLocation == null
+        var finalMetadata = metadata == default
             ? source.Metadata
             : metadata;
 
@@ -162,7 +162,7 @@ public static class IncrementalValueProviderExtensions
             () => new WhereValueNode<T>(source.Node, predicate, comparer));
 
         // Preserve metadata from source if no metadata is explicitly provided
-        var finalMetadata = metadata.TrackingName == null && metadata.CreationLocation == null
+        var finalMetadata = metadata == default
             ? source.Metadata
             : metadata;
 
@@ -191,7 +191,7 @@ public static class IncrementalValueProviderExtensions
             () => new CombineValueNode<TFirst, TSecond>(first.Node, second.Node));
 
         // Preserve metadata from first provider if no metadata is explicitly provided
-        var finalMetadata = metadata.TrackingName == null && metadata.CreationLocation == null
+        var finalMetadata = metadata == default
             ? first.Metadata
             : metadata;
 
@@ -222,7 +222,7 @@ public static class IncrementalValueProviderExtensions
             () => new SelectManyFromValueNode<TSource, TResult>(source.Node, selector, null));
 
         // Preserve metadata from source if no metadata is explicitly provided
-        var finalMetadata = metadata.TrackingName == null && metadata.CreationLocation == null
+        var finalMetadata = metadata == default
             ? source.Metadata
             : metadata;
 
@@ -256,7 +256,7 @@ public static class IncrementalValueProviderExtensions
             () => new SelectManyFromValueNode<TSource, TResult>(source.Node, selector, comparer));
 
         // Preserve metadata from source if no metadata is explicitly provided
-        var finalMetadata = metadata.TrackingName == null && metadata.CreationLocation == null
+        var finalMetadata = metadata == default
             ? source.Metadata
             : metadata;
 
