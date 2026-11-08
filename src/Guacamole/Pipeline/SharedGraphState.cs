@@ -31,15 +31,28 @@ internal sealed class SharedGraphState
     public VersionTracker Versions { get; } = new();
 
     /// <summary>
-    /// Version info for each cached node value.
-    /// Stores the dependency versions at computation time, enabling lazy
-    /// validation of cache freshness without eagerly clearing caches.
+    /// Evaluation handles of the nodes that have been evaluated, by node ID. Cached values record
+    /// the handles of the dependencies they read, so they can be verified without knowing the
+    /// dependencies' value types.
     /// </summary>
-    public ConcurrentDictionary<string, NodeVersionInfo> VersionInfo { get; } = new();
+    public ConcurrentDictionary<string, NodeHandle> Handles { get; } = new();
+
+    private long _revision;
 
     /// <summary>
-    /// Lock that makes storing a computed value, its output version and its
-    /// <see cref="VersionInfo"/> a single atomic step.
+    /// The graph revision: advanced whenever a source changes. A cached value verified at the
+    /// current revision is valid without checking its dependencies.
+    /// </summary>
+    public long Revision => Volatile.Read(ref _revision);
+
+    /// <summary>
+    /// Advances <see cref="Revision"/>. Called after a source's version has been incremented.
+    /// </summary>
+    public void AdvanceRevision() => Interlocked.Increment(ref _revision);
+
+    /// <summary>
+    /// Lock that makes comparing a computed value with the cached one, assigning its output
+    /// version and storing it a single atomic step.
     /// </summary>
     public object CommitLock { get; } = new();
 

@@ -11,10 +11,9 @@ namespace Guacamole.Tests;
 /// output handlers don't fire.
 /// </summary>
 /// <remarks>
-/// The equality cut-off happens at nodes that are read through the provider (<c>Value</c> /
-/// <c>GetValue</c> / <c>GetValues</c>, or an output registration); an intermediate stage that is
-/// never read itself is looked through. The tests therefore read the comparer stage before the
-/// downstream stage, as an output registration on it would.
+/// The equality cut-off happens at every stage, whether or not the stage is read itself (through
+/// <c>Value</c> / <c>GetValue</c> / <c>GetValues</c> or an output registration), so the tests only
+/// read the downstream stage.
 /// </remarks>
 public partial class CustomComparerBehaviorTests
 {
@@ -46,17 +45,14 @@ public partial class CustomComparerBehaviorTests
         var length = same.Select(s => { downstreamRuns++; return s.Length; });
 
         context.TextSource.Set("hello");
-        Assert.Equal("hello", same.Value);
         Assert.Equal(5, length.Value);
         Assert.Equal(1, downstreamRuns);
 
         context.TextSource.Set("HELLO"); // equal under the comparer
-        Assert.Equal("HELLO", same.Value);
         Assert.Equal(5, length.Value);
         Assert.Equal(1, downstreamRuns);
 
         context.TextSource.Set("world"); // a real change
-        Assert.Equal("world", same.Value);
         Assert.Equal(5, length.Value);
         Assert.Equal(2, downstreamRuns);
     }
@@ -100,10 +96,8 @@ public partial class CustomComparerBehaviorTests
         var length = nonEmpty.Select(s => { downstreamRuns++; return s.Length; });
 
         context.TextSource.Set("hello");
-        _ = nonEmpty.Value;
         Assert.Equal(5, length.Value);
         context.TextSource.Set("HELLO");
-        _ = nonEmpty.Value;
         Assert.Equal(5, length.Value);
 
         Assert.Equal(1, downstreamRuns);
@@ -118,17 +112,14 @@ public partial class CustomComparerBehaviorTests
         var count = lowered.Collect().Select(all => { downstreamRuns++; return all.Length; });
 
         context.WordsSource.Push("alpha");
-        _ = lowered.Values.ToArray();
         Assert.Equal(1, count.Value);
         Assert.Equal(1, downstreamRuns);
 
         context.WordsSource.Replace("alpha", "ALPHA"); // equal under the comparer
-        _ = lowered.Values.ToArray();
         Assert.Equal(1, count.Value);
         Assert.Equal(1, downstreamRuns);
 
         context.WordsSource.Push("beta");
-        _ = lowered.Values.ToArray();
         Assert.Equal(2, count.Value);
         Assert.Equal(2, downstreamRuns);
     }
@@ -142,10 +133,8 @@ public partial class CustomComparerBehaviorTests
         var count = kept.Collect().Select(all => { downstreamRuns++; return all.Length; });
 
         context.WordsSource.Push("alpha");
-        _ = kept.Values.ToArray();
         Assert.Equal(1, count.Value);
         context.WordsSource.Replace("alpha", "ALPHA");
-        _ = kept.Values.ToArray();
         Assert.Equal(1, count.Value);
 
         Assert.Equal(1, downstreamRuns);
@@ -160,10 +149,8 @@ public partial class CustomComparerBehaviorTests
         var count = parts.Collect().Select(all => { downstreamRuns++; return all.Length; });
 
         context.WordsSource.Push("a-b");
-        _ = parts.Values.ToArray();
         Assert.Equal(2, count.Value);
         context.WordsSource.Replace("a-b", "A-B");
-        _ = parts.Values.ToArray();
         Assert.Equal(2, count.Value);
 
         Assert.Equal(1, downstreamRuns);
@@ -178,10 +165,8 @@ public partial class CustomComparerBehaviorTests
         var count = words.Collect().Select(all => { downstreamRuns++; return all.Length; });
 
         context.SentenceSource.Set("hello world");
-        _ = words.Values.ToArray();
         Assert.Equal(2, count.Value);
         context.SentenceSource.Set("HELLO WORLD");
-        _ = words.Values.ToArray();
         Assert.Equal(2, count.Value);
 
         Assert.Equal(1, downstreamRuns);

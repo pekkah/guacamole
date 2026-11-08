@@ -71,6 +71,32 @@ internal interface IHasComparer<T>
 /// <summary>
 /// Computation context providing access to cache and dependencies.
 /// </summary>
+/// <remarks>
+/// Nodes must read their dependencies through <see cref="Read{T}(IComputationNode{T})"/> /
+/// <see cref="Read{T}(ICollectionComputationNode{T})"/>, not by calling their <c>Compute</c>
+/// directly: when the context belongs to an evaluation pass, a read brings the dependency up to date
+/// (using its cached value when still valid) and records the version that was read, which is what
+/// later decides whether the reading node's cached value is still valid.
+/// </remarks>
 internal readonly record struct ComputationContext(
     IReadOnlyDictionary<string, object> CachedValues,
-    CancellationToken CancellationToken = default);
+    CancellationToken CancellationToken = default)
+{
+    /// <summary>
+    /// The evaluation pass this context belongs to; <c>null</c> when a node is computed directly
+    /// (dependencies are then computed inline).
+    /// </summary>
+    internal GraphEvaluator? Evaluator { get; init; }
+
+    /// <summary>
+    /// Reads a single-value dependency of the node being computed.
+    /// </summary>
+    public Result<T, ComputationError> Read<T>(IComputationNode<T> node) =>
+        Evaluator is { } evaluator ? evaluator.Read(node) : node.Compute(this);
+
+    /// <summary>
+    /// Reads a collection dependency of the node being computed.
+    /// </summary>
+    public Result<IEnumerable<T>, ComputationError> Read<T>(ICollectionComputationNode<T> node) =>
+        Evaluator is { } evaluator ? evaluator.Read(node) : node.Compute(this);
+}

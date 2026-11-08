@@ -12,29 +12,27 @@ Every node in a context's graph has an output version. Pushing to a source (`Pus
 
 When you read a provider (`GetValue()`/`GetValues()`, `.Value`/`.Values`, or an output handler reading it), the provider:
 
-1. Checks whether its cached value is still valid: every input version it recorded when it was computed must be unchanged (and, for inputs whose own cached values it used, those must still be valid).
-2. If valid, returns the cached value. No lambda runs.
-3. Otherwise records the current input versions, recomputes, and stores the result. Its own version is incremented **only if the new value is not equal** to the previous one (using the provider's comparer).
+1. Returns its cached value right away if no source has changed since that value was last verified.
+2. Otherwise verifies it: each input the value was computed from (in the order it was read) is first brought up to date itself, recursively, using the input's own cached value if that is still valid and recomputing the input if not. If every input still has the version recorded when the value was computed, the cached value is valid and is returned. No lambda of this stage runs.
+3. Otherwise recomputes, records the versions of the inputs it read, and stores the result. Its own version is incremented **only if the new value is not equal** to the previous one (using the stage's comparer).
 
-Step 3 is the equality cut-off: when a read provider's value did not change, downstream providers built from its cached value remain valid and are not recomputed.
+Step 3 is the equality cut-off: when a stage's recomputed value did not change, the stages downstream of it remain valid and are not recomputed.
 
-### Only read nodes are cached
+### Every stage is cached
 
-Values are cached for the providers that are read. Intermediate stages that are never read are recomputed inline whenever a provider that depends on them is recomputed. Validation looks through such intermediate stages to the inputs behind them, so correctness does not depend on what you read, but caching does.
+Every stage of a pipeline caches its result and version information, whether or not it is read itself, and the equality cut-off applies at each of them. You do not need to read (or register outputs on) intermediate stages to get their caching:
 
 ```csharp
-// Only `report` is read: a change to Files reruns Parse (for the changed files only, see
-// per-item memoization below), then Analyze, then Format.
+// Only `report` is read. A change to Files reruns Parse (for the changed files only, see
+// per-item memoization below). If the parsed files are equal to the previous ones, nothing else
+// reruns; otherwise Analyze reruns, and if its result is equal to the previous one, Format does not.
 var parsed = context.Files.Select(Parse);
 var analyzed = parsed.Collect().Select(Analyze);
 var report = analyzed.Select(Format);
 context.RegisterOutput(report, (r, _) => Publish(r));
-
-// Also reading `analyzed` caches it: if Analyze returns an equal value, Format does not rerun.
-context.RegisterOutput(analyzed, (_, _) => { });
 ```
 
-Output handlers run in registration order, so register handlers for upstream stages before downstream ones if you rely on their cached values.
+Each stage occupies one entry in the context's value cache (see [Memory](#memory)). An evicted entry is recomputed when it is next needed, and counts as a change for the stages downstream of it.
 
 ### Per-item memoization
 
@@ -65,7 +63,7 @@ var typeChecked = Parsed.Combine(symbols).Select(pair => TypeCheck(pair.Left, pa
 ```
 
 - **Merge in a defined order.** Sources enumerate in insertion order, so `Collect()` is deterministic for a given sequence of pushes, but results should not depend on push order either. Sort inside the merge (for example by path, `StringComparer.Ordinal`) and resolve conflicts explicitly (for example "first declaration wins").
-- **Give the table structural equality** (an immutable sorted dictionary wrapped in a type implementing `IEquatable<T>`, or a record with a custom `Equals`). `Collect()` returns a new `ImmutableArray<T>` (reference equality) on every change, but if the merged table is equal to the previous one (say a file's comments changed but not its declarations), the table keeps its version. Read the table (for example register an output on it before the outputs that depend on it) so its version is tracked.
+- **Give the table structural equality** (an immutable sorted dictionary wrapped in a type implementing `IEquatable<T>`, or a record with a custom `Equals`). `Collect()` returns a new `ImmutableArray<T>` (reference equality) on every change, but if the merged table is equal to the previous one, the table keeps its version and the type checks are not rerun. (If a file's comments changed but not its declarations, the extracted declarations are already equal, so not even the merge reruns.)
 - **Narrow the table per item** when one item changing the table should not rerun every other item. `Combine` pairs every item with the new table, so every item's input changes when the table does. Restricting the table to what the item references keeps the input equal for unaffected items, and the next stage's per-item memo skips them:
 
   ```csharp
@@ -88,7 +86,7 @@ Every distinct operator call creates a new node with a unique ID, and the cache 
 Equality is used to detect changes at every level: source contents, computed values (equality cut-off) and output handlers.
 
 - Use records or types implementing `IEquatable<T>` for items and computed values. The generator reports GUAC0004 for input and user-managed provider properties whose item type lacks value equality.
-- Pass a comparer to `Select`/`Where`/`SelectMany` when the default equality is too strict or does not exist. The comparer decides whether that stage's recomputed result counts as a change (for collections, element by element), both for the cache cut-off and for output handlers registered on it. The cut-off applies where the stage is read (`Value`/`GetValue`/`GetValues` or an output registration); a stage that is never read itself is looked through:
+- Pass a comparer to `Select`/`Where`/`SelectMany` when the default equality is too strict or does not exist. The comparer decides whether that stage's recomputed result counts as a change (for collections, element by element), both for the cache cut-off (at that stage, whether or not it is read itself) and for output handlers registered on it:
 
 ```csharp
 var names = context.People.Select(p => p.Name, StringComparer.OrdinalIgnoreCase);
@@ -102,7 +100,7 @@ var names = context.People.Select(p => p.Name, StringComparer.OrdinalIgnoreCase)
 
 ## Memory
 
-- Each context has an LRU value cache with a capacity of `ComputingContextBase.DefaultCacheCapacity` (10,000) entries. Evicted values are simply recomputed on the next read. To change it, override `CacheCapacity` on the context; the override is read once by the base constructor, so return a constant:
+- Each context has an LRU value cache with a capacity of `ComputingContextBase.DefaultCacheCapacity` (10,000) entries. Every pipeline stage takes one entry (whether or not it is read itself), so size it for the number of stages, not only the providers you read. Evicted values are simply recomputed when next needed. To change it, override `CacheCapacity` on the context; the override is read once by the base constructor, so return a constant:
 
   ```csharp
   [ComputingContext]
@@ -169,14 +167,14 @@ public class MyContextBenchmarks
 
 - [ ] Pipelines are built once and the providers are kept
 - [ ] Item and computed value types have value equality (records / `IEquatable<T>`) or explicit comparers
-- [ ] Expensive intermediate stages are read (so they are cached) or memoized
+- [ ] Stages whose results are often equal after a change have value equality or a comparer, so the cut-off stops recomputation there
 - [ ] Collection items are immutable, and lambdas are pure (per-item results are reused)
 - [ ] Data shared across items (symbol tables, indexes) is computed with `Collect()` and a deterministic merge into a type with structural equality, not accumulated in a lambda
 - [ ] Output handlers are cheap and thread-safe
 
 ## References
 
-- Cache validation: [`src/Guacamole/Pipeline/ProviderCacheCoordinator.cs`](../src/Guacamole/Pipeline/ProviderCacheCoordinator.cs)
+- Cache validation: [`src/Guacamole/Pipeline/NodeEvaluation.cs`](../src/Guacamole/Pipeline/NodeEvaluation.cs)
 - Computation graph: [`src/Guacamole/Pipeline/ComputationGraph.cs`](../src/Guacamole/Pipeline/ComputationGraph.cs)
 - LRU cache: [`src/Guacamole/Caching/LRUCache.cs`](../src/Guacamole/Caching/LRUCache.cs)
 - Benchmarks: [`benchmarks/Guacamole.Benchmarks/`](../benchmarks/Guacamole.Benchmarks/)

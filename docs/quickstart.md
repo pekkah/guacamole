@@ -260,13 +260,13 @@ using (var batch = context.SourcesSource.BeginBatch())
 1. **First read** - Reading a provider computes its value and caches it, together with the versions of the inputs it used.
 2. **Cache hits** - Later reads return the cached value while those input versions are unchanged.
 3. **Source changes** - A change only increments the source's version; nothing is cleared eagerly.
-4. **Recomputation** - The next read of an affected provider recomputes it. If the new value equals the old one, the provider keeps its version, so downstream providers that were built from its cached value stay valid and are not recomputed (equality cut-off). This applies to providers that are themselves read; see below.
+4. **Recomputation** - The next read of an affected provider brings the stages it depends on up to date and recomputes those whose inputs changed. A stage whose new value equals the old one keeps its version, so the stages downstream of it stay valid and are not recomputed (equality cut-off), whether or not that stage is read itself.
 
 ### What is cached
 
-Values are cached for the providers you **read** (with `GetValue()`/`GetValues()`, `.Value`/`.Values`, or through an output handler). Intermediate stages that are never read are not cached: they are recomputed inline when a provider that depends on them is recomputed. Cache validation looks through those intermediate stages to the sources behind them, so a change to any of those sources is still detected.
+Every stage of a pipeline is cached, whether you read it (with `GetValue()`/`GetValues()`, `.Value`/`.Values`, or through an output handler) or only read the stages built from it.
 
-For example, with `Result = Sources.Select(Compile).Collect().Select(Link)` and only `Result` being read, a change to `Sources` reruns `Compile` for the **changed** files only, then `Link`. Collection operators (`Select`, `Where`, `SelectMany`) memoize their lambda per item: items equal to ones seen in their previous computation reuse the previous result, so keep items immutable and lambdas pure. Read intermediate providers you want cached.
+For example, with `Result = Sources.Select(Compile).Collect().Select(Link)` and only `Result` being read, a change to `Sources` reruns `Compile` for the **changed** files only, then `Link`, unless the compiled results are equal to the previous ones. Collection operators (`Select`, `Where`, `SelectMany`) memoize their lambda per item: items equal to ones seen in their previous computation reuse the previous result, so keep items immutable and lambdas pure.
 
 ### Cross-item lookups (e.g. symbol tables)
 

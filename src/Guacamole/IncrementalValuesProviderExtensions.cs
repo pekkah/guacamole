@@ -443,7 +443,7 @@ internal sealed class SelectManyValuesNode<TSource, TResult> : ICollectionComput
 
         try
         {
-            var sourceResult = _source.Compute(context);
+            var sourceResult = context.Read(_source);
             if (!sourceResult.IsSuccess)
                 return Result<IEnumerable<TResult>, ComputationError>.Error(sourceResult.ErrorValue!);
 
@@ -485,7 +485,7 @@ internal sealed class CollectValuesNode<T> : IComputationNode<ImmutableArray<T>>
 
         try
         {
-            var sourceResult = _source.Compute(context);
+            var sourceResult = context.Read(_source);
             if (!sourceResult.IsSuccess)
                 return Result<ImmutableArray<T>, ComputationError>.Error(sourceResult.ErrorValue!);
 
@@ -530,7 +530,7 @@ internal sealed class SelectValuesNode<TSource, TResult> : ICollectionComputatio
 
         try
         {
-            var sourceResult = _source.Compute(context);
+            var sourceResult = context.Read(_source);
             if (!sourceResult.IsSuccess)
                 return Result<IEnumerable<TResult>, ComputationError>.Error(sourceResult.ErrorValue!);
 
@@ -577,7 +577,7 @@ internal sealed class WhereValuesNode<T> : ICollectionComputationNode<T>, IHasCo
 
         try
         {
-            var sourceResult = _source.Compute(context);
+            var sourceResult = context.Read(_source);
             if (!sourceResult.IsSuccess)
                 return sourceResult;
 
@@ -629,12 +629,12 @@ internal sealed class CombineValuesWithValueNode<TLeft, TRight> : ICollectionCom
         try
         {
             // Compute left side (collection)
-            var leftResult = _left.Compute(context);
+            var leftResult = context.Read(_left);
             if (!leftResult.IsSuccess)
                 return Result<IEnumerable<(TLeft, TRight)>, ComputationError>.Error(leftResult.ErrorValue!);
 
             // Compute right side (single value)
-            var rightResult = _right.Compute(context);
+            var rightResult = context.Read(_right);
             if (rightResult.IsError)
                 return Result<IEnumerable<(TLeft, TRight)>, ComputationError>.Error(rightResult.ErrorValue!);
 

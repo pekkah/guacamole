@@ -282,9 +282,12 @@ public partial class Issue25CrossFileSymbolLookupTests
         // A comment does not change std's declarations.
         context.FilesSource.Replace(std, std with { Text = "// the standard library\n" + StdText });
 
+        // std's extracted declarations are equal to the previous ones, so the equality cut-off at
+        // that (unread) stage keeps everything downstream of it cached: the table is not even merged
+        // again, and keeps its version.
         var table = pipeline.Table.GetValue();
         Assert.True(table.IsSuccess);
-        Assert.Equal(mergesBefore + 1, pipeline.Merges);
+        Assert.Equal(mergesBefore, pipeline.Merges);
         Assert.Equal(tableVersion, context.Graph.Versions.GetOutputVersion(pipeline.Table.Node.Id));
 
         // Only std (whose parsed file changed) is type checked again; main hits the per-item memo

@@ -239,6 +239,10 @@ internal sealed class ComputationGraph
         // Their own versions should only be incremented if their computed values
         // actually change, enabling equality-based cache skipping.
         _sharedState.Versions.IncrementOutputVersion(nodeId);
+
+        // Advance the revision after the version, so that a value verified at the new revision
+        // has seen the new version.
+        _sharedState.AdvanceRevision();
     }
 
     /// <summary>

@@ -63,13 +63,15 @@ public readonly record struct IncrementalValueProvider<T>
     /// <remarks>
     /// Uses version-based lazy validation:
     /// <list type="number">
-    /// <item>Check if cached value exists with valid dependency versions</item>
-    /// <item>If valid, return cached value (no recomputation)</item>
-    /// <item>If stale, recompute and compare with previous value</item>
-    /// <item>Only increment version if value actually changed</item>
+    /// <item>If no source changed since the cached value was last verified, return it</item>
+    /// <item>Otherwise bring each input the cached value was computed from up to date (recursively)
+    /// and return the cached value if all of them still have the versions it recorded</item>
+    /// <item>Otherwise recompute, compare with the previous value and only increment the
+    /// version if the value actually changed</item>
     /// </list>
-    /// This enables equality-based cache skipping where unchanged intermediate
-    /// values prevent downstream recomputation.
+    /// This enables equality-based cache skipping at every stage: an intermediate stage that
+    /// recomputes to an equal value (by its comparer) keeps its version, so the stages downstream
+    /// of it stay cached, whether or not the intermediate stage is read itself.
     /// </remarks>
     /// <returns>
     /// Result containing the computed value, an error, or no value
@@ -77,78 +79,20 @@ public readonly record struct IncrementalValueProvider<T>
     /// </returns>
     public Result<T, ComputationError> GetValue()
     {
-        // Register this node for cache invalidation tracking if not already registered
-        Graph.RegisterNodeIfNeeded(Node);
+        var graph = Graph;
 
-        // Try to use valid cached value (version-based validation)
-        if (TryGetValidCachedValue(out var cachedResult))
+        // Fast path: verified since the last source change
+        if (graph.ValueCache.TryGet(Node.Id, out var cached)
+            && cached is CachedNodeValue entry
+            && entry.VerifiedAtRevision >= graph.SharedState.Revision)
         {
-            return Result<T, ComputationError>.Success(cachedResult);
+            if (entry.IsNone)
+                return Result<T, ComputationError>.None;
+            if (entry.Value is T value)
+                return Result<T, ComputationError>.Success(value);
         }
 
-        // Snapshot dependency versions BEFORE computing: a change that happens while
-        // computing must not be recorded as already seen by this value.
-        var depVersions = ProviderCacheCoordinator.SnapshotDependencyVersions(Node, Graph);
-
-        // Create context with current cache state and compute
-        var cachedValues = ProviderCacheCoordinator.BuildCacheContext(Node, Graph);
-        var context = new ComputationContext(cachedValues);
-        var result = ComputationMetrics.Measure(Node, Metadata, "value", static (node, ctx) => node.Compute(ctx), context);
-
-        // Store result with version tracking
-        if (result.IsSuccess && result.Value != null)
-        {
-            var value = result.Value;
-            var comparer = GetNodeComparer();
-            ProviderCacheCoordinator.Commit(
-                Graph,
-                Node.Id,
-                depVersions,
-                value,
-                previous => previous is T previousValue && comparer.Equals(previousValue, value));
-        }
-
-        return result;
-    }
-
-    /// <summary>
-    /// Tries to get a valid cached value by checking if the entire dependency chain
-    /// is still valid up to source nodes. Uses recursive validation to enable
-    /// equality-based cache skipping.
-    /// </summary>
-    /// <param name="value">The cached value if valid</param>
-    /// <returns>True if cached value is valid and can be used</returns>
-    private bool TryGetValidCachedValue(out T value)
-    {
-        value = default!;
-
-        // Use recursive validation to check the entire dependency chain
-        if (!ProviderCacheCoordinator.IsCachedValueValid(Node.Id, Graph))
-        {
-            return false;
-        }
-
-        // Get the cached value (we know it exists from IsCachedValueValid)
-        if (!Graph.ValueCache.TryGet(Node.Id, out var cached) || cached is not T typedValue)
-        {
-            return false;
-        }
-
-        value = typedValue;
-        return true;
-    }
-
-    /// <summary>
-    /// Gets the equality comparer for this node's value type.
-    /// Uses the node's custom comparer if available, otherwise uses default.
-    /// </summary>
-    private IEqualityComparer<T> GetNodeComparer()
-    {
-        if (Node is IHasComparer<T> withComparer)
-        {
-            return withComparer.Comparer;
-        }
-        return EqualityComparer<T>.Default;
+        return ValueNodeHandle<T>.For(Node, graph).Evaluate(new GraphEvaluator(graph), out _, Metadata);
     }
 
     /// <summary>
@@ -255,103 +199,26 @@ public readonly record struct IncrementalValuesProvider<T>
     /// cache validation. This is the main entry point for retrieving values.
     /// </summary>
     /// <remarks>
-    /// Uses version-based lazy validation with sequence equality for collections.
+    /// Uses the same version-based lazy validation as <see cref="IncrementalValueProvider{T}.GetValue"/>;
+    /// collections are compared element-wise (in order) with the node's comparer.
     /// </remarks>
     /// <returns>Result containing the computed values or error</returns>
     public Result<IEnumerable<T>, ComputationError> GetValues()
     {
-        // Register this node for cache invalidation tracking if not already registered
-        Graph.RegisterNodeIfNeeded(Node);
+        var graph = Graph;
 
-        // Try to use valid cached value (version-based validation)
-        if (TryGetValidCachedValues(out var cachedResult))
+        // Fast path: verified since the last source change
+        if (graph.ValueCache.TryGet(Node.Id, out var cached)
+            && cached is CachedNodeValue entry
+            && entry.VerifiedAtRevision >= graph.SharedState.Revision)
         {
-            return Result<IEnumerable<T>, ComputationError>.Success(cachedResult);
+            if (entry.IsNone)
+                return Result<IEnumerable<T>, ComputationError>.None;
+            if (entry.Value is T[] values)
+                return Result<IEnumerable<T>, ComputationError>.Success(values);
         }
 
-        // Snapshot dependency versions BEFORE computing: a change that happens while
-        // computing must not be recorded as already seen by this value.
-        var depVersions = ProviderCacheCoordinator.SnapshotDependencyVersions(Node, Graph);
-
-        // Create context with current cache state and compute
-        var cachedValues = ProviderCacheCoordinator.BuildCacheContext(Node, Graph);
-        var context = new ComputationContext(cachedValues);
-        var result = ComputationMetrics.Measure(Node, Metadata, "values", static (node, ctx) => node.Compute(ctx), context);
-
-        // Store result with version tracking
-        if (result.IsSuccess && result.Value != null)
-        {
-            // Materialize to array for comparison and storage
-            var currentArray = result.Value as T[] ?? result.Value.ToArray();
-
-            var comparer = GetElementComparer();
-            ProviderCacheCoordinator.Commit(
-                Graph,
-                Node.Id,
-                depVersions,
-                currentArray,
-                previous => previous is IEnumerable<T> previousValues &&
-                    SequenceEqual(previousValues as T[] ?? previousValues.ToArray(), currentArray, comparer));
-
-            // Return the array we already materialized
-            return Result<IEnumerable<T>, ComputationError>.Success(currentArray);
-        }
-
-        return result;
-    }
-
-    /// <summary>
-    /// Tries to get valid cached values by checking if the entire dependency chain
-    /// is still valid up to source nodes. Uses recursive validation to enable
-    /// equality-based cache skipping.
-    /// </summary>
-    private bool TryGetValidCachedValues(out IEnumerable<T> values)
-    {
-        values = Enumerable.Empty<T>();
-
-        // Use recursive validation to check the entire dependency chain
-        if (!ProviderCacheCoordinator.IsCachedValueValid(Node.Id, Graph))
-        {
-            return false;
-        }
-
-        // Get the cached value (we know it exists from IsCachedValueValid)
-        if (!Graph.ValueCache.TryGet(Node.Id, out var cached) || cached is not IEnumerable<T> typedValue)
-        {
-            return false;
-        }
-
-        values = typedValue;
-        return true;
-    }
-
-    /// <summary>
-    /// Gets the element equality comparer for this node's collection.
-    /// </summary>
-    private IEqualityComparer<T> GetElementComparer()
-    {
-        if (Node is IHasComparer<T> withComparer)
-        {
-            return withComparer.Comparer;
-        }
-        return EqualityComparer<T>.Default;
-    }
-
-    /// <summary>
-    /// Compares two sequences for equality using the specified comparer.
-    /// </summary>
-    private static bool SequenceEqual(T[] a, T[] b, IEqualityComparer<T> comparer)
-    {
-        if (a.Length != b.Length)
-            return false;
-
-        for (int i = 0; i < a.Length; i++)
-        {
-            if (!comparer.Equals(a[i], b[i]))
-                return false;
-        }
-
-        return true;
+        return CollectionNodeHandle<T>.For(Node, graph).Evaluate(new GraphEvaluator(graph), out _, Metadata);
     }
 
     /// <summary>
@@ -382,24 +249,24 @@ internal static class ComputationMetrics
     /// <see cref="GuacamoleMetrics.ComputationsTotal"/>, <see cref="GuacamoleMetrics.ComputationDuration"/>
     /// and (for an error result) <see cref="GuacamoleMetrics.ComputationErrors"/>.
     /// </summary>
-    public static Result<TValue, ComputationError> Measure<TNode, TValue>(
-        TNode node,
+    public static Result<TValue, ComputationError> Measure<TState, TValue>(
+        string nodeType,
         ProviderMetadata metadata,
         string providerType,
-        Func<TNode, ComputationContext, Result<TValue, ComputationError>> compute,
+        Func<TState, ComputationContext, Result<TValue, ComputationError>> compute,
+        TState state,
         ComputationContext context)
-        where TNode : IComputationNode
     {
         var configuration = MetricsConfiguration.Current;
         if (!configuration.EnableComputationMetrics)
-            return compute(node, context);
+            return compute(state, context);
 
         var start = Stopwatch.GetTimestamp();
-        var result = compute(node, context);
+        var result = compute(state, context);
         GuacamoleMetrics.RecordComputation(
             configuration,
             providerType,
-            node.GetType().Name,
+            nodeType,
             metadata,
             Stopwatch.GetElapsedTime(start).TotalMilliseconds,
             result.IsError);

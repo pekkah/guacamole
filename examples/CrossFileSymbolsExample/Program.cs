@@ -4,8 +4,8 @@ Console.WriteLine("=== Guacamole Cross-File Symbols Example ===\n");
 
 using var context = new CompilerContext(restrictTables: true);
 
-// Register the symbol table first: output handlers run in registration order, so the table is
-// cached (and its version kept when it is unchanged) before the type checks read it.
+// Print the symbol table whenever it changes. (Every stage is cached and keeps its version when
+// its recomputed value is unchanged, whether or not it has an output handler.)
 context.RegisterOutput(context.Symbols, (table, _) => Console.WriteLine($"[symbols] {table}"));
 context.RegisterOutput(context.TypeChecked, (files, _) =>
 {
@@ -32,8 +32,8 @@ void Step(string title, Action change)
 Step("Push main.fugu (std.fugu not loaded yet)", () => context.FilesSource.Push(main));
 Step("Push std.fugu", () => context.FilesSource.Push(std));
 
-// A comment does not change any declarations: the table is recomputed but equal, so only the
-// edited file is type checked again.
+// A comment does not change any declarations: the extracted declarations are equal, so the table
+// is not even merged again, and only the edited file is type checked again.
 var stdWithComment = std with { Text = "// standard library\n" + std.Text };
 Step("Add a comment to std.fugu", () => context.FilesSource.Replace(std, stdWithComment));
 
