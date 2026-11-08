@@ -1,0 +1,36 @@
+name: Lint workflows
+
+# Runs actionlint (https://github.com/rhysd/actionlint) on every workflow file when
+# anything under .github/workflows/ changes. Catches expression/context typos, invalid
+# `uses:`/`with:` inputs, bad `needs:` references, permission names and, via the bundled
+# shellcheck, problems in `run:` scripts - things a plain YAML syntax check misses.
+#
+# The rhysd/actionlint Docker image is pinned to an exact version (it bundles shellcheck
+# and pyflakes). Bump it deliberately; a new actionlint release can add checks.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/**'
+  pull_request:
+    branches: [main]
+    paths:
+      - '.github/workflows/**'
+
+permissions:
+  contents: read
+
+jobs:
+  actionlint:
+    name: actionlint
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v7
+
+      - name: Run actionlint
+        uses: docker://rhysd/actionlint:1.7.12
+        with:
+          args: -color

@@ -1,5 +1,7 @@
 # Tasks: ComputingContextBase
 
+> **Reconciliation (2026-11-08, #45)**: T029a/T029b are superseded: GUAC0001/GUAC0002 were retired in #29 because they could never be reported (see `src/Guacamole.SourceGenerators/AnalyzerReleases.Unshipped.md`). `PropertyAnalyzer.cs` was replaced by `ContextAnalyzer.cs` in the same PR. Status markers: see [specs/README.md](../README.md).
+
 **Input**: Design documents from `/specs/007-computingcontextbase-we-need/`
 **Prerequisites**: plan.md (required), research.md, data-model.md, contracts/
 
@@ -91,8 +93,8 @@
 ### Source Generator Infrastructure
 - [x] T028 Implement `src/Guacamole.SourceGenerators/ComputingContextGenerator.cs` main incremental generator entry point
 - [x] T029 Implement `src/Guacamole.SourceGenerators/PropertyAnalyzer.cs` for classifying properties (setter vs get-only)
-- [ ] T029a Add circular dependency detection to PropertyAnalyzer producing compilation error with diagnostic ID GUAC0001 including property dependency chain
-- [ ] T029b Add conflicting type parameter validation to PropertyAnalyzer producing compilation error with diagnostic ID GUAC0002 including conflicting property names and types
+- [x] ~~T029a Add circular dependency detection to PropertyAnalyzer producing compilation error with diagnostic ID GUAC0001 including property dependency chain~~ — superseded: GUAC0001 retired before the first release (#29)
+- [x] ~~T029b Add conflicting type parameter validation to PropertyAnalyzer producing compilation error with diagnostic ID GUAC0002 including conflicting property names and types~~ — superseded: GUAC0002 retired before the first release (#29)
 
 ### Code Generators (using raw string literals for code generation)
 - [x] T030 Implement `src/Guacamole.SourceGenerators/CodeGenerators/MutationMethodGenerator.cs` for Add/Remove/Replace methods using C# 11 raw string literals

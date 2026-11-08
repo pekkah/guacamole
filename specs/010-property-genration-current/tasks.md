@@ -1,5 +1,7 @@
 # Tasks: Reverse Property Generation Logic
 
+> **Reconciliation (2026-11-08, #45)**: The convention reversal shipped in #10 (c0a7d00: `PropertyAnalyzer.cs`, generator tests and snapshots, examples, `docs/migration/010-property-convention-reversal.md`, `CHANGELOG.md`). Later, push-based sources (#19) removed the generated mutation methods and replaced `examples/CompilerContext` and `examples/FileWatcherContext`, and the generator rewrite (#29) replaced `PropertyAnalyzer.cs` and `CodeGenerators/*` with `ContextAnalyzer.cs`/`ContextEmitter.cs`. The tasks below are marked done for #10; file paths and method names refer to code that no longer exists. Status markers: see [specs/README.md](../README.md).
+
 **Feature**: 010-property-genration-current
 **Input**: Design documents from `/home/pekkah/p/guacamole/specs/010-property-genration-current/`
 **Prerequisites**: plan.md ✓, research.md ✓, data-model.md ✓, contracts/ ✓, quickstart.md ✓
@@ -37,14 +39,14 @@
 
 **Goal**: Understand current implementation before making changes
 
-- [ ] **T001** Analyze PropertyAnalyzer.cs current logic
+- [x] **T001** Analyze PropertyAnalyzer.cs current logic — done: #10 (see `research.md`, `data-model.md`)
   - File: `src/Guacamole.SourceGenerators/PropertyAnalyzer.cs`
   - Document lines 66-73 classification condition
   - Verify `property.SetMethod != null` → InputProperties
   - Map InputProperties/DerivedProperties usage across generators
   - **Output**: Inline comments or research notes
 
-- [ ] **T002** [P] Inventory all 5 code generators and their property usage
+- [x] **T002** [P] Inventory all 5 code generators and their property usage — done: #10 (see `research.md`, `data-model.md`)
   - Files: `src/Guacamole.SourceGenerators/CodeGenerators/*.cs`
   - MutationMethodGenerator: uses InputProperties
   - ChangeTypeGenerator: uses InputProperties
@@ -53,7 +55,7 @@
   - PropertyGenerator: uses both lists
   - **Output**: List of generators and what they consume
 
-- [ ] **T003** [P] List all snapshot test files to be updated
+- [x] **T003** [P] List all snapshot test files to be updated — done: #10 (see `research.md`, `data-model.md`)
   - Directory: `tests/Guacamole.SourceGenerators.Tests/Snapshots/`
   - Count verified.cs files
   - Note which tests cover property classification
@@ -67,28 +69,28 @@
 
 ### Step 1: Write Failing Tests
 
-- [ ] **T004** Create test for new get-only property behavior
+- [x] **T004** Create test for new get-only property behavior — done: #10; today covered by `Generator_ForSingleValueProperty_GeneratesSourceBackedProvider`
   - File: `tests/Guacamole.SourceGenerators.Tests/ComputingContextGeneratorTests.cs`
   - Add test: `Generator_WithGetOnlyProperty_GeneratesMutationMethods`
   - Input: Context with `public partial IncrementalValueProvider<string> Name { get; }`
   - Expected: Generated code contains `SetName()` method
   - **Status**: MUST FAIL initially (proving old behavior)
 
-- [ ] **T005** Create test for new property-with-setter behavior
+- [x] **T005** Create test for new property-with-setter behavior — done: #10; today covered by `Generator_WithUserManagedProperty_DoesNotImplementIt`
   - File: `tests/Guacamole.SourceGenerators.Tests/ComputingContextGeneratorTests.cs`
   - Add test: `Generator_WithPropertyWithSetter_DoesNotGenerateMutationMethods`
   - Input: Context with `public partial IncrementalValueProvider<int> Count { get; set; }`
   - Expected: Generated code does NOT contain `SetCount()` method
   - **Status**: MUST FAIL initially (proving old behavior)
 
-- [ ] **T006** Run tests to verify they fail
+- [x] ~~**T006** Run tests to verify they fail~~ — superseded: TDD process step; cannot be verified after the fact, outcome covered by T004/T005
   - Command: `dotnet test tests/Guacamole.SourceGenerators.Tests --filter "Category=NewBehavior"`
   - **Expected**: Both T004 and T005 tests fail
   - **If tests pass**: Implementation is already done (unexpected)
 
 ### Step 2: Implement Logic Inversion
 
-- [ ] **T007** Invert PropertyAnalyzer classification condition
+- [x] **T007** Invert PropertyAnalyzer classification condition — done: #10 (`PropertyAnalyzer.cs`, replaced by `ContextAnalyzer.cs` in #29)
   - File: `src/Guacamole.SourceGenerators/PropertyAnalyzer.cs`
   - Line 66-73: Change condition
   - **OLD**: `if (property.SetMethod != null) { inputProperties.Add(propertyInfo); }`
@@ -96,7 +98,7 @@
   - Also update comments explaining new behavior
   - **Validation**: Code compiles without errors
 
-- [ ] **T008** Verify PropertyAnalyzer tests now pass
+- [x] **T008** Verify PropertyAnalyzer tests now pass — done: #10
   - Command: `dotnet test tests/Guacamole.SourceGenerators.Tests --filter "FullyQualifiedName~PropertyAnalyzer"`
   - **Expected**: Tests from T004-T005 now pass
   - **If tests fail**: Logic change incorrect, review T007
@@ -107,31 +109,31 @@
 
 **Goal**: Ensure all generators handle new classification correctly
 
-- [ ] **T009** [P] Verify MutationMethodGenerator handles new classification
+- [x] **T009** [P] Verify MutationMethodGenerator handles new classification — done: #10 (generator tests updated; generators removed in #29)
   - File: Review `src/Guacamole.SourceGenerators/CodeGenerators/MutationMethodGenerator.cs`
   - Check: Generates methods for InputProperties (now get-only)
   - **Expected**: No code changes needed, generator consumes list correctly
   - **Validation**: Build succeeds
 
-- [ ] **T010** [P] Verify ChangeTypeGenerator handles new classification
+- [x] **T010** [P] Verify ChangeTypeGenerator handles new classification — done: #10 (generator tests updated; generators removed in #29)
   - File: Review `src/Guacamole.SourceGenerators/CodeGenerators/ChangeTypeGenerator.cs`
   - Check: Generates change records for InputProperties (now get-only)
   - **Expected**: No code changes needed
   - **Validation**: Build succeeds
 
-- [ ] **T011** [P] Verify ComputationNodeGenerator handles new classification
+- [x] **T011** [P] Verify ComputationNodeGenerator handles new classification — done: #10 (generator tests updated; generators removed in #29)
   - File: Review `src/Guacamole.SourceGenerators/CodeGenerators/ComputationNodeGenerator.cs`
   - Check: Creates nodes based on property classification
   - **Expected**: No code changes needed
   - **Validation**: Build succeeds
 
-- [ ] **T012** [P] Verify SaveChangesGenerator handles new classification
+- [x] **T012** [P] Verify SaveChangesGenerator handles new classification — done: #10 (generator tests updated; generators removed in #29)
   - File: Review `src/Guacamole.SourceGenerators/CodeGenerators/SaveChangesGenerator.cs`
   - Check: Applies changes for InputProperties (now get-only)
   - **Expected**: No code changes needed
   - **Validation**: Build succeeds
 
-- [ ] **T013** [P] Verify PropertyGenerator handles new classification
+- [x] **T013** [P] Verify PropertyGenerator handles new classification — done: #10 (generator tests updated; generators removed in #29)
   - File: Review `src/Guacamole.SourceGenerators/CodeGenerators/PropertyGenerator.cs`
   - Check: Implements properties correctly for both lists
   - **Expected**: No code changes needed
@@ -145,13 +147,13 @@
 
 ⚠️ **CRITICAL**: Review all diffs carefully before approving
 
-- [ ] **T014** Run all snapshot tests to capture failures
+- [x] **T014** Run all snapshot tests to capture failures — done: #10 (snapshots updated)
   - Command: `dotnet test tests/Guacamole.SourceGenerators.Tests`
   - **Expected**: ~13 snapshot tests fail with diffs
   - Capture diff output to review in T015
   - **If tests pass**: No changes detected (unexpected)
 
-- [ ] **T015** Review all snapshot test diffs manually
+- [x] **T015** Review all snapshot test diffs manually — done: #10 (snapshots updated)
   - Directory: `tests/Guacamole.SourceGenerators.Tests/Snapshots/`
   - For each .received.cs file:
     - Compare to corresponding .verified.cs
@@ -161,7 +163,7 @@
   - **Critical**: Do not approve if diffs look wrong
   - **Output**: List of files safe to approve
 
-- [ ] **T016** Approve snapshot updates
+- [x] **T016** Approve snapshot updates — done: #10 (snapshots updated)
   - For each verified diff from T015:
     - Option 1: `mv *.received.cs *.verified.cs` (manual)
     - Option 2: Use Verify test runner approve command
@@ -174,7 +176,7 @@
     - SaveChangesGeneratorTests snapshots: ~2 files
   - **Total**: ~13 snapshot files
 
-- [ ] **T017** Verify all generator tests pass after approval
+- [x] **T017** Verify all generator tests pass after approval — done: #10 (snapshots updated)
   - Command: `dotnet test tests/Guacamole.SourceGenerators.Tests`
   - **Expected**: All tests pass (0 failures)
   - **If tests fail**: Review snapshot approval, may need to re-approve
@@ -185,20 +187,20 @@
 
 **Goal**: Update examples to use new convention and verify they build
 
-- [ ] **T018** [P] Update CompilerContext example for new convention
+- [x] **T018** [P] Update CompilerContext example for new convention — done: #10 (example replaced in #19)
   - File: `examples/CompilerContext/MyCompilerContext.cs`
   - Change: Properties that HAD setters (old auto) → NOW get-only
   - Change: Properties that WERE get-only (old manual) → NOW have setters
   - Review: Constructor initialization matches new convention
   - **Validation**: `dotnet build examples/CompilerContext` succeeds
 
-- [ ] **T019** [P] Update FileWatcherContext example for new convention
+- [x] **T019** [P] Update FileWatcherContext example for new convention — done: #10 (example replaced in #19)
   - File: `examples/FileWatcherContext/MyFileWatcherContext.cs`
   - Change: Invert setter presence to match new convention
   - Review: Constructor initialization
   - **Validation**: `dotnet build examples/FileWatcherContext` succeeds
 
-- [ ] **T020** Run integration tests in Guacamole.Tests
+- [x] **T020** Run integration tests in Guacamole.Tests — done: CI
   - Command: `dotnet test tests/Guacamole.Tests`
   - **Expected**: All tests pass
   - **If failures**: Examples may be using old convention, review T018-T019
@@ -209,7 +211,7 @@
 
 **Goal**: Document breaking change for users
 
-- [ ] **T021** [P] Create migration guide
+- [x] **T021** [P] Create migration guide — done: `docs/migration/010-property-convention-reversal.md`
   - File: `docs/migration/010-property-convention-reversal.md` (NEW)
   - Create `docs/migration/` directory if it doesn't exist
   - Content structure:
@@ -220,14 +222,14 @@
   - Reference: Use research.md decisions and quickstart.md scenarios
   - **Length**: ~2 pages
 
-- [ ] **T022** [P] Update generated-code-reference.md examples
+- [x] **T022** [P] Update generated-code-reference.md examples
   - File: `docs/generated-code-reference.md`
   - Lines 24-35: Example CompilerContext
   - Change: Invert setter presence in example
   - Update comments explaining auto vs manual properties
   - **Validation**: Examples match new convention
 
-- [ ] **T023** [P] Add CHANGELOG.md entry
+- [x] **T023** [P] Add CHANGELOG.md entry — done: "property convention reversal" entry in `CHANGELOG.md`
   - File: `CHANGELOG.md`
   - Section: `## [Unreleased] - BREAKING CHANGES` (create if missing)
   - Entry: "Reversed property generation convention: get-only properties now automatically managed, properties with setters now user-managed"
@@ -240,25 +242,25 @@
 
 **Goal**: Ensure everything works end-to-end
 
-- [ ] **T024** Run full test suite
+- [x] **T024** Run full test suite — done: CI
   - Command: `dotnet test`
   - **Expected**: All 153+ tests pass
   - **Critical**: No test failures
   - **If failures**: Review which phase failed, fix before proceeding
 
-- [ ] **T025** Build all projects
+- [x] **T025** Build all projects — done: CI
   - Command: `dotnet build`
   - **Expected**: All projects build successfully
   - Check: src/Guacamole.SourceGenerators, examples/, tests/
   - **If build fails**: Review compiler errors, likely example misconfiguration
 
-- [ ] **T026** Execute quickstart.md validation
+- [x] ~~**T026** Execute quickstart.md validation~~ — superseded: `quickstart.md` checks `PropertyAnalyzer.cs` and generated `Set{X}()` methods, both removed (#19, #29)
   - File: Follow steps in `specs/010-property-genration-current/quickstart.md`
   - Verify: All 6 quickstart steps succeed
   - **Expected**: Completes in ~6 minutes
   - **If quickstart fails**: Fix issues before marking feature complete
 
-- [ ] **T027** Review all documentation for accuracy
+- [x] **T027** Review all documentation for accuracy — done: #33 brought the docs in line with the current code
   - Files:
     - `docs/migration/010-property-convention-reversal.md`
     - `docs/generated-code-reference.md`
@@ -268,12 +270,12 @@
   - Check: All code examples use new convention
   - **Output**: Documentation is consistent
 
-- [ ] **T028** Run dotnet format
+- [ ] **T028** Run dotnet format — open: `dotnet format --verify-no-changes` is not clean (line endings: `.editorconfig` `crlf` vs `.gitattributes` LF, plus a few whitespace fixes)
   - Command: `dotnet format`
   - **Expected**: No formatting changes (code already formatted)
   - **If changes**: Commit formatting updates
 
-- [ ] **T029** Final smoke test with new test context
+- [x] **T029** Final smoke test with new test context — done: covered by `ComputingContextGeneratorTests` and `DiagnosticTests` (GUAC0003/GUAC0005)
   - Create minimal test: Get-only property should generate SetMethod()
   - Create minimal test: Property with setter should NOT generate SetMethod()
   - **Validation**: Both tests pass

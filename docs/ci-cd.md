@@ -13,6 +13,7 @@ NuGet packages **only** when a version tag is pushed (or the Publish workflow is
 | Manual run on a `v*` tag | Publish (reuses CI) | Linux + Windows | yes | yes | yes |
 | Manual run on `main` | Publish (reuses CI) | Linux + Windows | yes | yes (GitVersion prerelease, e.g. `0.2.0-alpha.5`) | no |
 | Manual run on any other branch | Publish | - | - | refused | - |
+| PR / push to `main` touching `.github/workflows/**` | Lint workflows | - | - | - | - |
 
 The test matrix runs exactly once per event: tag pushes do not trigger CI on their own, and
 Publish calls `ci.yml` as a reusable workflow instead of duplicating its jobs.
@@ -60,6 +61,27 @@ CI has `contents: read` permission only and never publishes.
      If the release already exists (re-run), the assets are re-uploaded with `--clobber`.
 
 Runs are serialized per ref (`concurrency: publish-<ref>`, not cancelled).
+
+### Lint workflows (`.github/workflows/lint-workflows.yml`)
+
+**Triggers**: pull requests targeting `main` and pushes to `main` that change anything under
+`.github/workflows/**`.
+
+**Job**: **actionlint** runs [actionlint](https://github.com/rhysd/actionlint) on all
+workflow files using the `rhysd/actionlint` Docker image pinned to an exact version
+(`1.7.12`). The image bundles shellcheck, so `run:` scripts are checked too. This catches
+mistakes a YAML syntax check misses: unknown contexts/expressions, wrong action inputs,
+invalid `needs:` or `permissions:` entries, and shell script bugs. The job has
+`contents: read` only.
+
+Run it locally before pushing workflow changes (install shellcheck to get the script checks):
+
+```bash
+# release binary: https://github.com/rhysd/actionlint/releases (verify against *_checksums.txt)
+actionlint                       # lints .github/workflows/*.yml from the repo root
+# or with Docker
+docker run --rm -v "$PWD:/repo" -w /repo rhysd/actionlint:1.7.12 -color
+```
 
 ## Versioning Strategy
 
@@ -204,13 +226,15 @@ mark the GitHub release accordingly.
 - No long-lived NuGet credentials are stored: the `publish` job (only for `v*` tags or manual
   runs on `main`) gets a one-hour key via OIDC trusted publishing; only that job has
   `id-token: write`
-- CI runs with `contents: read`; only the publish job gets `contents: write`
+- CI and the workflow lint run with `contents: read`; only the publish job gets `contents: write`
 - Action versions are pinned to major versions (`actions/checkout@v7`, `setup-dotnet@v6`,
-  `cache@v6`, `upload-artifact@v7`, `download-artifact@v8`, `NuGet/login@v1`)
+  `cache@v6`, `upload-artifact@v7`, `download-artifact@v8`, `NuGet/login@v1`); the
+  actionlint Docker image is pinned to an exact version
 
 ## Links
 
 - [CI workflow](../.github/workflows/ci.yml)
 - [Publish workflow](../.github/workflows/publish.yml)
+- [Lint workflows](../.github/workflows/lint-workflows.yml)
 - [GitVersion configuration](../GitVersion.yml)
 - [Guacamole on nuget.org](https://www.nuget.org/packages/Guacamole/)

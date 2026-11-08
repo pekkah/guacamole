@@ -1,5 +1,7 @@
 # Tasks: Initial Solution Structure
 
+> **Reconciliation (2026-11-08, #45)**: T020–T024 are covered by the solution file and the CI workflow. Some directory names from earlier tasks no longer exist after later restructuring (#14, #29); those tasks were done at the time and are left as is. Status markers: see [specs/README.md](../README.md).
+
 **Input**: Design documents from `/specs/003-solution-structure-we/`
 **Prerequisites**: plan.md (required), research.md, data-model.md, contracts/
 
@@ -74,11 +76,11 @@
 - [x] T019 [P] Create tests/Guacamole.SourceGenerators.Tests/GeneratorTests/ directory with QueryGeneratorTests.cs
 
 ## Phase 3.7: Integration and Validation
-- [ ] T020 Add all projects to Guacamole.sln solution file
-- [ ] T021 Verify solution builds successfully with `dotnet build`
-- [ ] T022 Verify test projects run with `dotnet test`
-- [ ] T023 Verify NuGet packages can be created with `dotnet pack`
-- [ ] T024 Verify GitVersion calculates version numbers correctly
+- [x] T020 Add all projects to Guacamole.sln solution file — done: `guacamole.sln` (src, tests, benchmarks, examples)
+- [x] T021 Verify solution builds successfully with `dotnet build` — done: built on every PR/push by `.github/workflows/ci.yml`
+- [x] T022 Verify test projects run with `dotnet test` — done: run on Linux and Windows by `.github/workflows/ci.yml`
+- [x] T023 Verify NuGet packages can be created with `dotnet pack` — done: `pack` job in `.github/workflows/ci.yml` uploads the `nuget-packages` artifact
+- [x] T024 Verify GitVersion calculates version numbers correctly — done: GitVersion 6.4.0 (`.config/dotnet-tools.json`, `GitVersion.yml`) runs in the CI `pack` job; see `docs/ci-cd.md`
 
 ## Dependencies
 - T001 (directory structure) before all other tasks

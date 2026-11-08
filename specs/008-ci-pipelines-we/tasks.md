@@ -1,5 +1,7 @@
 # Tasks: CI/CD Pipeline for Automated Testing, Building, and Package Publishing
 
+> **Reconciliation (2026-11-08, #45)**: The release flow was replaced by tag-based publishing that reuses CI (#28) and nuget.org trusted publishing (#35, #37); the per-task **Status** lines under T002 and T006–T012 record what was validated. Status markers: see [specs/README.md](../README.md).
+
 **Input**: Design documents from `/specs/008-ci-pipelines-we/`
 **Prerequisites**: plan.md ✅, research.md ✅, data-model.md ✅, contracts/ ✅, quickstart.md ✅
 
@@ -48,6 +50,8 @@ mkdir -p .github/workflows
 ---
 
 ### T002: Configure NuGet API key secret in GitHub repository
+
+**Status (2026-11-08, #45)**: superseded: publishing now uses nuget.org trusted publishing (`NuGet/login@v1`, #35, #37); no `NUGET_API_KEY` secret is stored. See `docs/ci-cd.md`.
 **Description**: Add NuGet.org API key as encrypted GitHub repository secret for package publishing authentication.
 
 **Manual Steps**:
@@ -389,6 +393,8 @@ jobs:
 ## Phase 3.5: Validation & Testing
 
 ### T006: Validate CI workflow with test pull request
+
+**Status (2026-11-08, #45)**: done: CI runs on every pull request on Linux and Windows and runs `pack` (e.g. PR runs for #38 and #39 succeeded).
 **Description**: Create a test pull request to trigger the CI workflow and verify all jobs complete successfully (corresponds to quickstart Phase 2.1).
 
 **Manual Steps**:
@@ -418,6 +424,8 @@ jobs:
 ---
 
 ### T007: Validate test failure blocks workflow
+
+**Status (2026-11-08, #45)**: done: `pack` has `needs: test` in `.github/workflows/ci.yml`, so a failing test skips packing. Merge blocking depends on branch protection, which is a repository setting.
 **Description**: Verify that failing tests block the build job and PR merge (corresponds to quickstart Phase 2.2).
 
 **Manual Steps**:
@@ -449,6 +457,8 @@ jobs:
 ---
 
 ### T008: Validate GitVersion version calculation
+
+**Status (2026-11-08, #45)**: done: GitVersion runs in every CI `pack` job (`GitVersion.yml`: `alpha` on `main`, `pr` on pull requests). Tag builds now take the version from the tag (see `docs/ci-cd.md`).
 **Description**: Verify GitVersion correctly calculates semantic versions for different scenarios (PR, main branch, tags) (corresponds to quickstart Phase 3).
 
 **Manual Steps**:
@@ -472,6 +482,8 @@ jobs:
 ---
 
 ### T009: Validate pre-release package publishing
+
+**Status (2026-11-08, #45)**: done under the original flow (Publish runs on pushes to `main` published `-alpha` prereleases, e.g. run 24), then superseded: pushes to `main` no longer publish (#28). Prereleases from `main` are published by a manual Publish run.
 **Description**: Trigger pre-release package publishing from main branch and verify packages appear on NuGet.org (corresponds to quickstart Phase 4).
 
 **Manual Steps**:
@@ -496,6 +508,8 @@ jobs:
 ---
 
 ### T010: Validate stable release publishing
+
+**Status (2026-11-08, #45)**: open: no `v*` tag has been pushed yet, so the tag-based release (nuget.org + GitHub release, now with trusted publishing) has not run end to end.
 **Description**: Create a stable release tag and verify packages publish without pre-release suffix and GitHub release is created (corresponds to quickstart Phase 5).
 
 **Manual Steps**:
@@ -521,6 +535,8 @@ jobs:
 ---
 
 ### T011: Validate duplicate version handling
+
+**Status (2026-11-08, #45)**: done: `dotnet nuget push ... --skip-duplicate` in `.github/workflows/publish.yml`.
 **Description**: Verify that attempting to publish a duplicate version is handled gracefully with `--skip-duplicate` flag (corresponds to quickstart Phase 5.4).
 
 **Manual Steps**:
@@ -540,6 +556,8 @@ jobs:
 ---
 
 ### T012: Validate security and permissions
+
+**Status (2026-11-08, #45)**: superseded: there is no long-lived API key to mask any more (trusted publishing, #35). Permissions: CI and the Publish workflow default to `contents: read`; only the publish job has `contents: write` + `id-token: write` (no `packages: write`).
 **Description**: Verify secrets are masked in logs and workflows have minimal permissions (corresponds to quickstart Phase 6).
 
 **Manual Steps**:
@@ -730,7 +748,7 @@ Before marking tasks complete, verify:
 - [x] Phase 3.2: GitVersion Configuration (T003)
 - [x] Phase 3.3: CI Workflow Implementation (T004)
 - [x] Phase 3.4: Publish Workflow Implementation (T005)
-- [ ] Phase 3.5: Validation & Testing (T006-T012) - *Requires actual workflow runs on GitHub*
+- [ ] Phase 3.5: Validation & Testing (T006-T012) - *Requires actual workflow runs on GitHub* — open: T006–T009 and T011 done, T012 superseded; T010 (first tag release) still open
 - [x] Phase 3.6: Documentation & Polish (T013-T015)
 
 **Implementation Status**: ✅ Core implementation complete

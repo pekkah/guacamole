@@ -1,5 +1,7 @@
 # Tasks: Incremental Value Providers
 
+> **Reconciliation (2026-11-08, #45)**: `src/Guacamole.Core` and `tests/Guacamole.Core.Tests` were merged into `src/Guacamole` and `tests/Guacamole.Tests` (#14), so the implementation lives at the paths given in the notes. Performance work moved to `benchmarks/Guacamole.Benchmarks` (spec 009); there is no `tests/Guacamole.Performance.Tests` project. Status markers: see [specs/README.md](../README.md).
+
 **Input**: Design documents from `/home/pekkah/p/guacamole/specs/006-we-need-to/`
 **Prerequisites**: plan.md (✅), research.md (✅), data-model.md (✅), contracts/ (✅)
 
@@ -67,34 +69,34 @@ Single project structure from plan.md:
 ## Phase 3.3: Core Implementation (ONLY after tests are failing)
 
 ### Core Entities
-- [ ] T016 [P] Result<TValue, TError> discriminated union in src/Guacamole.Core/Common/Result.cs
-- [ ] T017 [P] ProviderMetadata structure in src/Guacamole.Core/Diagnostics/ProviderMetadata.cs
-- [ ] T018 [P] IComputationNode interface hierarchy in src/Guacamole.Core/Pipeline/IComputationNode.cs
-- [ ] T019 LRUCache<TKey, TValue> implementation in src/Guacamole.Core/Caching/LRUCache.cs
-- [ ] T020 ComputationGraph with dependency tracking in src/Guacamole.Core/Pipeline/ComputationGraph.cs
+- [x] T016 [P] Result<TValue, TError> discriminated union in src/Guacamole.Core/Common/Result.cs — done: `src/Guacamole/Result.cs`
+- [x] T017 [P] ProviderMetadata structure in src/Guacamole.Core/Diagnostics/ProviderMetadata.cs — done: `src/Guacamole/ProviderMetadata.cs`
+- [x] T018 [P] IComputationNode interface hierarchy in src/Guacamole.Core/Pipeline/IComputationNode.cs — done: `src/Guacamole/Pipeline/IComputationNode.cs`
+- [x] T019 LRUCache<TKey, TValue> implementation in src/Guacamole.Core/Caching/LRUCache.cs — done: `src/Guacamole/Caching/LRUCache.cs`
+- [x] T020 ComputationGraph with dependency tracking in src/Guacamole.Core/Pipeline/ComputationGraph.cs — done: `src/Guacamole/Pipeline/ComputationGraph.cs`
 
 ### Provider Structures
-- [ ] T021 IncrementalValueProvider<T> readonly record struct in src/Guacamole.Core/Providers/IncrementalValueProvider.cs
-- [ ] T022 IncrementalValuesProvider<T> readonly record struct in src/Guacamole.Core/Providers/IncrementalValuesProvider.cs
+- [x] T021 IncrementalValueProvider<T> readonly record struct in src/Guacamole.Core/Providers/IncrementalValueProvider.cs — done: `src/Guacamole/IncrementalValueProvider.cs`
+- [x] T022 IncrementalValuesProvider<T> readonly record struct in src/Guacamole.Core/Providers/IncrementalValuesProvider.cs — done: `src/Guacamole/IncrementalValueProvider.cs`
 
 ### Extension Methods (Pipeline Transformations)
-- [ ] T023 IncrementalValueProvider extension methods (Select, Where, Combine) in src/Guacamole.Core/Providers/Extensions/IncrementalValueProviderExtensions.cs
-- [ ] T024 IncrementalValuesProvider extension methods (SelectMany, Collect) in src/Guacamole.Core/Providers/Extensions/IncrementalValuesProviderExtensions.cs
-- [ ] T025 Diagnostic extensions (WithTrackingName, WithTags) in src/Guacamole.Core/Diagnostics/DiagnosticExtensions.cs
+- [x] T023 IncrementalValueProvider extension methods (Select, Where, Combine) in src/Guacamole.Core/Providers/Extensions/IncrementalValueProviderExtensions.cs — done: `src/Guacamole/IncrementalValueProviderExtensions.cs`
+- [x] T024 IncrementalValuesProvider extension methods (SelectMany, Collect) in src/Guacamole.Core/Providers/Extensions/IncrementalValuesProviderExtensions.cs — done: `src/Guacamole/IncrementalValuesProviderExtensions.cs`
+- [x] T025 Diagnostic extensions (WithTrackingName, WithTags) in src/Guacamole.Core/Diagnostics/DiagnosticExtensions.cs — done: `src/Guacamole/DiagnosticProviderExtensions.cs`
 
 ## Phase 3.4: Integration & Service Registration
-- [ ] T026 ServiceRegistration extensions for DI container in src/Guacamole.Core/ServiceRegistration/ServiceCollectionExtensions.cs
-- [ ] T027 [P] Integration test: Basic provider pipeline in tests/Guacamole.Core.Tests/Integration/BasicPipelineIntegrationTests.cs
-- [ ] T028 [P] Integration test: Error handling through pipeline in tests/Guacamole.Core.Tests/Integration/ErrorHandlingIntegrationTests.cs
-- [ ] T029 [P] Integration test: Cache invalidation and dependency tracking in tests/Guacamole.Core.Tests/Integration/CacheInvalidationIntegrationTests.cs
+- [x] T026 ServiceRegistration extensions for DI container in src/Guacamole.Core/ServiceRegistration/ServiceCollectionExtensions.cs — done: `src/Guacamole/ServiceCollectionExtensions.cs` (`AddGuacamoleCore`)
+- [x] T027 [P] Integration test: Basic provider pipeline in tests/Guacamole.Core.Tests/Integration/BasicPipelineIntegrationTests.cs — done: `tests/Guacamole.Tests/Providers/IncrementalComputationEngineTests.cs`
+- [x] T028 [P] Integration test: Error handling through pipeline in tests/Guacamole.Core.Tests/Integration/ErrorHandlingIntegrationTests.cs — done: `tests/Guacamole.Tests/Providers/CollectionOperatorErrorTests.cs`, `WhereValueSemanticsTests.cs`
+- [x] T029 [P] Integration test: Cache invalidation and dependency tracking in tests/Guacamole.Core.Tests/Integration/CacheInvalidationIntegrationTests.cs — done: `tests/Guacamole.Tests/CacheInvalidationTests.cs`, `SourceChangeCachingTests.cs`
 
 ## Phase 3.5: Performance & Polish
-- [ ] T030 [P] Performance tests: <1ms cached access validation in tests/Guacamole.Performance.Tests/CachedAccessBenchmarks.cs
-- [ ] T031 [P] Performance tests: <10ms incremental updates validation in tests/Guacamole.Performance.Tests/IncrementalUpdateBenchmarks.cs
-- [ ] T032 [P] Performance tests: O(changes) complexity validation in tests/Guacamole.Performance.Tests/ComplexityBenchmarks.cs
-- [ ] T033 [P] Performance tests: <2x memory overhead validation in tests/Guacamole.Performance.Tests/MemoryOverheadBenchmarks.cs
-- [ ] T034 [P] Update agent context in CLAUDE.md with implementation completion
-- [ ] T035 Run quickstart.md manual validation scenarios
+- [x] T030 [P] Performance tests: <1ms cached access validation in tests/Guacamole.Performance.Tests/CachedAccessBenchmarks.cs — done: `benchmarks/Guacamole.Benchmarks/CachingBenchmarks.cs` (warm ≈ 0.2 µs in `benchmarks/reports/results/`)
+- [ ] T031 [P] Performance tests: <10ms incremental updates validation in tests/Guacamole.Performance.Tests/IncrementalUpdateBenchmarks.cs — open: no benchmark measures re-evaluation after a source change
+- [ ] T032 [P] Performance tests: O(changes) complexity validation in tests/Guacamole.Performance.Tests/ComplexityBenchmarks.cs — open: `ComplexGraphBenchmarks` reads a cached graph; nothing measures cost vs. number of changes
+- [ ] T033 [P] Performance tests: <2x memory overhead validation in tests/Guacamole.Performance.Tests/MemoryOverheadBenchmarks.cs — open: `[MemoryDiagnoser]` reports allocations, but nothing compares them to a baseline
+- [x] T034 [P] Update agent context in CLAUDE.md with implementation completion — done: `CLAUDE.md` "Active Technologies" describes the runtime
+- [x] ~~T035 Run quickstart.md manual validation scenarios~~ — superseded: this spec has no `quickstart.md`; usage is covered by `docs/quickstart.md` and `examples/` (built in CI)
 
 ## Dependencies
 **Constitutional TDD Order: Tests → Implementation → Integration → Performance**
