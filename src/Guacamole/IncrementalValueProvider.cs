@@ -89,8 +89,10 @@ public readonly record struct IncrementalValueProvider<T>
         if (graph.SharedState.IsDisposed)
             SharedGraphState.ThrowDisposed(Node.Id);
 
-        // Fast path: verified since the last source change
-        if (graph.ValueCache.TryGet(Node.Id, out var cached)
+        // Fast path: verified since the last source change, with none in progress (the change state
+        // is read before the revision, see GraphEvaluator.OverlapsChange)
+        if (graph.SharedState.NoChangeInProgress
+            && graph.ValueCache.TryGet(Node.Id, out var cached)
             && cached is CachedNodeValue entry
             && entry.VerifiedAtRevision >= graph.SharedState.Revision)
         {
@@ -237,8 +239,10 @@ public readonly record struct IncrementalValuesProvider<T>
         if (graph.SharedState.IsDisposed)
             SharedGraphState.ThrowDisposed(Node.Id);
 
-        // Fast path: verified since the last source change
-        if (graph.ValueCache.TryGet(Node.Id, out var cached)
+        // Fast path: verified since the last source change, with none in progress (the change state
+        // is read before the revision, see GraphEvaluator.OverlapsChange)
+        if (graph.SharedState.NoChangeInProgress
+            && graph.ValueCache.TryGet(Node.Id, out var cached)
             && cached is CachedNodeValue entry
             && entry.VerifiedAtRevision >= graph.SharedState.Revision)
         {

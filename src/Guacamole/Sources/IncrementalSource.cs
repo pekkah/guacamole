@@ -133,15 +133,23 @@ internal sealed class IncrementalSource<T> : IIncrementalSource<T>
         ThrowIfContextDisposed();
         ArgumentNullException.ThrowIfNull(item);
 
-        bool changed;
-        lock (_lock)
+        var change = BeginChange();
+        try
         {
-            changed = PushCore(item);
-        }
+            bool changed;
+            lock (_lock)
+            {
+                changed = PushCore(item);
+            }
 
-        if (changed)
+            if (changed)
+            {
+                NotifyChanged(change);
+            }
+        }
+        finally
         {
-            NotifyChanged();
+            change.EndPendingChange();
         }
     }
 
@@ -160,20 +168,28 @@ internal sealed class IncrementalSource<T> : IIncrementalSource<T>
         foreach (var item in array)
             ArgumentNullException.ThrowIfNull(item, nameof(items));
 
-        var changed = false;
-        lock (_lock)
+        var change = BeginChange();
+        try
         {
-            _slotByItem.EnsureCapacity(_slotByItem.Count + array.Length);
-            if (_slotCount + array.Length > _slots.Length)
-                Array.Resize(ref _slots, Math.Max(_slotCount + array.Length, _slots.Length * 2));
+            var changed = false;
+            lock (_lock)
+            {
+                _slotByItem.EnsureCapacity(_slotByItem.Count + array.Length);
+                if (_slotCount + array.Length > _slots.Length)
+                    Array.Resize(ref _slots, Math.Max(_slotCount + array.Length, _slots.Length * 2));
 
-            foreach (var item in array)
-                changed |= PushCore(item);
+                foreach (var item in array)
+                    changed |= PushCore(item);
+            }
+
+            if (changed)
+            {
+                NotifyChanged(change);
+            }
         }
-
-        if (changed)
+        finally
         {
-            NotifyChanged();
+            change.EndPendingChange();
         }
     }
 
@@ -196,55 +212,63 @@ internal sealed class IncrementalSource<T> : IIncrementalSource<T>
     internal void Apply(ReadOnlySpan<SourceOperation<T>> operations)
     {
         ThrowIfContextDisposed();
-        bool changed;
-        lock (_lock)
+        var change = BeginChange();
+        try
         {
-            var (effective, membershipChanged) = Check(operations);
-            if (!effective)
-                return;
-
-            // Every touched item ends up present or absent as before: the order may be unchanged too
-            var before = membershipChanged ? null : BuildSnapshot();
-            var beforeDeltas = _deltas.Save();
-
-            foreach (var operation in operations)
+            bool changed;
+            lock (_lock)
             {
-                switch (operation.Kind)
+                var (effective, membershipChanged) = Check(operations);
+                if (!effective)
+                    return;
+
+                // Every touched item ends up present or absent as before: the order may be unchanged too
+                var before = membershipChanged ? null : BuildSnapshot();
+                var beforeDeltas = _deltas.Save();
+
+                foreach (var operation in operations)
                 {
-                    case SourceOperationKind.Push:
-                        PushCore(operation.Item);
-                        break;
-                    case SourceOperationKind.Remove:
-                        RemoveCore(operation.Item);
-                        break;
-                    default:
-                        if (!ItemEquals(operation.Item, operation.NewItem))
-                            ReplaceCore(operation.Item, operation.NewItem);
-                        break;
+                    switch (operation.Kind)
+                    {
+                        case SourceOperationKind.Push:
+                            PushCore(operation.Item);
+                            break;
+                        case SourceOperationKind.Remove:
+                            RemoveCore(operation.Item);
+                            break;
+                        default:
+                            if (!ItemEquals(operation.Item, operation.NewItem))
+                                ReplaceCore(operation.Item, operation.NewItem);
+                            break;
+                    }
+                }
+
+                changed = true;
+                if (before is not null)
+                {
+                    var after = BuildSnapshot();
+                    changed = !SameItems(before, after);
+
+                    // The items are the same: keep publishing the previous snapshot instance, so that
+                    // readers holding it see no change at all. The slot positions just computed for
+                    // `after` hold for it (same items in the same order).
+                    if (!changed)
+                    {
+                        _built = before;
+                        _deltas.Restore(beforeDeltas);
+                        Volatile.Write(ref _snapshot, before);
+                    }
                 }
             }
 
-            changed = true;
-            if (before is not null)
+            if (changed)
             {
-                var after = BuildSnapshot();
-                changed = !SameItems(before, after);
-
-                // The items are the same: keep publishing the previous snapshot instance, so that
-                // readers holding it see no change at all. The slot positions just computed for
-                // `after` hold for it (same items in the same order).
-                if (!changed)
-                {
-                    _built = before;
-                    _deltas.Restore(beforeDeltas);
-                    Volatile.Write(ref _snapshot, before);
-                }
+                NotifyChanged(change);
             }
         }
-
-        if (changed)
+        finally
         {
-            NotifyChanged();
+            change.EndPendingChange();
         }
     }
 
@@ -331,15 +355,23 @@ internal sealed class IncrementalSource<T> : IIncrementalSource<T>
         ThrowIfContextDisposed();
         ArgumentNullException.ThrowIfNull(item);
 
-        bool changed;
-        lock (_lock)
+        var change = BeginChange();
+        try
         {
-            changed = RemoveCore(item);
-        }
+            bool changed;
+            lock (_lock)
+            {
+                changed = RemoveCore(item);
+            }
 
-        if (changed)
+            if (changed)
+            {
+                NotifyChanged(change);
+            }
+        }
+        finally
         {
-            NotifyChanged();
+            change.EndPendingChange();
         }
     }
 
@@ -352,19 +384,27 @@ internal sealed class IncrementalSource<T> : IIncrementalSource<T>
         ArgumentNullException.ThrowIfNull(oldItem);
         ArgumentNullException.ThrowIfNull(newItem);
 
-        lock (_lock)
+        var change = BeginChange();
+        try
         {
-            // Present first: replacing a missing item fails even with an equal replacement
-            if (!_slotByItem.ContainsKey(oldItem))
-                throw new InvalidOperationException($"Item to replace not found in source '{SourceId}'");
+            lock (_lock)
+            {
+                // Present first: replacing a missing item fails even with an equal replacement
+                if (!_slotByItem.ContainsKey(oldItem))
+                    throw new InvalidOperationException($"Item to replace not found in source '{SourceId}'");
 
-            if (ItemEquals(oldItem, newItem))
-                return; // no change
+                if (ItemEquals(oldItem, newItem))
+                    return; // no change
 
-            ReplaceCore(oldItem, newItem);
+                ReplaceCore(oldItem, newItem);
+            }
+
+            NotifyChanged(change);
         }
-
-        NotifyChanged();
+        finally
+        {
+            change.EndPendingChange();
+        }
     }
 
     /// <summary>
@@ -373,22 +413,30 @@ internal sealed class IncrementalSource<T> : IIncrementalSource<T>
     public void Clear()
     {
         ThrowIfContextDisposed();
-        lock (_lock)
+        var change = BeginChange();
+        try
         {
-            if (_slotByItem.Count == 0)
-                return;
+            lock (_lock)
+            {
+                if (_slotByItem.Count == 0)
+                    return;
 
-            _slotByItem.Clear();
-            _slots = [];
-            _slotCount = 0;
-            _built = [];
-            _builtSlots = null;
-            _changedSlots = new();
-            _deltas.Clear();
-            Volatile.Write(ref _snapshot, _built);
+                _slotByItem.Clear();
+                _slots = [];
+                _slotCount = 0;
+                _built = [];
+                _builtSlots = null;
+                _changedSlots = new();
+                _deltas.Clear();
+                Volatile.Write(ref _snapshot, _built);
+            }
+
+            NotifyChanged(change);
         }
-
-        NotifyChanged();
+        finally
+        {
+            change.EndPendingChange();
+        }
     }
 
     /// <summary>
@@ -715,10 +763,19 @@ internal sealed class IncrementalSource<T> : IIncrementalSource<T>
     /// Notifies subscribers that the source has changed.
     /// Cache invalidation is handled by the context via the Changed event.
     /// </summary>
-    private void NotifyChanged()
+    private void NotifyChanged(SourceChangedEventArgs change)
     {
-        Changed?.Invoke(this, new SourceChangedEventArgs(SourceId, DateTimeOffset.UtcNow));
+        Changed?.Invoke(this, change);
     }
+
+    /// <summary>
+    /// Starts a change before the source's contents are modified (issue #99): returns the event args
+    /// to notify with, which hold a source change of the context's graph open until
+    /// <see cref="SourceChangedEventArgs.EndPendingChange"/> (called by the context once it has
+    /// marked the source changed, and by the mutation in a <c>finally</c> block in any case).
+    /// </summary>
+    private SourceChangedEventArgs BeginChange() =>
+        new(SourceId, DateTimeOffset.UtcNow, _graphProvider().SharedState);
 
     private readonly struct Slot(T item)
     {

@@ -78,26 +78,34 @@ internal sealed class IncrementalValueSource<T> : IIncrementalValueSource<T>
 
         bool changed = false;
 
-        _lock.EnterWriteLock();
+        var change = BeginChange();
         try
         {
-            // Only update if value actually changed (structurally for immutable arrays and tuples
-            // of them, as in the pipeline's operators)
-            if (!_hasValue || !DefaultEqualityComparer<T>.Instance.Equals(_value!, value))
+            _lock.EnterWriteLock();
+            try
             {
-                _value = value;
-                _hasValue = true;
-                changed = true;
+                // Only update if value actually changed (structurally for immutable arrays and tuples
+                // of them, as in the pipeline's operators)
+                if (!_hasValue || !DefaultEqualityComparer<T>.Instance.Equals(_value!, value))
+                {
+                    _value = value;
+                    _hasValue = true;
+                    changed = true;
+                }
+            }
+            finally
+            {
+                _lock.ExitWriteLock();
+            }
+
+            if (changed)
+            {
+                NotifyChanged(change);
             }
         }
         finally
         {
-            _lock.ExitWriteLock();
-        }
-
-        if (changed)
-        {
-            NotifyChanged();
+            change.EndPendingChange();
         }
     }
 
@@ -150,10 +158,19 @@ internal sealed class IncrementalValueSource<T> : IIncrementalValueSource<T>
     /// Notifies subscribers that the source has changed.
     /// Cache invalidation is handled by the context via the Changed event.
     /// </summary>
-    private void NotifyChanged()
+    private void NotifyChanged(SourceChangedEventArgs change)
     {
-        Changed?.Invoke(this, new SourceChangedEventArgs(SourceId, DateTimeOffset.UtcNow));
+        Changed?.Invoke(this, change);
     }
+
+    /// <summary>
+    /// Starts a change before the source's contents are modified (issue #99): returns the event args
+    /// to notify with, which hold a source change of the context's graph open until
+    /// <see cref="SourceChangedEventArgs.EndPendingChange"/> (called by the context once it has
+    /// marked the source changed, and by the mutation in a <c>finally</c> block in any case).
+    /// </summary>
+    private SourceChangedEventArgs BeginChange() =>
+        new(SourceId, DateTimeOffset.UtcNow, _graphProvider().SharedState);
 
     /// <summary>
     /// Internal computation node that reads from the source.

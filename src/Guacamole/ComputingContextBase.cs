@@ -286,7 +286,7 @@ public abstract partial class ComputingContextBase : IDisposable
 
         // Mark the source's version as changed - don't clear caches
         // Lazy validation during GetValue() will handle cache freshness
-        Graph.MarkSourceChanged(e.SourceId);
+        Graph.MarkSourceChanged(e.SourceId, e);
 
         // Trigger all registered output handlers when any source changes
         TriggerOutputs();

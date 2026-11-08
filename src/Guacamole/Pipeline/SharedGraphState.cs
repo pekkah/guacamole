@@ -105,6 +105,11 @@ internal sealed class SharedGraphState
     /// </summary>
     public long ChangeState => Volatile.Read(ref _changeState);
 
+    /// <summary>
+    /// Whether no source change is in progress (see <see cref="GraphEvaluator.OverlapsChange"/>).
+    /// </summary>
+    public bool NoChangeInProgress => (ChangeState & ActiveChangesMask) == 0;
+
     // Starts at 1, so that a node that has never been marked (NodeState.MarkedEpoch 0) is never covered
     private long _stampEpoch = 1;
 
@@ -223,10 +228,25 @@ internal sealed class SharedGraphState
     /// which a change stopping at M would leave it stale. With the epoch, any stamp decision anywhere
     /// ends all skipping, which costs nothing in the case it is for: changes with no read between them.
     /// </para>
+    /// <para>
+    /// <b>Starting before the source publishes (issue #99).</b> A source starts its change before it
+    /// publishes its new contents and passes the notification holding it open as
+    /// <paramref name="pending"/>; that change is used instead of starting another one, and is ended
+    /// once the revision has advanced. No evaluation pass can then read the new contents while the
+    /// change state shows no change in progress and the revision is still the one before the change
+    /// (see <see cref="GraphEvaluator.OverlapsChange"/>). The epoch is still read after the change
+    /// started, as required above.
+    /// </para>
     /// </remarks>
-    public void MarkSourceChanged(string sourceId)
+    /// <param name="sourceId">The source's node ID</param>
+    /// <param name="pending">The source's notification, which may hold the change open (see
+    /// <see cref="SourceChangedEventArgs.HasPendingChange"/>); <c>null</c> to start the change here</param>
+    public void MarkSourceChanged(string sourceId, SourceChangedEventArgs? pending = null)
     {
-        BeginSourceChange();
+        var reuse = pending is not null && pending.HasPendingChange;
+        if (!reuse)
+            BeginSourceChange();
+
         try
         {
             // After BeginSourceChange (see the remarks)
@@ -243,7 +263,10 @@ internal sealed class SharedGraphState
         }
         finally
         {
-            EndSourceChange();
+            if (reuse)
+                pending!.EndPendingChange();
+            else
+                EndSourceChange();
         }
     }
 
