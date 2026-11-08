@@ -13,8 +13,10 @@ namespace Guacamole;
 /// </summary>
 /// <remarks>
 /// <para>
-/// Items have set semantics (using <see cref="EqualityComparer{T}.Default"/>) and are enumerated in
-/// insertion order. They are kept in an array of slots in insertion order, with an index from item to
+/// Items have set semantics and are enumerated in insertion order. Items are compared with
+/// <see cref="DefaultEqualityComparer{T}.Instance"/>: <see cref="EqualityComparer{T}.Default"/>, except
+/// that <see cref="ImmutableArray{T}"/> items (and two- or three-component tuples holding one) are
+/// compared element-wise, like everywhere else in the pipeline. They are kept in an array of slots in insertion order, with an index from item to
 /// slot: <c>Push</c> appends a slot, <c>Replace</c> overwrites the old item's slot (so the new item
 /// keeps its position), and <c>Remove</c> empties the slot; empty slots are compacted away once they
 /// outnumber the items. All three are O(1) amortized. Removing an item and pushing it again appends it.
@@ -32,11 +34,18 @@ internal sealed class IncrementalSource<T> : IIncrementalSource<T>
     // Empty slots are compacted when there are at least this many and more than live items
     private const int MinCompactionGap = 32;
 
+    // The item comparer (see the remarks)
+    private static readonly IEqualityComparer<T> s_comparer = DefaultEqualityComparer<T>.Instance;
+
+    // Whether s_comparer differs from EqualityComparer<T>.Default. When it does not, dictionaries get
+    // no comparer and comparisons call EqualityComparer<T>.Default directly, which the JIT devirtualizes.
+    private static readonly bool s_structural = !ReferenceEquals(s_comparer, EqualityComparer<T>.Default);
+
     private readonly object _lock = new();
 
     // Items are never null (Push and Replace reject null), so T is a valid dictionary key.
 #pragma warning disable CS8714
-    private readonly Dictionary<T, int> _slotByItem = new();
+    private readonly Dictionary<T, int> _slotByItem = new(s_structural ? s_comparer : null);
 #pragma warning restore CS8714
 
     // Items in insertion order; slots at index >= _slotCount are unused, and slots of removed items
@@ -153,7 +162,8 @@ internal sealed class IncrementalSource<T> : IIncrementalSource<T>
     /// or with an item that is present) throws before any operation is applied. Once checked, the
     /// operations cannot fail. When every item they touch ends up present or absent as it was
     /// before (for example a <c>Push</c> of a new item and a <c>Remove</c> of it), the items before
-    /// and after are compared, and no notification is raised if they are the same.
+    /// and after are compared, and if they are the same no notification is raised and the previous
+    /// snapshot instance stays published.
     /// </remarks>
     /// <exception cref="ArgumentNullException">An item is <c>null</c>; nothing was applied.</exception>
     /// <exception cref="InvalidOperationException">A <c>Replace</c> would fail; nothing was applied.</exception>
@@ -180,7 +190,7 @@ internal sealed class IncrementalSource<T> : IIncrementalSource<T>
                         RemoveCore(operation.Item);
                         break;
                     default:
-                        if (!EqualityComparer<T>.Default.Equals(operation.Item, operation.NewItem))
+                        if (!ItemEquals(operation.Item, operation.NewItem))
                             ReplaceCore(operation.Item, operation.NewItem);
                         break;
                 }
@@ -190,7 +200,12 @@ internal sealed class IncrementalSource<T> : IIncrementalSource<T>
             if (before is not null)
             {
                 var after = BuildSnapshot();
-                changed = !before.AsSpan().SequenceEqual(after, EqualityComparer<T>.Default);
+                changed = !SameItems(before, after);
+
+                // The items are the same: keep publishing the previous snapshot instance, so that
+                // readers holding it see no change at all
+                if (!changed)
+                    Volatile.Write(ref _snapshot, before);
             }
         }
 
@@ -238,7 +253,7 @@ internal sealed class IncrementalSource<T> : IIncrementalSource<T>
                 default:
                     ArgumentNullException.ThrowIfNull(operation.Item, "oldItem");
                     ArgumentNullException.ThrowIfNull(operation.NewItem, "newItem");
-                    if (EqualityComparer<T>.Default.Equals(operation.Item, operation.NewItem))
+                    if (ItemEquals(operation.Item, operation.NewItem))
                         break;
 
                     if (!IsPresent(operation.Item))
@@ -267,7 +282,7 @@ internal sealed class IncrementalSource<T> : IIncrementalSource<T>
 
         void SetPresent(T item, bool present)
         {
-            touched ??= new();
+            touched ??= new(s_structural ? s_comparer : null);
             var before = touched.TryGetValue(item, out var state) ? state.Before : _slotByItem.ContainsKey(item);
             touched[item] = (before, present);
         }
@@ -300,7 +315,7 @@ internal sealed class IncrementalSource<T> : IIncrementalSource<T>
         ArgumentNullException.ThrowIfNull(oldItem);
         ArgumentNullException.ThrowIfNull(newItem);
 
-        if (EqualityComparer<T>.Default.Equals(oldItem, newItem))
+        if (ItemEquals(oldItem, newItem))
             return; // No change
 
         lock (_lock)
@@ -456,6 +471,26 @@ internal sealed class IncrementalSource<T> : IIncrementalSource<T>
         _slotCount = count;
         if (_slots.Length > 4 * Math.Max(count, 4))
             Array.Resize(ref _slots, Math.Max(4, count * 2));
+    }
+
+    private static bool ItemEquals(T x, T y) =>
+        s_structural ? s_comparer.Equals(x, y) : EqualityComparer<T>.Default.Equals(x, y);
+
+    private static bool SameItems(T[] x, T[] y)
+    {
+        if (!s_structural)
+            return x.AsSpan().SequenceEqual(y, EqualityComparer<T>.Default);
+
+        if (x.Length != y.Length)
+            return false;
+
+        for (var i = 0; i < x.Length; i++)
+        {
+            if (!s_comparer.Equals(x[i], y[i]))
+                return false;
+        }
+
+        return true;
     }
 
     /// <summary>
