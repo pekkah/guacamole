@@ -111,6 +111,8 @@ var typeChecked = Parsed.Combine(symbols).Select(pair => TypeCheck(pair.Left, pa
       .Select(pair => TypeCheck(pair.File, pair.Symbols));                                                 // expensive, memoized
   ```
 
+Avoid giving each file its own single-value stage that reads the table (`symbols.Select(d => d.GetValueOrDefault(name))` per file): every edit that changes the table marks and reruns all of them (see the [fan-out benchmark](#benchmark-results)).
+
 With this structure, editing one file reruns its own parse and declaration extraction, an update of the table for its declarations, and the type checks of the files whose (narrowed) inputs changed. See [`examples/CrossFileSymbolsExample`](../examples/CrossFileSymbolsExample/) for a runnable version and `tests/Guacamole.Tests/Regressions/Issue25CrossFileSymbolLookupTests.cs` for the order-dependence it avoids.
 
 ## Build Pipelines Once
@@ -227,6 +229,7 @@ The repository contains BenchmarkDotNet benchmarks in [`benchmarks/Guacamole.Ben
 | `CollectionChangeBenchmarks` | Replacing K of N items, then reading `Items.Select(work).Collect().Select(Sum)`, against recomputing all N items directly |
 | `CollectionPipelineBenchmarks` | Replacing K of 10,000 items, then reading a longer pipeline (`Combine` with a value, `Select`, `Where`, `SelectMany`, `Collect`, sum), against recomputing directly |
 | `SymbolTableBenchmarks` | A symbol table over 10,000 files after K of them changed: `Collect().Select(merge)` against `CollectToDictionary` |
+| `SymbolLookupFanOutBenchmarks` | One edit to one of N files, then reading per-file lookups into a `CollectToDictionary` table (`table.Select(d => ...)` per file, plus a result stage): all results or only the affected one, against the table alone and a direct computation |
 | `DeltaPropagationBenchmarks` | Item-level deltas for a stage that lags behind its input (4 changes, each read by another pipeline, before it reads) and through `Merge` (10,000 items, one replaced per read) |
 | `MemoryOverheadBenchmarks` | Building a context over N items and reading the total, against computing the results directly (time and allocations) |
 | `SourceFanOutBenchmarks` | 100 changes to a source read by N stages, then a read (time per change), against one change and a read |
@@ -280,6 +283,15 @@ It allocates about 420 KB per change and read (each stage's output array; the `C
 | 100 | 1.6 ms, 830 KB | 8.8 ms, 1.47 MB |
 
 The merge sorts the 10,000 files by path and folds their 30,000 declarations into a sorted dictionary on every change. `CollectToDictionary` updates the K files' entries; what remains is mostly the `SelectMany` before it, which copies its 30,000 (name, path) pairs into a new array on every change (a large-object-heap allocation, hence the gen2 collections), and the source snapshot.
+
+**Per-file lookups into the table** (`SymbolLookupFanOutBenchmarks`, #95; the same files, each with its own lookup stage `table.Select(d => (d.GetValueOrDefault(a), d.GetValueOrDefault(b), d.GetValueOrDefault(c)))` for 3 referenced names and a result stage after it; each edit changes the table and the lookup of exactly one other file):
+
+| Files | Table only | Edit, read all N results | Edit, read the affected result | Direct (dictionary updated in place, N lookups) |
+|------:|-----------:|-------------------------:|-------------------------------:|------------------------------------------------:|
+| 1,000 | 23 µs, 70 KB | 1.26 ms, 523 KB | 87 µs, 71 KB | 47 µs, 0 B |
+| 10,000 | 0.41 ms, 668 KB | 17.5 ms, 5.1 MB | 1.39 ms, 669 KB | 0.51 ms, 0 B |
+
+Every lookup stage reads the whole table, and any edit produces a new table, so all N lookup stages are marked dirty and rerun when read; their equality cut-off keeps all but one result stage cached. That costs about 1.2-1.7 µs and 530 bytes per lookup stage per edit when all results are read (34x the direct computation at 10,000 files), and even when only one result is read, the dirty marking walks all 2N stages: about 65-100 ns per file per edit (1 ms at 10,000 files). Up to a few hundred files this is small. The collection pipeline with a narrowed table shown in [Cross-item lookups](#cross-item-lookups-eg-symbol-tables) also reruns its narrowing for every file when the table changes, but inside one stage per step instead of one cached stage per file (not measured here). A per-key lookup operator that marks only the readers of changed keys is tracked in #95.
 
 **Stages that do not read after every change** (`DeltaPropagationBenchmarks`, 10,000 items, one item replaced per change; before #80 in parentheses):
 
