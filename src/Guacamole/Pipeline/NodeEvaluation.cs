@@ -644,8 +644,17 @@ internal sealed class ValueNodeHandle<T> : NodeHandle<T>
 
     protected override T Load(object stored) => (T)stored;
 
-    protected override bool StoredEquals(object previous, object current) =>
-        previous is T previousValue && _comparer.Equals(previousValue, (T)current);
+    protected override bool StoredEquals(object previous, object current)
+    {
+        if (previous is not T previousValue)
+            return false;
+
+        // Collect() decides from its input's delta when it can (see Pipeline/ArrayDelta.cs)
+        if (_node is IDeltaComparable<T> deltaComparable && deltaComparable.TryEquals(previousValue, (T)current, out var equal))
+            return equal;
+
+        return _comparer.Equals(previousValue, (T)current);
+    }
 }
 
 /// <summary>
@@ -703,6 +712,11 @@ internal sealed class CollectionNodeHandle<T> : NodeHandle<IEnumerable<T>>
 
         if (a.Length != b.Length)
             return false;
+
+        // When the node recorded how `a` became `b`, only the replaced items need comparing
+        // (see Pipeline/ArrayDelta.cs)
+        if (ArrayDelta.Get(_node, a, b) is { } delta && ArrayDelta.TryEquals(delta, a, b, _comparer, out var equal))
+            return equal;
 
         for (var i = 0; i < a.Length; i++)
         {

@@ -34,12 +34,19 @@ namespace Guacamole.Pipeline;
 /// reordered input still costs O(n).
 /// </para>
 /// <para>
+/// When the node the items come from recorded the delta from the previous computation's items to
+/// the new ones (see the design note in ArrayDelta.cs), the walk is skipped: the values of the
+/// unchanged runs are copied in bulk and only the edited items go through the map, with the same
+/// map updates as the walk, so the work is a copy plus O(K) map operations for K edits.
+/// </para>
+/// <para>
 /// The map holds exactly the distinct items of the latest published computation. It is updated
 /// only by the computation that holds it (<see cref="_mapBusy"/>), which then publishes its items
 /// and values; a computation running concurrently matches positions only and computes the rest,
 /// without updating the memo. If the lambda throws, the map changes are undone and the previous
 /// computation stays published. <c>null</c> items are not memoized: the lambda runs for them every
-/// time.
+/// time the items are walked (when a delta is applied, unchanged positions keep their values,
+/// whether their items are <c>null</c> or not).
 /// </para>
 /// </remarks>
 /// <typeparam name="TSource">The input item type</typeparam>
@@ -87,22 +94,128 @@ internal sealed class ItemMemo<TSource, TValue>
     /// items equal to one seen then. Exceptions from <paramref name="compute"/> propagate and leave
     /// the memo unchanged. The returned array must not be modified.
     /// </summary>
-    public TValue[] Apply(IEnumerable<TSource> items, Func<TSource, TValue> compute)
+    public TValue[] Apply(IEnumerable<TSource> items, Func<TSource, TValue> compute) =>
+        Apply(items, compute, input: null, out _);
+
+    /// <summary>
+    /// Like <see cref="Apply(IEnumerable{TSource}, Func{TSource, TValue})"/>, and when
+    /// <paramref name="input"/> (the node the items were read from) recorded the delta from the
+    /// previous computation's items to <paramref name="items"/>, applies that delta instead of
+    /// walking all items: the values of unchanged items are copied in bulk, and only the edited
+    /// items are looked up in the map (or computed). <paramref name="step"/> then describes the
+    /// previous computation and the delta (see <see cref="MemoStep{TSource, TValue}"/>).
+    /// </summary>
+    public TValue[] Apply(IEnumerable<TSource> items, Func<TSource, TValue> compute, object? input, out MemoStep<TSource, TValue> step)
     {
         // Arrays from upstream stages and sources are immutable snapshots, so they can be kept
         var current = items as TSource[] ?? items.ToArray();
+        step = default;
 
         if (Interlocked.CompareExchange(ref _mapBusy, 1, 0) != 0)
             return ApplyWithoutMap(current, compute);
 
         try
         {
+            var previous = _latest;
+            if (input != null && previous != null && ArrayDelta.Get(input, previous.Items, current) is { } delta)
+            {
+                var values = ApplyDelta(previous, current, delta, compute);
+                step = new MemoStep<TSource, TValue>(delta, previous.Items, previous.Values);
+                return values;
+            }
+
             return ApplyWithMap(current, compute);
         }
         finally
         {
             Volatile.Write(ref _mapBusy, 0);
         }
+    }
+
+    /// <summary>
+    /// Applies the input's delta from the previous computation's items to <paramref name="current"/>:
+    /// the same map updates as <see cref="ApplyWithMap"/> (occurrences of inserted items added,
+    /// those of removed items removed afterwards, so that a moved item keeps its value), for the
+    /// edited items only. Map held.
+    /// </summary>
+    private TValue[] ApplyDelta(Generation previous, TSource[] current, ArrayDelta<TSource> delta, Func<TSource, TValue> compute)
+    {
+        var previousItems = previous.Items;
+        var previousValues = previous.Values;
+        var edits = delta.Edits;
+        var map = _map ??= new Dictionary<TSource, Entry>(current.Length, s_comparer);
+
+        var values = new TValue[current.Length];
+        var changed = current.Length != previousValues.Length;
+        List<TSource>? added = null; // items whose occurrences were added to the map, to undo on failure
+        int from = 0, to = 0;
+
+        try
+        {
+            foreach (var edit in edits)
+            {
+                var run = edit.RunBefore(from, to);
+                Array.Copy(previousValues, from, values, to, run);
+                from += run;
+                to += run;
+
+                if (edit.To >= 0)
+                {
+                    var item = current[to];
+                    TValue value;
+                    if (item is null)
+                    {
+                        value = compute(item);
+                    }
+                    else
+                    {
+                        if (map.TryGetValue(item, out var entry))
+                        {
+                            value = entry.Value;
+                        }
+                        else
+                        {
+                            value = compute(item);
+                            map.Add(item, new Entry { Value = value });
+                        }
+
+                        CollectionsMarshal.GetValueRefOrNullRef(map, item).Count++;
+                        (added ??= new List<TSource>()).Add(item);
+                    }
+
+                    values[to++] = value;
+                    changed |= edit.From < 0 || !Identity<TValue>.Same(value, previousValues[edit.From]);
+                }
+
+                if (edit.From >= 0)
+                    from++;
+            }
+
+            Array.Copy(previousValues, from, values, to, previousValues.Length - from);
+        }
+        catch
+        {
+            if (added != null)
+            {
+                foreach (var item in added)
+                    RemoveOccurrence(map, item);
+            }
+
+            throw;
+        }
+
+        foreach (var edit in edits)
+        {
+            if (edit.From >= 0 && previousItems[edit.From] is { } item)
+                RemoveOccurrence(map, item);
+        }
+
+        // Every value is the identical one: the values are the previous ones
+        if (!changed)
+            values = previousValues;
+
+        Volatile.Write(ref _latest, new Generation(current, values));
+        return values;
     }
 
     private TValue[] ApplyWithMap(TSource[] current, Func<TSource, TValue> compute)
@@ -282,3 +395,17 @@ internal sealed class ItemMemo<TSource, TValue>
         (!typeof(TSource).IsValueType && ReferenceEquals(item, other))
         || (s_structural ? s_comparer.Equals(item, other!) : EqualityComparer<TSource>.Default.Equals(item, other));
 }
+
+/// <summary>
+/// How an <see cref="ItemMemo{TSource, TValue}"/> computation went. When <see cref="InputDelta"/>
+/// is set, the computation applied that delta (from <see cref="PreviousItems"/>, the previous
+/// computation's items, to the new items): the new values are aligned with the new items as the
+/// previous values are with the previous items, the values outside the edits are the identical
+/// previous ones, and the returned array is <see cref="PreviousValues"/> itself when every edited
+/// value is identical too (and the lengths match). Otherwise (all fields <c>null</c>) the values
+/// were computed by walking all items.
+/// </summary>
+internal readonly record struct MemoStep<TSource, TValue>(
+    ArrayDelta<TSource>? InputDelta,
+    TSource[]? PreviousItems,
+    TValue[]? PreviousValues);

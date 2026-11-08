@@ -100,6 +100,25 @@ public class IncrementalScenarioTests
     }
 
     [Fact]
+    public void CollectionPipelineBenchmarks_IncrementalAndDirectAgree()
+    {
+        var incremental = new CollectionPipelineBenchmarks { Items = 1_000, Changes = 10 };
+        var direct = new CollectionPipelineBenchmarks { Items = 1_000, Changes = 10 };
+        incremental.Setup();
+        direct.Setup();
+        try
+        {
+            for (int i = 0; i < 150; i++) // wraps around the items more than once
+                Assert.Equal(direct.DirectRecompute(), incremental.Incremental());
+        }
+        finally
+        {
+            incremental.Cleanup();
+            direct.Cleanup();
+        }
+    }
+
+    [Fact]
     public void MemoryOverheadBenchmarks_BothVariantsComputeTheSameTotal()
     {
         var benchmarks = new MemoryOverheadBenchmarks { Items = 1_000 };

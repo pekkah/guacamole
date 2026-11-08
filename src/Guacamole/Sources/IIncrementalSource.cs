@@ -9,8 +9,10 @@ namespace Guacamole;
 /// and automatically invalidate the computation cache when data changes.
 /// </summary>
 /// <remarks>
-/// A collection source has set semantics (no duplicates, using the item's equality) and keeps its
-/// items in insertion order: <see cref="GetSnapshot"/> and the provider returned by
+/// A collection source has set semantics (no duplicates, using the item's equality, except that an
+/// <see cref="System.Collections.Immutable.ImmutableArray{T}"/> item is compared element-wise and a
+/// two- or three-component value tuple holding one component-wise, as in the pipeline's operators)
+/// and keeps its items in insertion order: <see cref="GetSnapshot"/> and the provider returned by
 /// <see cref="AsProvider"/> enumerate items in the order they were pushed, so downstream results such
 /// as <c>Collect()</c> are deterministic. <see cref="Replace"/> keeps the replaced item's position;
 /// removing an item and pushing it again moves it to the end.

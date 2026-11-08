@@ -139,10 +139,17 @@ public partial class PerItemMemoizationTests
         Assert.Equal(-1, first[9]);
         Assert.Equal(N, calls);
 
-        // The five null items rerun; the other items hit the memo.
+        // The upstream Select records the delta of its output (one inserted item), so the unchanged
+        // items, null ones included, keep their results and only the new item runs (#61).
         context.ItemsSource.Push(N + 1);
         Assert.Equal(2, lengths.Values.Last());
-        Assert.Equal(N + 1 + N / 10, calls);
+        Assert.Equal(N + 1, calls);
+
+        // Without a delta (40 pushes overflow the source's change log), all items are walked: the
+        // five null items rerun, the other previous items hit the memo, and the new items run.
+        context.ItemsSource.PushRange(Enumerable.Range(N + 2, 40));
+        Assert.Equal(2, lengths.Values.Last());
+        Assert.Equal(N + 1 + N / 10 + 40, calls);
     }
 
     [Fact]

@@ -41,10 +41,25 @@ Collection operators (`Select`, `Where`, `SelectMany` on `IncrementalValuesProvi
 
 - A reused result is the **same instance** as before, so the next stage's memo hits too, even when the result type only has reference equality.
 - The memo holds one entry per distinct item of the latest computation and is updated in place when a computation completes; if a lambda throws, the stage returns an error and keeps its previous memo.
-- `null` items are not memoized; the lambda runs for them every time.
+- `null` items are not memoized; the lambda runs for them whenever the stage walks its items (see below).
 - Items must be immutable (records are ideal): an item mutated in place still equals itself, so its stale result would be reused.
-- The stage still walks the whole collection on recomputation (one comparison per unchanged item, and a new result array unless every result is unchanged); only the lambda calls and the memo bookkeeping for unchanged items are saved. To avoid even that for unrelated data, split it into separate sources.
+- After a few item changes, a stage does not even walk the collection: it applies its input's item-level delta to its previous output (see [Item-level deltas](#item-level-deltas)). When no delta is available it walks the whole collection (one comparison per unchanged item, and a new result array unless every result is unchanged), saving only the lambda calls and the memo bookkeeping for unchanged items.
 - Memoization is per item. A lambda that also depends on a combined value (`values.Combine(value)`) sees a new input for every item when that value changes; see [cross-item lookups](#cross-item-lookups-eg-symbol-tables) for keeping such inputs equal.
+
+### Item-level deltas
+
+Collection sources record which items each change inserted, removed or replaced, and the collection stages `Select`, `Where`, `SelectMany` and `values.Combine(value)` pass that on: each derives its new output from its previous output and the edits of its input (copying the unchanged items in bulk and running its lambda only for the edited ones), and records the edits of its output for the next stage. The change check of a stage (is the new output equal to the cached one, so that the stages after it stay cached?) and of `Collect()` then compares only the replaced items. After K item changes in an N-item source, the per-item work of such a pipeline is O(K).
+
+What is still O(N) per read: each stage allocates a new output array and copies the unchanged items into it (a memory copy, about 1 ns per item), the source copies its snapshot the same way, and whatever consumes a `Collect()`ed array (a sum, building a dictionary) walks all of it. `Collect()` itself wraps its input's array without copying.
+
+A stage falls back to walking its whole input (the behaviour described above) when no delta from the input it last read is available:
+
+- the first computation, or the input recomputed more than once since the stage last read it (only the latest delta is kept; for example a provider read rarely while another pipeline on the same source is read after every change);
+- more changes between two reads than about half the source's items, `Clear()`, and occasionally after many removals (when the source compacts its storage);
+- an input that does not record deltas: custom nodes, single-value operators, `Merge`, or a stage reading an error;
+- concurrent recomputations of the same stage (one of them walks).
+
+The results are the same either way; only the cost differs.
 
 ## Cross-Item Lookups (e.g. Symbol Tables)
 
@@ -166,6 +181,7 @@ A batch is all or nothing: if an operation would fail (`Replace` of an item that
       // ...
   }
   ```
+- Outside the cache, collection `Select`, `Where` and `SelectMany` stages keep their per-item memo (the latest input and results), and `Where`, `SelectMany` and `values.Combine(value)` also keep their latest output for [item-level deltas](#item-level-deltas) (`SelectMany` also an offset per item, `Combine` its latest input). That is about one or two N-element arrays per collection stage, released when the node is trimmed.
 - Nodes created by operator calls stay registered in the graph until `TrimUnusedNodes()` (called explicitly, or automatically with `AutoTrimInterval`) removes the ones nothing references anymore (see [Build Pipelines Once](#build-pipelines-once)).
 - `Dispose()` unsubscribes the context from its sources and drops its output registrations.
 
@@ -185,6 +201,7 @@ The repository contains BenchmarkDotNet benchmarks in [`benchmarks/Guacamole.Ben
 | `CachingBenchmarks` | Cold read (cache cleared) vs warm read, and a warm read of a collection stage's `.Values` |
 | `IncrementalUpdateBenchmarks` | Reading a total over N sources (a binary reduction tree) after one source changed, for N = 16, 256, 4,096, against recomputing the total directly |
 | `CollectionChangeBenchmarks` | Replacing K of N items, then reading `Items.Select(work).Collect().Select(Sum)`, against recomputing all N items directly |
+| `CollectionPipelineBenchmarks` | Replacing K of 10,000 items, then reading a longer pipeline (`Combine` with a value, `Select`, `Where`, `SelectMany`, `Collect`, sum), against recomputing directly |
 | `MemoryOverheadBenchmarks` | Building a context over N items and reading the total, against computing the results directly (time and allocations) |
 | `SourceFanOutBenchmarks` | 100 changes to a source read by N stages, then a read (time per change), against one change and a read |
 | `GraphConstructionBenchmarks` | Building a chain of N nodes with `ComputationGraph.AddNode` |
@@ -210,14 +227,23 @@ One short run (`--job short --inProcess`, 3 iterations) per benchmark, before an
 | 256 | 1,022 | 52 ns | 13 µs | 27 µs |
 | 4,096 | 16,382 | 53 ns | 21 µs | 0.44 ms |
 
-**K changed items out of N** (`CollectionChangeBenchmarks`, incremental vs direct):
+**K changed items out of N** (`CollectionChangeBenchmarks`, `Items.Select(work).Collect().Select(Sum)`, incremental vs direct; before the item-level deltas of #61 in parentheses):
 
 | Items | K = 1 | K = 10 | K = 100 |
 |------:|------:|-------:|--------:|
-| 1,000 | 13 µs vs 110 µs | 18 µs vs 111 µs | 60 µs vs 112 µs |
-| 10,000 | 98 µs vs 1.12 ms | 108 µs vs 1.13 ms | 161 µs vs 1.09 ms |
+| 1,000 | 8.0 µs (15 µs) vs 116 µs | 14 µs (19 µs) vs 113 µs | 62 µs (64 µs) vs 111 µs |
+| 10,000 | 34 µs (108 µs) vs 1.10 ms | 42 µs (116 µs) vs 1.12 ms | 95 µs (161 µs) vs 1.12 ms |
 
-The incremental variant allocated 17 KB per change and read at 1,000 items and 161 KB at 10,000 items (K = 1; 169 KB at K = 100), with no gen2 collections; the direct one allocates nothing.
+The incremental variant allocated 17 KB per change and read at 1,000 items and 161 KB at 10,000 items (K = 1; 174 KB at K = 100), with no gen2 collections, about the same as before: the source snapshot and the `Select` result are still new N-element arrays. The direct one allocates nothing.
+
+**K changed items through a longer pipeline** (`CollectionPipelineBenchmarks`, 10,000 items, `Items.Combine(factor).Select(work).Where(even).SelectMany(fan-out 0-2).Collect().Select(Sum)`):
+
+| K | Incremental | Before #61's deltas | Direct recompute |
+|--:|------------:|--------------------:|-----------------:|
+| 1 | 153 µs | 414 µs | 1.34 ms |
+| 100 | 309 µs | 507 µs | 1.42 ms |
+
+It allocates about 420 KB per change and read (each stage's output array; the `Combine` tuples go to the large object heap), the same as before.
 
 **Many changes between two reads** (`SourceFanOutBenchmarks`, one source read by N stages): 100 changes and then a read cost 0.18 µs / 0.44 µs / 3.8 µs per change for N = 100 / 1,000 / 10,000, one walk over the stages for the first change plus a constant for each further one; a single change and a read cost 3.9 µs / 29 µs / 0.36 ms. Before #71 every change walked all N stages: 3.0 µs / 28 µs / 0.38 ms per change.
 
@@ -225,13 +251,13 @@ The incremental variant allocated 17 KB per change and read at 1,000 items and 1
 
 **Memory overhead** (`MemoryOverheadBenchmarks`): building a context over 1,000 / 10,000 items and reading the total took 0.20 ms / 2.2 ms and allocated 126 KB / 1.2 MB, against 0.11 ms / 1.1 ms and 8 KB / 78 KB for computing the results directly (about 16x the allocations).
 
-For comparison, the same run of the engine before the changes in #57, #60, #61 and #62: one source changed 11 µs / 96 µs / 2.5 ms (16 / 256 / 4,096 sources); K changed items 75 / 93 / 275 µs at 1,000 items and 1.04 / 1.02 / 1.37 ms at 10,000 (607-870 KB per read at 10,000, with gen2 collections); building 1.2 ms / 16 ms and 1.5 MB / 18.6 MB.
+The other benchmarks (`IncrementalUpdateBenchmarks`, `MemoryOverheadBenchmarks`) were unchanged by #61's deltas, within the error margins. For comparison, the same run of the engine before the changes in #57, #60, #61 (its first part) and #62: one source changed 11 µs / 96 µs / 2.5 ms (16 / 256 / 4,096 sources); K changed items 75 / 93 / 275 µs at 1,000 items and 1.04 / 1.02 / 1.37 ms at 10,000 (607-870 KB per read at 10,000, with gen2 collections); building 1.2 ms / 16 ms and 1.5 MB / 18.6 MB.
 
 What this shows:
 
 - **Cached reads are constant-time.** A read with no change since the last one costs about 50 ns (80 ns before #76 removed a lock taken on every cache access), whatever the graph size.
 - **Recomputation and verification are proportional to the changes.** After one source changes, only the changed leaf's lambda and the stages on its path to the root rerun, and only the stages on that path are verified input by input; every other stage costs one check. The time grows with the depth of the tree (log N here), not its size. After K item replacements, the per-item lambda runs K times. The tests in `tests/Guacamole.Benchmarks.Tests/IncrementalScenarioTests.cs` assert these call counts.
-- **Collection stages are still O(N) per recompute**, but cheaply: a recomputed `Select` compares each unchanged item with its previous position (a reference comparison for unchanged items), allocates one result array, and the stages after it (`Collect`, the sum, the change checks) walk all N items. That is about 10 ns per item here, so with per-item work of 0.1 µs the incremental read beats the direct recompute even at K = 100.
+- **Collection stages do O(K) work per K item changes, plus O(N) memory copies.** `Select`, `Where`, `SelectMany` and `values.Combine(value)` apply their input's item-level delta (see [Item-level deltas](#item-level-deltas)), and the change checks of these stages and of `Collect()` compare only the replaced items. What remains O(N) is copying: the source snapshot and each stage's output array are new arrays (about 3 ns per item and stage here, allocation included), and the sum after `Collect()` walks all N results. At 10,000 items and K = 1 that is about 34 µs, against 108 µs when every stage walked and compared all N items.
 - **Each change has a fixed cost** of a few µs: the source update, marking the stages downstream of the source, and recomputing the changed path (about 0.5 µs per recomputed stage here). With work as cheap as 0.1 µs per stage, small graphs (16 sources) are still faster to recompute directly. Incremental evaluation pays off when the graph is large or the work per stage or item is clearly more expensive than that (parsing, type checking, anything allocating or doing I/O).
 - **Setup costs about twice a direct computation.** `PushRange` adds all items in one step; the remaining allocations are the source's storage and snapshot, one memo entry per item and the result arrays.
 

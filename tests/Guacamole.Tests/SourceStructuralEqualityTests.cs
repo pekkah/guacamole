@@ -242,4 +242,187 @@ public partial class SourceStructuralEqualityTests
         Assert.Same(first[2], third[0]);
         Assert.Equal(4, memo.Count);
     }
+    // Issue #75: collection sources use the structural comparer for their set semantics
+
+    private static T[] Items<T>(IIncrementalSource<T> source) => ((IncrementalSource<T>)source).GetItems();
+
+    [Fact]
+    public void CollectionSource_PushEqualNewArray_IsANoOp()
+    {
+        using var context = new ArrayContext();
+        var notifications = 0;
+        context.RowsSource.Changed += (_, _) => notifications++;
+
+        context.RowsSource.Push(Build("a", "b"));
+        context.RowsSource.Push(Build("a", "b"));
+        context.RowsSource.PushRange([Build("a", "b"), Build("c")]);
+
+        Assert.Equal(2, notifications);
+        Assert.Equal(2, context.RowsSource.GetSnapshot().Count);
+        Assert.Equal(["a|b", "c"], context.Rows.Values.Select(r => string.Join("|", r)));
+    }
+
+    [Fact]
+    public void CollectionSource_ReplaceWithEqualNewArray_IsANoOp()
+    {
+        using var context = new ArrayContext();
+        var a1 = Build("a");
+        context.RowsSource.Push(a1);
+        var snapshot = Items(context.RowsSource);
+        var notifications = 0;
+        context.RowsSource.Changed += (_, _) => notifications++;
+
+        context.RowsSource.Replace(a1, Build("a"));
+
+        Assert.Equal(0, notifications);
+        Assert.Same(snapshot, Items(context.RowsSource));
+    }
+
+    [Fact]
+    public void CollectionSource_RemoveAndReplace_FindItemsStructurally()
+    {
+        using var context = new ArrayContext();
+        context.RowsSource.PushRange([Build("a"), Build("b")]);
+
+        context.RowsSource.Replace(Build("a"), Build("x"));
+        context.RowsSource.Remove(Build("b"));
+
+        Assert.Equal(["x"], context.Rows.Values.Select(r => string.Join("|", r)));
+        Assert.Throws<InvalidOperationException>(() => context.RowsSource.Replace(Build("y"), Build("z")));
+    }
+
+    [Fact]
+    public void CollectionSource_BatchOfEqualArrays_DoesNotNotify()
+    {
+        using var context = new ArrayContext();
+        var a1 = Build("a");
+        context.RowsSource.Push(a1);
+        var snapshot = Items(context.RowsSource);
+        var notifications = 0;
+        context.RowsSource.Changed += (_, _) => notifications++;
+
+        using (IBatchOperation<ImmutableArray<string>> batch = context.RowsSource.BeginBatch())
+        {
+            batch.Push(Build("a"));
+            batch.Replace(a1, Build("a"));
+            batch.Commit();
+        }
+
+        Assert.Equal(0, notifications);
+        Assert.Same(snapshot, Items(context.RowsSource));
+    }
+
+    [Fact]
+    public void CollectionSource_BatchReplacingWithAnEqualArray_IsNotAChange()
+    {
+        using var context = new ArrayContext();
+        var a1 = Build("a");
+        context.RowsSource.PushRange([a1, Build("b")]);
+        var snapshot = Items(context.RowsSource);
+        var notifications = 0;
+        context.RowsSource.Changed += (_, _) => notifications++;
+
+        // Replaces a with x and x with an equal, newly built a: the items end up the same
+        using (IBatchOperation<ImmutableArray<string>> batch = context.RowsSource.BeginBatch())
+        {
+            batch.Replace(a1, Build("x"));
+            batch.Replace(Build("x"), Build("a"));
+            batch.Commit();
+        }
+
+        Assert.Equal(0, notifications);
+        Assert.Same(snapshot, Items(context.RowsSource));
+    }
+
+    [Fact]
+    public void CollectionSource_CancellingBatch_KeepsTheSnapshotInstance()
+    {
+        using var context = new ArrayContext();
+        context.RowsSource.PushRange([Build("a"), Build("b")]);
+        var snapshot = Items(context.RowsSource);
+        var notifications = 0;
+        context.RowsSource.Changed += (_, _) => notifications++;
+
+        using (IBatchOperation<ImmutableArray<string>> batch = context.RowsSource.BeginBatch())
+        {
+            batch.Push(Build("c"));
+            batch.Remove(Build("c"));
+            batch.Remove(Build("b"));
+            batch.Push(Build("b")); // b was last: the order is unchanged
+            batch.Commit();
+        }
+
+        Assert.Equal(0, notifications);
+        Assert.Same(snapshot, Items(context.RowsSource));
+
+        // The source keeps working after the cancelled batch
+        context.RowsSource.Remove(Build("a"));
+        Assert.Equal(["b"], context.Rows.Values.Select(r => string.Join("|", r)));
+    }
+
+    [Fact]
+    public void CollectionSource_RandomBatchesOfNewArrays_MatchAStructuralModel()
+    {
+        var random = new Random(75);
+        using var context = new ArrayContext();
+        var model = new List<string>(); // rows joined with "|"
+        var notifications = 0;
+        context.RowsSource.Changed += (_, _) => notifications++;
+        ImmutableArray<string> Row(int key) => [.. key.ToString().Select(c => c.ToString())]; // always a new array
+
+        for (var round = 0; round < 2_000; round++)
+        {
+            var expected = new List<string>(model);
+            var fails = false;
+            IBatchOperation<ImmutableArray<string>> batch = context.RowsSource.BeginBatch();
+            for (var i = random.Next(1, 6); i > 0; i--)
+            {
+                var item = random.Next(10, 18);
+                var key = string.Join("|", Row(item));
+                switch (random.Next(3))
+                {
+                    case 0:
+                        batch.Push(Row(item));
+                        if (!expected.Contains(key))
+                            expected.Add(key);
+                        break;
+                    case 1:
+                        batch.Remove(Row(item));
+                        expected.Remove(key);
+                        break;
+                    default:
+                        var replacement = random.Next(10, 18);
+                        var replacementKey = string.Join("|", Row(replacement));
+                        batch.Replace(Row(item), Row(replacement));
+                        if (item == replacement)
+                            break;
+                        var index = expected.IndexOf(key);
+                        if (index < 0 || expected.Contains(replacementKey))
+                            fails = true;
+                        else
+                            expected[index] = replacementKey;
+                        break;
+                }
+            }
+
+            var before = notifications;
+            var snapshot = Items(context.RowsSource);
+            if (fails)
+            {
+                Assert.ThrowsAny<InvalidOperationException>(batch.Commit);
+                expected = model;
+            }
+            else
+            {
+                batch.Commit();
+            }
+
+            var unchanged = expected.SequenceEqual(model);
+            Assert.Equal(expected, context.Rows.Values.Select(r => string.Join("|", r)));
+            Assert.Equal(unchanged ? before : before + 1, notifications);
+            if (unchanged)
+                Assert.Same(snapshot, Items(context.RowsSource));
+            model = expected;
+        }
+    }
 }
