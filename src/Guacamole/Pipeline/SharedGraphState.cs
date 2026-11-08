@@ -362,8 +362,12 @@ internal sealed class SharedGraphState
     /// <item>P takes the revision r_C that C advanced to as its revision.</item>
     /// <item>A node evaluation of P that began before C (it encloses C) records no stamp, and marks its
     /// value verified at the revision it began with. The one exception is the stamp of D's own
-    /// commit, whose evaluation ends with C. A gated node's evaluation begins afresh once its gates are
-    /// up to date, so the node whose read made C is not such an evaluation.</item>
+    /// commit, whose evaluation ends with C. A gated node whose gate refresh made C may still record a
+    /// stamp (its counter is read again, and the count of P's own key changes taken again, once its
+    /// gates are up to date), but it too marks its value at the revision it began with: the gates'
+    /// dictionary may have been computed from contents read before C, which a source change completed
+    /// during that computation has since replaced without changing a key this node reads, so the value
+    /// has not been verified at r_C.</item>
     /// <item>If a change other than P's own is in progress when C ends, P counts from then on as
     /// overlapping a change (<see cref="GraphEvaluator.OverlapsChange"/>): it no longer takes values by
     /// their revision nor trusts root versions, as a pass starting then would not (it cannot stamp
@@ -393,7 +397,11 @@ internal sealed class SharedGraphState
     /// had marked everything, which accepts only values verified at its revision or later, inductively
     /// with the same property. So the evaluation accepts exactly the values P' would. Results that
     /// were not cached, kept by P from before t (<see cref="GraphEvaluator.FailedReads"/>), make the
-    /// reading node's result uncached too, so they are never stamped.</item>
+    /// reading node's result uncached too, so they are never stamped. The one exception is a gated
+    /// node whose gate refresh made C: its gates' dictionary was computed by P before t, possibly from
+    /// contents read before a source change S that completed while it was computed. Its stamp is still
+    /// sound, because S started after P started and so 1 fails, but its revision mark would not be, so
+    /// 4 keeps it at the revision the evaluation began with (issue #104 review).</item>
     /// </list>
     /// <para>
     /// The arguments above (#71 and the gates) use only that a stamping pass saw no change in progress

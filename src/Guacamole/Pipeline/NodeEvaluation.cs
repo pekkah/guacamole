@@ -737,9 +737,10 @@ internal abstract class NodeHandle<TResult> : NodeHandle
     /// <summary>
     /// For a gated node that is not verified at the pass's revision: brings the gates up to date
     /// before anything else, then reads the dirty counter again (into <paramref name="dirty"/>), which
-    /// the stamp is compared with. The rest of the evaluation starts afresh from there
-    /// (<paramref name="start"/> is taken again), so a key change of the pass's own made by refreshing
-    /// the gates does not keep the node from being stamped.
+    /// the stamp is compared with. The count of own key changes in <paramref name="start"/> is taken
+    /// again, so a key change of the pass's own made by refreshing the gates does not keep the node
+    /// from being stamped; its revision is kept, so the node's value is marked verified at the
+    /// revision the evaluation began with.
     /// </summary>
     /// <remarks>
     /// Refreshing a gate recomputes the dictionary node if a change upstream of it has marked it, and
@@ -756,7 +757,13 @@ internal abstract class NodeHandle<TResult> : NodeHandle
             gate.Refresh(evaluator);
 
         dirty = State.Dirty;
-        start = new EvaluationStart(evaluator.Revision, evaluator.OwnKeyChanges);
+
+        // Only the count of own key changes starts afresh: the gates' values may have been computed
+        // before such a key change, from contents that a source change completed during that
+        // computation has since replaced without changing any key this node reads. So the node is
+        // still marked verified at the revision it began with, never at the one the key change
+        // advanced to (see the remarks of SharedGraphState.MarkKeysChanged, rule 4)
+        start = start with { OwnKeyChanges = evaluator.OwnKeyChanges };
     }
 
     private bool IsUpToDate(CachedNodeValue entry, GraphEvaluator evaluator)

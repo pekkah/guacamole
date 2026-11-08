@@ -122,6 +122,47 @@ public partial class LookupStampTests
     }
 
     /// <summary>
+    /// A gated node whose gate refresh made the pass's own key change keeps the revision it began
+    /// with. The read of k recomputes the table after m's edit; while the table computes (from the
+    /// contents before), another thread's edit of k completes. The table's commit changes m's key,
+    /// which advances the revision, but not k's, so k's lookup still matches its stamp. Were it marked
+    /// verified at the advanced revision, the next read would take that value without looking at the
+    /// table again, and return k's value from before the completed edit.
+    /// </summary>
+    [Fact]
+    public void AGatedNodeWhoseGatesMadeAnOwnKeyChange_IsNotVerifiedPastAChangeTheGatesMissed()
+    {
+        var token = TestContext.Current.CancellationToken;
+        using var context = new DeclContext();
+        var armed = 0;
+        var table = context.Decls.Collect().Select(decls =>
+        {
+            if (Interlocked.Exchange(ref armed, 0) == 1)
+                Task.Run(() => context.DeclsSource.Replace(new Decl(0, "k", 1), new Decl(0, "k", 2)), token).Wait(token);
+
+            return decls.ToImmutableDictionary(d => d.Name, d => d.Value);
+        });
+        var k = table.Lookup("k");
+        var m = table.Lookup("m");
+        context.DeclsSource.PushRange([new Decl(0, "k", 1), new Decl(1, "m", 1)]);
+        Assert.Equal(1, k.Value);
+        Assert.Equal(1, m.Value);
+        Assert.Equal(1, k.Value); // stamped
+        Assert.Equal(1, m.Value);
+
+        context.DeclsSource.Replace(new Decl(1, "m", 1), new Decl(1, "m", 2)); // changes m only
+        Volatile.Write(ref armed, 1);
+        var overlapping = k.Value; // overlaps the edit of k: either value
+        Assert.InRange(overlapping, 1, 2);
+        Assert.Equal(0, Volatile.Read(ref armed));
+
+        // The edit of k has completed
+        Assert.Equal(2, k.Value);
+        Assert.Equal(2, m.Value);
+        Assert.Equal(2, table.Value["k"]);
+    }
+
+    /// <summary>
     /// The epoch increment after the pass's own key change. x reads k of one table and j of
     /// another, whose gates are refreshed in that order. The first read of each round recomputes the
     /// first table (a stamp decision, which advances the epoch) and then the second, whose key change
