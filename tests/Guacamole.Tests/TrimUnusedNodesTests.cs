@@ -19,6 +19,50 @@ public sealed class GarbageCollectionTestCollection
 }
 
 /// <summary>
+/// Deterministic reclamation for tests that check what remains registered once pipelines have been
+/// dropped. A trim only removes nodes that have already been collected and releases the node-reuse
+/// cache's references to the others, so reclaiming everything takes trim, collect, trim; this
+/// repeats that until the registry stops shrinking, instead of relying on when the runtime collects.
+/// </summary>
+internal static class NodeReclamation
+{
+    /// <summary>Two full blocking collections, running the finalizers in between.</summary>
+    public static void CollectGarbage()
+    {
+        for (var i = 0; i < 2; i++)
+        {
+            GC.Collect();
+            GC.WaitForPendingFinalizers();
+        }
+    }
+
+    /// <summary>
+    /// Trims, collects and trims again until the number of registered runtime nodes is the same
+    /// after two consecutive rounds (at most <paramref name="maxRounds"/> rounds). Call it only once
+    /// every thread that built pipelines has finished, from a frame that holds no dropped provider.
+    /// </summary>
+    /// <returns>The number of registered runtime nodes left</returns>
+    public static int TrimUntilStable(ComputingContextBase context, int maxRounds = 10)
+    {
+        var previous = -1;
+        for (var round = 0; round < maxRounds; round++)
+        {
+            context.TrimUnusedNodes();
+            CollectGarbage();
+            context.TrimUnusedNodes();
+
+            var current = context.Graph.GetRuntimeNodeCount();
+            if (current == previous)
+                return current;
+
+            previous = current;
+        }
+
+        throw new InvalidOperationException($"The node registry did not stabilize within {maxRounds} rounds ({previous} nodes left).");
+    }
+}
+
+/// <summary>
 /// Issue #41: <see cref="ComputingContextBase.TrimUnusedNodes"/> keeps the node registry, cached
 /// values and version records bounded when pipelines are built dynamically, without ever affecting
 /// a pipeline that is still referenced.
@@ -35,14 +79,7 @@ public partial class TrimUnusedNodesTests
 
     private static int Triple(int x) => x * 3;
 
-    private static void CollectGarbage()
-    {
-        for (var i = 0; i < 2; i++)
-        {
-            GC.Collect();
-            GC.WaitForPendingFinalizers();
-        }
-    }
+    private static void CollectGarbage() => NodeReclamation.CollectGarbage();
 
     /// <summary>Trims, collects what the trim released, and trims again.</summary>
     private static void TrimFully(ComputingContextBase context)
@@ -272,6 +309,8 @@ public partial class TrimUnusedNodesTests
         context.ItemsSource.Push(1);
         context.ItemsSource.Push(2);
         var kept = context.Number.Select(x => x * 100);
+        Assert.Equal(100, kept.Value);
+        var baseline = NodeReclamation.TrimUntilStable(context);
         using var stop = new CancellationTokenSource();
 
         var workers = Enumerable.Range(0, 4).Select(worker => Task.Run(() =>
@@ -294,8 +333,11 @@ public partial class TrimUnusedNodesTests
         await stop.CancelAsync();
         await Task.WhenAll(workers);
 
-        TrimFully(context);
+        // The workers have finished and their pipelines are unreachable: everything they built is
+        // reclaimed, leaving exactly what was registered before they started
+        Assert.Equal(baseline, NodeReclamation.TrimUntilStable(context));
+        Assert.True(baseline <= 3, $"runtime nodes: {baseline}");
         Assert.Equal(100, kept.Value);
-        Assert.True(context.Graph.GetRuntimeNodeCount() <= 3, $"runtime nodes: {context.Graph.GetRuntimeNodeCount()}");
+        GC.KeepAlive(kept);
     }
 }

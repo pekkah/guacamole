@@ -49,14 +49,7 @@ public partial class AutoTrimTests
         public partial IncrementalValueProvider<int> Number { get; }
     }
 
-    private static void CollectGarbage()
-    {
-        for (var i = 0; i < 2; i++)
-        {
-            GC.Collect();
-            GC.WaitForPendingFinalizers();
-        }
-    }
+    private static void CollectGarbage() => NodeReclamation.CollectGarbage();
 
     private static (int RuntimeNodes, int Versions, int CachedValues, int ReusableNodes) Sizes(ComputingContextBase context) => (
         context.Graph.GetRuntimeNodeCount(),
@@ -225,6 +218,14 @@ public partial class AutoTrimTests
         Assert.Equal(4, outer.Value);
     }
 
+    /// <summary>
+    /// Issue #79: the registry left by the workers is reclaimed deterministically (explicit trims and
+    /// collections once they have been joined), not by counting on a fixed number of automatic trims.
+    /// Automatic trims are amortized (the next one waits for half as many new nodes as remain
+    /// registered) and only remove nodes released by an earlier trim and collected since, so shrinking
+    /// a registry of N nodes takes about 2N new nodes; N depends on how many pipelines the workers
+    /// built and on when the collections ran, so no fixed budget of new nodes is always enough.
+    /// </summary>
     [Fact]
     public async Task AutoTrimOn_ConcurrentBuildAndRead_IsSafe()
     {
@@ -232,6 +233,10 @@ public partial class AutoTrimTests
         Initialize(context.NumberSource, context.ItemsSource);
         var kept = context.Number.Select(x => x * 100);
         var keptCount = context.Items.Collect().Select(all => all.Length);
+        Assert.Equal(100, kept.Value);
+        Assert.Equal(2, keptCount.Value);
+        NodeReclamation.TrimUntilStable(context);
+        var baseline = Sizes(context);
         using var stop = new CancellationTokenSource();
 
         var workers = Enumerable.Range(0, 4).Select(worker => Task.Run(() =>
@@ -260,20 +265,27 @@ public partial class AutoTrimTests
         Assert.Equal(100, kept.Value);
         Assert.Equal(2, keptCount.Value);
 
-        // Single-threaded from here: the leftovers are reclaimed by further automatic trims. A
-        // large registry left by the workers raises the trim threshold (half the registry), so it
-        // may take a few rounds of new nodes to get back down.
+        // The workers have been joined and nothing references their pipelines: once reclaimed, exactly
+        // the state registered before they started remains (nothing leaked into the registry, the
+        // version records or the reuse cache; the value cache may have evicted a kept value under the
+        // workers' load, as the kept providers are served through their revision stamps)
         var afterWorkers = context.Graph.GetRuntimeNodeCount();
-        var rounds = 0;
-        while (context.Graph.GetRuntimeNodeCount() > 4 * Interval && rounds < 200)
-        {
-            BuildMany(context, context.Number, context.Items, 20, start: 1_000_000 + rounds++ * 20);
-        }
+        NodeReclamation.TrimUntilStable(context);
+        var reclaimed = Sizes(context);
+        var message = $"after reclaiming: {reclaimed}, before the workers: {baseline}, {afterWorkers} after the workers";
+        Assert.True(reclaimed.RuntimeNodes == baseline.RuntimeNodes, message);
+        Assert.True(reclaimed.Versions == baseline.Versions, message);
+        Assert.True(reclaimed.ReusableNodes == baseline.ReusableNodes, message);
+        Assert.True(reclaimed.CachedValues <= baseline.CachedValues, message);
 
-        Assert.True(
-            context.Graph.GetRuntimeNodeCount() <= 4 * Interval,
-            $"runtime nodes: {Sizes(context)} after {rounds} rounds, {afterWorkers} after the workers");
+        // Automatic trimming carries on as usual: from the reclaimed registry, single-threaded
+        // building stays bounded without explicit trims (see AutoTrimOn_LaterTrimsReclaimNodesReleasedByEarlierOnes)
+        var trimsBefore = context.Graph.SharedState.AutoTrimCount;
+        BuildMany(context, context.Number, context.Items, 100, start: 1_000_000);
+        Assert.True(context.Graph.SharedState.AutoTrimCount >= trimsBefore + 2);
+        Assert.True(context.Graph.GetRuntimeNodeCount() <= 4 * Interval, $"runtime nodes: {Sizes(context)}");
         Assert.Equal(100, kept.Value);
+        Assert.Equal(2, keptCount.Value);
         GC.KeepAlive(kept);
         GC.KeepAlive(keptCount);
     }
