@@ -314,7 +314,7 @@ context.SourcesSource.Push(new SourceFile("Main.cs", "a b"));
 Handler behavior:
 - Handlers are not run at registration; they run after **any** source of the context changes.
 - A handler is called only if its provider computes a value (not an error, and not "no value" from a `Where`) and the value differs from the last value delivered to that handler.
-- Handlers run synchronously on the thread that changed the source.
+- Handlers run synchronously, usually on the thread that changed the source. One handler is never called concurrently with itself or re-entrantly (a change made while it runs, on any thread, is delivered after it returns), so it never sees the same value twice in a row and ends with the current value.
 - If handlers throw, the remaining handlers still run and the exceptions are rethrown together as an `AggregateException` from the `Push`/`Set`/... call.
 - `RegisterOutput` returns an `IDisposable`: disposing it unregisters that handler only (disposing twice is a no-op).
 - After `Dispose()`, the context no longer listens to its sources and all of its handlers are dropped; reading its providers or changing its sources throws `ObjectDisposedException`.

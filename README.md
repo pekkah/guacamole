@@ -269,7 +269,7 @@ IDisposable registration = context.RegisterOutput(provider, (value, ctx) => { /*
 registration.Dispose();
 ```
 
-- Handlers run synchronously, on the thread that changed a source, after **any** source of the context changes. They are not run at registration time.
+- Handlers run synchronously, before the `Push`/`Set`/... call returns, after **any** source of the context changes. They are not run at registration time.
 - A handler is invoked only if its provider computes a value (not an error, and not "no value" from a `Where`; a `null` value is delivered) and the value differs from the last value delivered to that handler; after a "no value" phase, a reappearing value is delivered again even if it equals the last one (the provider's comparer when it was created with one, e.g. `Select(selector, comparer)`, otherwise `EqualityComparer<T>.Default`; element-wise for collections). `Collect()` results compare element-wise (in order), so a handler on a collected provider does not run for a re-collect with equal items; other `ImmutableArray<T>`, list or dictionary values returned by a `Select` compare by reference.
 - All handlers run even if one throws; afterwards the exceptions are rethrown as one `AggregateException` from the `Push`/`Set`/... call that triggered them.
 - `RegisterOutput` returns an `IDisposable`; disposing it unregisters that handler only (thread-safe, idempotent; no new call of the handler starts once `Dispose` returns). Collection handlers receive an `IReadOnlyList<T>`.
@@ -282,10 +282,11 @@ What is synchronized:
 - Each source guards its contents with its own lock (collection sources publish an immutable snapshot, so their reads take no lock), so `Push`/`Remove`/`Replace`/`Clear`/`Set` and `GetSnapshot`/`GetValue` can be called concurrently.
 - The LRU value cache locks internally, version counters and node registries use concurrent collections, and storing a computed value together with its version information is a single atomic step.
 - Registering outputs, subscribing sources and `Dispose()` are synchronized with each other; a change notification that races with `Dispose()` is ignored.
+- Each handler's own calls are serialized: it is never called concurrently with itself or re-entrantly, never receives the same value twice in a row, and once all concurrent `Push`/`Set`/... calls have returned, the last value it received is its provider's current value. A change that arrives while the handler runs does not wait for it: the thread running the handler calls it again with the then current value after it returns (so the handler, and any exception it throws, may run on another thread than the one that made the change, and intermediate values may be skipped). A handler that changes a source is called again with the new value after it returns, not from within itself.
 
 What is not:
 
-- Change notifications and output handlers run synchronously on the caller's thread with no lock held, so handlers triggered by concurrent changes can run concurrently. Make handlers thread-safe or serialize your writes.
+- Change notifications and output handlers run synchronously with no lock of the context held. Different handlers can run concurrently with each other, so handlers that share state must synchronize it.
 - Reading a provider does not lock the pipeline: two threads reading the same stale node may both compute it. Keep your lambdas pure.
 - `BeginBatch()` returns a buffer that is not thread-safe; `Commit()` applies its operations atomically under the source's lock (all or nothing), with a single notification.
 
