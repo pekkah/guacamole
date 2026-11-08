@@ -65,10 +65,9 @@ jobs:
       - name: Build solution
         run: dotnet build guacamole.sln --no-restore --configuration Release
 
-      # .editorconfig requires LF; .gitattributes (`* text=auto`) checks files out with
-      # native line endings, so Windows runners get CRLF. Check formatting on Linux only.
+      # .editorconfig requires LF and .gitattributes (`* text=auto eol=lf`) checks files
+      # out with LF on every OS, so the format check runs on Windows too.
       - name: Check formatting
-        if: runner.os == 'Linux'
         run: dotnet format guacamole.sln --verify-no-changes --no-restore
 
       - name: Run tests

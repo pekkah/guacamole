@@ -30,6 +30,7 @@ Publish calls `ci.yml` as a reusable workflow instead of duplicating its jobs.
    - Checkout with full history, setup .NET `11.0.x` (preview quality), NuGet cache
    - `dotnet build guacamole.sln -c Release` - this includes `src/`, `tests/`, `benchmarks/`
      and `examples/`, so public API changes that break the examples fail CI
+   - `dotnet format guacamole.sln --verify-no-changes` on both OSes (see [Line endings](#line-endings))
    - `dotnet test --solution guacamole.sln` (Microsoft.Testing.Platform runner, see `global.json`);
      non-test executables (examples, benchmarks) are ignored by the runner
    - Upload TRX test results
@@ -81,6 +82,27 @@ Run it locally before pushing workflow changes (install shellcheck to get the sc
 actionlint                       # lints .github/workflows/*.yml from the repo root
 # or with Docker
 docker run --rm -v "$PWD:/repo" -w /repo rhysd/actionlint:1.7.12 -color
+```
+
+## Line endings
+
+All text files use LF, in the repository and in every working tree, on every platform:
+`.gitattributes` has `* text=auto eol=lf` and `.editorconfig` has `end_of_line = lf`. That is
+what lets the format check run on the Windows runner too (with plain `text=auto`, Windows
+checkouts get CRLF and every file fails the check). The only exceptions are `*.cmd`/`*.bat`
+(CRLF, none exist today) and binary files. Verify snapshots (`*.verified.*`) are LF/UTF-8 as
+well.
+
+If you cloned before this was set up, refresh your working tree once (commit or stash first):
+
+```bash
+git rm --cached -r -q . && git reset --hard
+```
+
+Run the same check as CI locally:
+
+```bash
+dotnet format guacamole.sln --verify-no-changes
 ```
 
 ## Versioning Strategy
