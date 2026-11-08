@@ -33,8 +33,8 @@ A multi-stage data transformation pipeline.
 Resolving references across files, as a compiler's type checker does.
 
 **Key concepts:**
-- Per-file declarations merged into a symbol table with `Collect()` and a deterministic (path-ordered) merge
-- A table type with structural equality: an edit that leaves the declarations unchanged keeps the table's version
+- Per-file declarations collected into a symbol table with `CollectToDictionary`, the first declaration in path order winning (`conflictComparer: StringComparer.Ordinal`), so the table does not depend on push order
+- The table is updated from the changed files only, and an edit that leaves the declarations unchanged keeps the table's instance and version
 - `Combine` to pair each file with the table, and `Restrict` so unrelated declaration changes do not re-check a file
 - Per-item memoization: the output shows how many type checks each change runs
 

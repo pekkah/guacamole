@@ -27,18 +27,19 @@ public sealed record ParsedFile(string Path, EquatableArray<string> Declarations
     }
 }
 
-/// <summary>The declarations of one file: all the symbol table needs from it.</summary>
-public sealed record FileDeclarations(string Path, EquatableArray<string> Names)
+/// <summary>A name declared by a file: all the symbol table needs from it.</summary>
+public readonly record struct Declaration(string Name, string Path)
 {
-    public static FileDeclarations Extract(ParsedFile file) => new(file.Path, file.Declarations);
+    public static IEnumerable<Declaration> Extract(ParsedFile file) =>
+        file.Declarations.Select(name => new Declaration(name, file.Path));
 }
 
 /// <summary>A resolved reference per use: <c>Name -> declaring file</c>, or an error.</summary>
 public sealed record TypeCheckedFile(string Path, EquatableArray<string> Resolved, EquatableArray<string> Errors);
 
 /// <summary>
-/// Symbol name to declaring file. Immutable, with structural equality, so a recomputed but equal
-/// table does not count as a change.
+/// The part of the symbol table a file uses. Immutable, with structural equality, so a restricted
+/// table that is recomputed but equal does not count as a change.
 /// </summary>
 public sealed class SymbolTable : IEquatable<SymbolTable>
 {
@@ -47,36 +48,26 @@ public sealed class SymbolTable : IEquatable<SymbolTable>
     public ImmutableSortedDictionary<string, string> Symbols { get; }
 
     /// <summary>
-    /// Merges per-file declarations in path order (ordinal), so the table does not depend on the
-    /// order files were pushed or processed in. The first declaration of a name wins.
+    /// Narrows the table to the names a file references. Two files' restricted tables stay equal
+    /// when only declarations they do not use change, so their type checks are not rerun.
     /// </summary>
-    public static SymbolTable Merge(ImmutableArray<FileDeclarations> files)
+    public static SymbolTable Restrict(IReadOnlyDictionary<string, string> symbols, IEnumerable<string> names)
     {
         var builder = ImmutableSortedDictionary.CreateBuilder<string, string>(StringComparer.Ordinal);
-        foreach (var file in files.OrderBy(f => f.Path, StringComparer.Ordinal))
+        foreach (var name in names)
         {
-            foreach (var name in file.Names)
-                builder.TryAdd(name, file.Path);
+            if (symbols.TryGetValue(name, out var path))
+                builder[name] = path;
         }
 
         return new SymbolTable(builder.ToImmutable());
     }
 
     /// <summary>
-    /// Narrows the table to the names a file references. Two files' restricted tables stay equal
-    /// when only declarations they do not use change, so their type checks are not rerun.
+    /// Formats a table in name order (a dictionary's own enumeration order is unspecified).
     /// </summary>
-    public SymbolTable Restrict(IEnumerable<string> names)
-    {
-        var builder = ImmutableSortedDictionary.CreateBuilder<string, string>(StringComparer.Ordinal);
-        foreach (var name in names)
-        {
-            if (Symbols.TryGetValue(name, out var path))
-                builder[name] = path;
-        }
-
-        return new SymbolTable(builder.ToImmutable());
-    }
+    public static string Format(IEnumerable<KeyValuePair<string, string>> symbols) =>
+        string.Join(", ", symbols.OrderBy(s => s.Key, StringComparer.Ordinal).Select(s => $"{s.Key} -> {s.Value}"));
 
     public bool Equals(SymbolTable? other) =>
         other is not null && Symbols.Count == other.Symbols.Count && Symbols.SequenceEqual(other.Symbols);
@@ -95,7 +86,7 @@ public sealed class SymbolTable : IEquatable<SymbolTable>
         return hash.ToHashCode();
     }
 
-    public override string ToString() => string.Join(", ", Symbols.Select(s => $"{s.Key} -> {s.Value}"));
+    public override string ToString() => Format(Symbols);
 }
 
 /// <summary>An immutable array with structural equality, for use in records.</summary>

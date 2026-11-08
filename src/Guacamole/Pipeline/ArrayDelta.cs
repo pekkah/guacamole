@@ -26,6 +26,9 @@ namespace Guacamole.Pipeline;
 //   output: they copy the unchanged runs in bulk (Array.Copy), run their lambda for the edited
 //   items only (through the per-item memo, so its semantics are unchanged), and record the delta
 //   of their output for the stages after them.
+// - CollectToDictionary applies its input's delta to the dictionary it built last (removing the
+//   pairs of removed items, adding those of inserted ones), so a lookup table over a collection is
+//   updated in O(K) too (see CollectToDictionaryNode).
 // - The change check of a stage (is the new output equal to the cached one?) uses the delta when
 //   it only replaces items: only the K replaced items are compared. Collect() wraps its input
 //   array, so its check uses its input's delta the same way.

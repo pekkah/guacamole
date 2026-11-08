@@ -159,6 +159,93 @@ public static class IncrementalValuesProviderExtensions
         return CreateCollectProvider(source, collectNode, metadata);
     }
 
+    /// <summary>
+    /// Collects all values into an immutable dictionary, mapping each value to a key and a value, and
+    /// keeps it up to date in proportion to the changed items rather than to the whole collection.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Use it instead of <c>Collect().Select(merge)</c> to build a lookup table over a collection
+    /// (for example a symbol table: name to declaring file). After K items of an N-item collection
+    /// change, the dictionary is updated from the collection's item-level delta in O(K) dictionary
+    /// operations; the selectors run only for new and changed items (they are memoized per item,
+    /// like <c>Select</c>). When no delta is available (the first computation, more changes than about
+    /// half the items, an input that records no deltas) the dictionary is rebuilt from all items.
+    /// </para>
+    /// <para>
+    /// <b>Duplicates and conflicts.</b> Several items may map to the same key (sources have set
+    /// semantics, but stages after <c>Select</c> or <c>SelectMany</c> can produce duplicates). Items
+    /// that agree on the value (by <see cref="EqualityComparer{T}.Default"/>, element-wise for
+    /// immutable arrays) count once. When items map a key to different values, the smallest by
+    /// <paramref name="conflictComparer"/> wins (for example <c>StringComparer.Ordinal</c> over file
+    /// paths: the first declaration in path order); without a comparer the result is an error naming
+    /// a conflicting key, until the conflict goes away. The comparer must order distinct values
+    /// strictly: which of two values it considers equal is kept is unspecified.
+    /// </para>
+    /// <para>
+    /// <b>Determinism.</b> The dictionary's contents depend only on the items, not on their order, on
+    /// the order of the changes, or on when the provider is read (whether it was updated from deltas
+    /// or rebuilt). The enumeration order of an <see cref="ImmutableDictionary{TKey, TValue}"/> is
+    /// unspecified (it depends on the keys' hash codes, which vary between runs for strings): sort the
+    /// keys when the order matters, for example in output.
+    /// </para>
+    /// <para>
+    /// <b>Change detection.</b> When no key was added or removed and no key's value changed (by
+    /// <see cref="EqualityComparer{T}.Default"/>, element-wise for immutable arrays), the result is the
+    /// previous dictionary instance and counts as unchanged: the stages downstream of it stay cached
+    /// and output handlers registered on it are not called. A changed dictionary is a new instance,
+    /// recognized as changed without comparing it entry by entry. A key whose value is replaced by an
+    /// equal one keeps the previous value instance. An error in the input (or a selector that throws)
+    /// makes the result an error; the previous state is kept, so the next change is again applied in
+    /// O(K). Identical calls (same input, delegates and comparers) reuse their node.
+    /// </para>
+    /// </remarks>
+    /// <typeparam name="T">Value type of the collection</typeparam>
+    /// <typeparam name="TKey">Key type</typeparam>
+    /// <typeparam name="TValue">Dictionary value type</typeparam>
+    /// <param name="source">Source values provider</param>
+    /// <param name="keySelector">Maps a value to its key (must not return <c>null</c>)</param>
+    /// <param name="valueSelector">Maps a value to its dictionary value</param>
+    /// <param name="conflictComparer">Chooses among different values for the same key: the smallest
+    /// wins. When <c>null</c>, such a key makes the result an error.</param>
+    /// <param name="keyComparer">Equality comparer for the keys (default: <see cref="EqualityComparer{T}.Default"/>,
+    /// element-wise for immutable arrays); also the comparer of the resulting dictionary</param>
+    /// <param name="metadata">Optional metadata for the new provider</param>
+    /// <returns>A value provider of the dictionary</returns>
+    /// <example>
+    /// A symbol table over parsed files, the first declaration in path order winning:
+    /// <code>
+    /// IncrementalValueProvider&lt;ImmutableDictionary&lt;string, string&gt;&gt; symbols = parsedFiles
+    ///     .SelectMany(file =&gt; file.Declarations.Select(name =&gt; (Name: name, file.Path)))
+    ///     .CollectToDictionary(d =&gt; d.Name, d =&gt; d.Path, conflictComparer: StringComparer.Ordinal);
+    /// </code>
+    /// </example>
+    public static IncrementalValueProvider<ImmutableDictionary<TKey, TValue>> CollectToDictionary<T, TKey, TValue>(
+        this IncrementalValuesProvider<T> source,
+        Func<T, TKey> keySelector,
+        Func<T, TValue> valueSelector,
+        IComparer<TValue>? conflictComparer = null,
+        IEqualityComparer<TKey>? keyComparer = null,
+        ProviderMetadata metadata = default)
+        where TKey : notnull
+    {
+        ArgumentNullException.ThrowIfNull(keySelector);
+        ArgumentNullException.ThrowIfNull(valueSelector);
+
+        // Reuse the node of an identical earlier call (same inputs, delegates and comparers)
+        // so pipelines built repeatedly (e.g. in property getters) share one node and cache.
+        var node = source.Graph.GetOrCreateNode(
+            new NodeReuseKey(typeof(CollectToDictionaryNode<T, TKey, TValue>), [source.Node.Id], keySelector, valueSelector, conflictComparer, keyComparer),
+            () => new CollectToDictionaryNode<T, TKey, TValue>(source.Node, keySelector, valueSelector, conflictComparer, keyComparer));
+
+        // Preserve metadata from source if no metadata is explicitly provided
+        var finalMetadata = metadata == default
+            ? source.Metadata
+            : metadata;
+
+        return new IncrementalValueProvider<ImmutableDictionary<TKey, TValue>>(node, source.Graph, finalMetadata);
+    }
+
     private static IncrementalValueProvider<ImmutableArray<T>> CreateCollectProvider<T>(
         IncrementalValuesProvider<T> source,
         CollectValuesNode<T> collectNode,
