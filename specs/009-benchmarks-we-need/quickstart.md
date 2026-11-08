@@ -81,11 +81,12 @@ Look for the summary table (shown above) which includes:
 - **Allocated**: Total memory allocated
 
 ### Detailed Reports
-`Program.cs` writes BenchmarkDotNet's artifacts to `../reports` relative to the current
-directory, i.e. `benchmarks/reports/` when run from the project directory (not
-`BenchmarkDotNet.Artifacts/`). Navigate to the results directory:
+BenchmarkDotNet writes its artifacts to `BenchmarkDotNet.Artifacts/` in the current directory,
+i.e. `benchmarks/Guacamole.Benchmarks/BenchmarkDotNet.Artifacts/` when run from the project
+directory (pass `--artifacts <path>` to choose another folder). The folder is not tracked, so a
+local run leaves the working tree clean. Navigate to the results directory:
 ```bash
-cd ../reports/results/
+cd BenchmarkDotNet.Artifacts/results/
 ls -la
 ```
 
@@ -95,7 +96,7 @@ ls -la
 - `Guacamole.Benchmarks.<Class>-report-github.md` (markdown table for documentation)
 
 These are BenchmarkDotNet's default exporters. No JSON report is produced unless you add
-`--exporters json`. Log files go to `benchmarks/reports/` itself.
+`--exporters json`. Log files go to `BenchmarkDotNet.Artifacts/` itself.
 
 **Action**: Open any `.html` file in browser for visual report with charts
 
@@ -146,7 +147,9 @@ dotnet run --configuration Release -- --filter "*" --job short --inProcess
 
 Once baseline is established and stored in git:
 
-The committed baseline is the set of reports in `benchmarks/reports/results/`. Compare a new
+Reports are not committed. The reference results are the curated tables in the
+[Performance Guide](../../docs/performance-guide.md#benchmark-results) and the first baseline in
+[`docs/benchmarks/2025-10-baseline.md`](../../docs/benchmarks/2025-10-baseline.md). Compare a new
 run against them by hand (same machine and job where possible). There is no comparison script;
 automated regression detection is not planned.
 
@@ -223,7 +226,7 @@ This quickstart validates the following acceptance scenarios from the spec:
 ## Next Steps
 
 After establishing baseline:
-1. Store results in git (`benchmarks/reports/results/`)
+1. Record curated results in the docs (`docs/performance-guide.md#benchmark-results`); the raw reports stay untracked
 2. Configure CI to run benchmarks on every commit
 3. Set up automated regression detection
 4. Add new scenarios as framework evolves
@@ -236,7 +239,7 @@ After establishing baseline:
 This quickstart is successful when:
 - [ ] All benchmarks execute without errors
 - [ ] Standard deviation well below 10% of the mean (default job, idle machine)
-- [ ] Results exported to HTML/CSV/Markdown formats in `benchmarks/reports/results/`
+- [ ] Results exported to HTML/CSV/Markdown formats in `BenchmarkDotNet.Artifacts/results/`
 - [ ] Caching benchmark shows warm run faster than cold run
 - [ ] Developer understands how to run and interpret benchmarks
 

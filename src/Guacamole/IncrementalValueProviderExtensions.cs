@@ -283,7 +283,7 @@ internal sealed class SelectValueNode<TSource, TResult> : IComputationNode<TResu
     public string Id { get; }
     public Type OutputType => typeof(TResult);
     public ImmutableHashSet<string> Dependencies { get; }
-    public IEqualityComparer<TResult> Comparer => _comparer ?? EqualityComparer<TResult>.Default;
+    public IEqualityComparer<TResult> Comparer => _comparer ?? DefaultEqualityComparer<TResult>.Instance;
 
     public Result<TResult, ComputationError> Compute(ComputationContext context)
     {
@@ -329,7 +329,7 @@ internal sealed class WhereValueNode<T> : IComputationNode<T>, IHasComparer<T>
     public string Id { get; }
     public Type OutputType => typeof(T);
     public ImmutableHashSet<string> Dependencies { get; }
-    public IEqualityComparer<T> Comparer => _comparer ?? EqualityComparer<T>.Default;
+    public IEqualityComparer<T> Comparer => _comparer ?? DefaultEqualityComparer<T>.Instance;
 
     public Result<T, ComputationError> Compute(ComputationContext context)
     {
@@ -357,7 +357,7 @@ internal sealed class WhereValueNode<T> : IComputationNode<T>, IHasComparer<T>
     }
 }
 
-internal sealed class CombineValueNode<TFirst, TSecond> : IComputationNode<(TFirst, TSecond)>
+internal sealed class CombineValueNode<TFirst, TSecond> : IComputationNode<(TFirst, TSecond)>, IHasComparer<(TFirst, TSecond)>
 {
     private readonly IComputationNode<TFirst> _first;
     private readonly IComputationNode<TSecond> _second;
@@ -373,6 +373,9 @@ internal sealed class CombineValueNode<TFirst, TSecond> : IComputationNode<(TFir
     public string Id { get; }
     public Type OutputType => typeof((TFirst, TSecond));
     public ImmutableHashSet<string> Dependencies { get; }
+
+    // Component-wise, so a tuple holding an ImmutableArray compares its items, not the array reference
+    public IEqualityComparer<(TFirst, TSecond)> Comparer => DefaultEqualityComparer<(TFirst, TSecond)>.Instance;
 
     public Result<(TFirst, TSecond), ComputationError> Compute(ComputationContext context)
     {
@@ -432,7 +435,7 @@ internal sealed class SelectManyFromValueNode<TSource, TResult> : ICollectionCom
     public string Id { get; }
     public Type OutputType => typeof(IEnumerable<TResult>);
     public ImmutableHashSet<string> Dependencies { get; }
-    public IEqualityComparer<TResult> Comparer => _comparer ?? EqualityComparer<TResult>.Default;
+    public IEqualityComparer<TResult> Comparer => _comparer ?? DefaultEqualityComparer<TResult>.Instance;
 
     public Result<IEnumerable<TResult>, ComputationError> Compute(ComputationContext context)
     {

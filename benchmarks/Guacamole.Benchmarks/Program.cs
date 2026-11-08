@@ -6,19 +6,16 @@ namespace Guacamole.Benchmarks;
 
 /// <summary>
 /// BenchmarkDotNet entry point. Accepts the usual BenchmarkDotNet command line
-/// (<c>--filter</c>, <c>--job</c>, <c>--list flat</c>, ...); reports go to <c>../reports</c>
-/// relative to the current directory (<c>benchmarks/reports</c> when run from the project directory).
+/// (<c>--filter</c>, <c>--job</c>, <c>--list flat</c>, ...). Reports go to BenchmarkDotNet's default
+/// <c>BenchmarkDotNet.Artifacts</c> folder in the current directory (or the folder given with
+/// <c>--artifacts</c>). That folder is listed in <c>.gitignore</c>, so a local run leaves the working
+/// tree clean.
 /// </summary>
 public class Program
 {
     /// <summary>Runs the selected benchmarks; returns 1 if any of them failed, 0 otherwise.</summary>
-    public static int Main(string[] args)
-    {
-        var config = DefaultConfig.Instance
-            .WithArtifactsPath(Path.Combine(Directory.GetCurrentDirectory(), "..", "reports"));
-
-        return Run(args, config).All(Succeeded) ? 0 : 1;
-    }
+    public static int Main(string[] args) =>
+        Run(args, DefaultConfig.Instance).All(Succeeded) ? 0 : 1;
 
     /// <summary>Runs the benchmarks selected by <paramref name="args"/> with <paramref name="config"/>.</summary>
     public static Summary[] Run(string[] args, IConfig config) =>

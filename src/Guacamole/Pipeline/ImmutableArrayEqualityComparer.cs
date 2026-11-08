@@ -12,9 +12,10 @@ namespace Guacamole.Pipeline;
 internal sealed class ImmutableArrayEqualityComparer<T> : IEqualityComparer<ImmutableArray<T>>
 {
     /// <summary>
-    /// Compares items with <see cref="EqualityComparer{T}.Default"/>.
+    /// Compares items with their default comparer (<see cref="DefaultEqualityComparer{T}"/>:
+    /// <see cref="EqualityComparer{T}.Default"/>, or element-wise for nested immutable arrays).
     /// </summary>
-    public static ImmutableArrayEqualityComparer<T> Default { get; } = new(EqualityComparer<T>.Default);
+    public static ImmutableArrayEqualityComparer<T> Default { get; } = new(DefaultEqualityComparer<T>.Instance);
 
     public ImmutableArrayEqualityComparer(IEqualityComparer<T> itemComparer)
     {
