@@ -176,18 +176,34 @@ internal static class ArrayDelta
 }
 
 /// <summary>
-/// Whether two values are interchangeable: the same reference for reference types, equal by
-/// <see cref="EqualityComparer{T}.Default"/> for primitive and enum types. Other value types are
-/// never considered identical, since their equality may be looser than their contents.
+/// Whether two values are interchangeable (indistinguishable to user code):
+/// <list type="bullet">
+/// <item><description>reference types: the same reference;</description></item>
+/// <item><description><see cref="float"/> and <see cref="double"/>: the same bit pattern
+/// (<c>0.0</c> and <c>-0.0</c>, or NaNs with different payloads, are equal but distinguishable);</description></item>
+/// <item><description>other primitive and enum types: equal by <see cref="EqualityComparer{T}.Default"/>;</description></item>
+/// <item><description><see cref="System.Collections.Immutable.ImmutableArray{T}"/>: the same underlying
+/// array (its default equality is exactly that);</description></item>
+/// <item><description>other value types: never, since their equality may be looser than their contents.</description></item>
+/// </list>
 /// </summary>
 internal static class Identity<T>
 {
-    private static readonly bool s_byValue = typeof(T).IsPrimitive || typeof(T).IsEnum;
+    private static readonly bool s_byValue =
+        (typeof(T).IsPrimitive && typeof(T) != typeof(float) && typeof(T) != typeof(double))
+        || typeof(T).IsEnum
+        || (typeof(T).IsGenericType && typeof(T).GetGenericTypeDefinition() == typeof(System.Collections.Immutable.ImmutableArray<>));
 
     public static bool Same(T x, T y)
     {
         if (!typeof(T).IsValueType)
             return ReferenceEquals(x, y);
+
+        if (typeof(T) == typeof(double))
+            return BitConverter.DoubleToInt64Bits(System.Runtime.CompilerServices.Unsafe.As<T, double>(ref x)) == BitConverter.DoubleToInt64Bits(System.Runtime.CompilerServices.Unsafe.As<T, double>(ref y));
+
+        if (typeof(T) == typeof(float))
+            return BitConverter.SingleToInt32Bits(System.Runtime.CompilerServices.Unsafe.As<T, float>(ref x)) == BitConverter.SingleToInt32Bits(System.Runtime.CompilerServices.Unsafe.As<T, float>(ref y));
 
         return s_byValue && EqualityComparer<T>.Default.Equals(x, y);
     }

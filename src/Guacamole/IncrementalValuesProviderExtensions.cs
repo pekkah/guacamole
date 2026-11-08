@@ -1066,12 +1066,10 @@ internal sealed class CombineValuesWithValueNode<TLeft, TRight> : ICollectionCom
         }
     }
 
-    // The identical right value: the same reference, or for value types equal by their default
-    // equality (for an ImmutableArray<T>, the same underlying array)
+    // The identical right value (see Identity<T>): a value type whose equality is looser than its
+    // contents must not count as identical, or the previous pairs would keep the old right value
     private static bool SameRight(TRight previous, TRight current) =>
-        typeof(TRight).IsValueType
-            ? EqualityComparer<TRight>.Default.Equals(previous, current)
-            : ReferenceEquals(previous, current);
+        Identity<TRight>.Same(previous, current);
 
     private static (TLeft, TRight)[] ApplyDelta(ItemEdit[] edits, (TLeft, TRight)[] previous, TLeft[] left, TRight right)
     {
