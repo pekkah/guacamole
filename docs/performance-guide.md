@@ -6,7 +6,7 @@ This guide explains how Guacamole decides what to recompute, and how to structur
 
 ### Sources and versions
 
-Every node in a context's graph has an output version. Pushing to a source (`Push`, `Remove`, `Replace`, `Clear`, `Set`) that actually changes it increments that source's version and marks the stages downstream of it as possibly changed ("dirty"); no cache is cleared and nothing is recomputed eagerly. Marking walks only the stages that have read the source, directly or through other stages. Operations that do not change the source (pushing an item that is already present, setting an equal value, removing a missing item) raise no notification at all.
+Every node in a context's graph has an output version. Pushing to a source (`Push`, `Remove`, `Replace`, `Clear`, `Set`) that actually changes it increments that source's version and marks the stages downstream of it as possibly changed ("dirty"); no cache is cleared and nothing is recomputed eagerly. Marking walks only the stages that have read the source, directly or through other stages, and stops at stages that an earlier change has already marked since a read last re-verified a value: several changes between two reads (to one source or to sources sharing downstream stages) walk the downstream stages once, and each further change costs a constant. Operations that do not change the source (pushing an item that is already present, setting an equal value, removing a missing item) raise no notification at all.
 
 ### Lazy validation on read
 
@@ -186,6 +186,9 @@ The repository contains BenchmarkDotNet benchmarks in [`benchmarks/Guacamole.Ben
 | `IncrementalUpdateBenchmarks` | Reading a total over N sources (a binary reduction tree) after one source changed, for N = 16, 256, 4,096, against recomputing the total directly |
 | `CollectionChangeBenchmarks` | Replacing K of N items, then reading `Items.Select(work).Collect().Select(Sum)`, against recomputing all N items directly |
 | `MemoryOverheadBenchmarks` | Building a context over N items and reading the total, against computing the results directly (time and allocations) |
+| `SourceFanOutBenchmarks` | 100 changes to a source read by N stages, then a read (time per change), against one change and a read |
+| `GraphConstructionBenchmarks` | Building a chain of N nodes with `ComputationGraph.AddNode` |
+| `CacheMetricsBenchmarks` | Value cache lookups and stores with cache metrics on (the default, nothing listening) and off |
 
 ```bash
 cd benchmarks/Guacamole.Benchmarks
@@ -203,9 +206,9 @@ One short run (`--job short --inProcess`, 3 iterations) per benchmark, before an
 
 | Sources | Stages | Cached read | One source changed | Direct recompute |
 |--------:|-------:|------------:|-------------------:|-----------------:|
-| 16 | 62 | 82 ns | 7.0 µs | 1.8 µs |
-| 256 | 1,022 | 85 ns | 13 µs | 28 µs |
-| 4,096 | 16,382 | 83 ns | 23 µs | 0.45 ms |
+| 16 | 62 | 53 ns | 6.0 µs | 1.8 µs |
+| 256 | 1,022 | 52 ns | 13 µs | 27 µs |
+| 4,096 | 16,382 | 53 ns | 21 µs | 0.44 ms |
 
 **K changed items out of N** (`CollectionChangeBenchmarks`, incremental vs direct):
 
@@ -216,13 +219,17 @@ One short run (`--job short --inProcess`, 3 iterations) per benchmark, before an
 
 The incremental variant allocated 17 KB per change and read at 1,000 items and 161 KB at 10,000 items (K = 1; 169 KB at K = 100), with no gen2 collections; the direct one allocates nothing.
 
+**Many changes between two reads** (`SourceFanOutBenchmarks`, one source read by N stages): 100 changes and then a read cost 0.18 µs / 0.44 µs / 3.8 µs per change for N = 100 / 1,000 / 10,000, one walk over the stages for the first change plus a constant for each further one; a single change and a read cost 3.9 µs / 29 µs / 0.36 ms. Before #71 every change walked all N stages: 3.0 µs / 28 µs / 0.38 ms per change.
+
+**Graph construction and metrics** (`GraphConstructionBenchmarks`, `CacheMetricsBenchmarks`): building a chain of 1,000 / 4,000 nodes takes 2.2 ms / 11 ms (111 ms / 2.6 s before #76, when the cycle check walked the whole chain for each node). A value cache lookup takes about 48 ns and a store about 52 ns whether cache metrics are on or off: metrics are only recorded while a listener (for example OpenTelemetry) has enabled them.
+
 **Memory overhead** (`MemoryOverheadBenchmarks`): building a context over 1,000 / 10,000 items and reading the total took 0.20 ms / 2.2 ms and allocated 126 KB / 1.2 MB, against 0.11 ms / 1.1 ms and 8 KB / 78 KB for computing the results directly (about 16x the allocations).
 
 For comparison, the same run of the engine before the changes in #57, #60, #61 and #62: one source changed 11 µs / 96 µs / 2.5 ms (16 / 256 / 4,096 sources); K changed items 75 / 93 / 275 µs at 1,000 items and 1.04 / 1.02 / 1.37 ms at 10,000 (607-870 KB per read at 10,000, with gen2 collections); building 1.2 ms / 16 ms and 1.5 MB / 18.6 MB.
 
 What this shows:
 
-- **Cached reads are constant-time.** A read with no change since the last one costs about 80 ns, whatever the graph size.
+- **Cached reads are constant-time.** A read with no change since the last one costs about 50 ns (80 ns before #76 removed a lock taken on every cache access), whatever the graph size.
 - **Recomputation and verification are proportional to the changes.** After one source changes, only the changed leaf's lambda and the stages on its path to the root rerun, and only the stages on that path are verified input by input; every other stage costs one check. The time grows with the depth of the tree (log N here), not its size. After K item replacements, the per-item lambda runs K times. The tests in `tests/Guacamole.Benchmarks.Tests/IncrementalScenarioTests.cs` assert these call counts.
 - **Collection stages are still O(N) per recompute**, but cheaply: a recomputed `Select` compares each unchanged item with its previous position (a reference comparison for unchanged items), allocates one result array, and the stages after it (`Collect`, the sum, the change checks) walk all N items. That is about 10 ns per item here, so with per-item work of 0.1 µs the incremental read beats the direct recompute even at K = 100.
 - **Each change has a fixed cost** of a few µs: the source update, marking the stages downstream of the source, and recomputing the changed path (about 0.5 µs per recomputed stage here). With work as cheap as 0.1 µs per stage, small graphs (16 sources) are still faster to recompute directly. Incremental evaluation pays off when the graph is large or the work per stage or item is clearly more expensive than that (parsing, type checking, anything allocating or doing I/O).

@@ -19,6 +19,12 @@ namespace Guacamole.Pipeline;
 /// makes verification after a change proportional to the changed paths instead of the graph.
 /// </para>
 /// <para>
+/// The <b>marked epoch</b> lets a change stop at nodes that an earlier change has already marked,
+/// together with everything downstream of them, since the last time a value could have been
+/// stamped (see <see cref="SharedGraphState.MarkSourceChanged"/>), so several changes between two
+/// reads walk the downstream nodes once.
+/// </para>
+/// <para>
 /// Holds no reference to the node or its handle (dependents are referenced weakly), so it never
 /// keeps a node alive.
 /// </para>
@@ -30,6 +36,7 @@ internal sealed class NodeState
     private long _version;
     private long _dirty;
     private long _lastPropagation;
+    private long _markedEpoch;
 
     // Reverse edges: the handles of the nodes whose computations read this node. Only ever grows
     // (except for collected handles), so a change reaches every node that has ever read this one.
@@ -68,6 +75,21 @@ internal sealed class NodeState
     /// Records that a source upstream of this node (or this node, if it is a source) has changed.
     /// </summary>
     public void MarkDirty() => Interlocked.Increment(ref _dirty);
+
+    /// <summary>
+    /// The stamp epoch (<see cref="SharedGraphState.StampEpoch"/>) of the last change that marked
+    /// this node and every node reachable from it; 0 if none. Recorded only once all of them have
+    /// been marked. While the epoch has not moved on, a change does not need to walk this node
+    /// again (see <see cref="SharedGraphState.MarkSourceChanged"/>).
+    /// </summary>
+    public long MarkedEpoch => Volatile.Read(ref _markedEpoch);
+
+    /// <summary>
+    /// Records that a change of stamp epoch <paramref name="epoch"/> has marked this node and every
+    /// node reachable from it. A racing change may overwrite this with an older epoch, which only
+    /// makes a later change walk the node again.
+    /// </summary>
+    public void SetMarkedEpoch(long epoch) => Volatile.Write(ref _markedEpoch, epoch);
 
     /// <summary>
     /// Marks this node as visited by the propagation <paramref name="propagation"/>; returns

@@ -5,6 +5,12 @@ namespace Guacamole.Diagnostics;
 /// Allows fine-tuning observability vs. performance tradeoffs for different deployment scenarios.
 /// </summary>
 /// <remarks>
+/// <para>
+/// Measurements are only taken for instruments that a <c>MeterListener</c> (for example
+/// OpenTelemetry) has enabled: with nothing listening, an enabled setting costs a field read per
+/// operation, so the defaults are cheap. The settings choose what is recorded while a listener is
+/// attached.
+/// </para>
 /// Distributed tracing needs no switch: activities from <see cref="GuacamoleMetrics.ActivitySource"/>
 /// are only created while an <c>ActivityListener</c> (for example OpenTelemetry) listens to it.
 /// </remarks>
@@ -96,23 +102,13 @@ public sealed record MetricsConfiguration
     public bool CollectPipelineStageDimensions { get; init; } = true;
 
     private static MetricsConfiguration _current = Production;
-    private static readonly object _configLock = new object();
 
     /// <summary>
     /// Gets the current global metrics configuration.
     /// Defaults to Production configuration.
-    /// Thread-safe for reads.
+    /// Thread-safe for reads, and lock-free: it is read on every cache access.
     /// </summary>
-    public static MetricsConfiguration Current
-    {
-        get
-        {
-            lock (_configLock)
-            {
-                return _current;
-            }
-        }
-    }
+    public static MetricsConfiguration Current => Volatile.Read(ref _current);
 
     /// <summary>
     /// Sets the global metrics configuration.
@@ -124,10 +120,8 @@ public sealed record MetricsConfiguration
     {
         ArgumentNullException.ThrowIfNull(configuration);
 
-        lock (_configLock)
-        {
-            _current = configuration;
-        }
+        // The configuration is immutable, so publishing the reference is enough
+        Volatile.Write(ref _current, configuration);
     }
 
     /// <summary>

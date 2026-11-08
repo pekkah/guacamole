@@ -19,11 +19,9 @@
     <PackageReference Include="Microsoft.CodeAnalysis.CSharp" Version="5.9.0" PrivateAssets="all" />
   </ItemGroup>
 
-  <!-- Analyzer release tracking (RS2000-RS2008) -->
-  <ItemGroup>
-    <AdditionalFiles Include="AnalyzerReleases.Shipped.md" />
-    <AdditionalFiles Include="AnalyzerReleases.Unshipped.md" />
-  </ItemGroup>
+  <!-- Analyzer release tracking (RS2000-RS2008): Microsoft.CodeAnalysis.Analyzers adds
+       AnalyzerReleases.Shipped.md and AnalyzerReleases.Unshipped.md as AdditionalFiles itself
+       (adding them here too made dotnet format report them as duplicate source files). -->
 
   <!-- Include the generator DLL in the package as an analyzer -->
   <ItemGroup>

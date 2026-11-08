@@ -30,7 +30,8 @@ Publish calls `ci.yml` as a reusable workflow instead of duplicating its jobs.
    - Checkout with full history, setup .NET `11.0.x` (preview quality), NuGet cache
    - `dotnet build guacamole.sln -c Release` - this includes `src/`, `tests/`, `benchmarks/`
      and `examples/`, so public API changes that break the examples fail CI
-   - `dotnet format guacamole.sln --verify-no-changes` on both OSes (see [Line endings](#line-endings))
+   - `dotnet format guacamole.sln --verify-no-changes` on both OSes, with `Configuration=Release`
+     set in the step's environment (see [Format check](#format-check) and [Line endings](#line-endings))
    - `dotnet test --solution guacamole.sln` (Microsoft.Testing.Platform runner, see `global.json`);
      non-test executables (examples, benchmarks) are ignored by the runner
    - Upload TRX test results
@@ -99,11 +100,42 @@ If you cloned before this was set up, refresh your working tree once (commit or 
 git rm --cached -r -q . && git reset --hard
 ```
 
-Run the same check as CI locally:
+## Format check
+
+`dotnet format` does not compile the solution. It loads it into an MSBuildWorkspace and takes
+analyzers, including the `[ComputingContext]` source generator, from the paths the project
+evaluation points at. The test, benchmark and example projects reference the generator as a
+project (`ProjectReference` with `OutputItemType="Analyzer"` and
+`ReferenceOutputAssembly="false"`), so the analyzer path is
+`src/Guacamole.SourceGenerators/bin/<Configuration>/netstandard2.0/Guacamole.SourceGenerators.dll`,
+and that DLL must already have been built in the configuration format evaluates.
+
+With no `Configuration` set, format evaluates **Debug**, while CI builds Release. The Debug
+generator DLL then does not exist, format loads the projects without it (and without a
+warning), and every generated member is missing from its semantic model. Format reports
+compiler errors that have a code fix, so a line such as
+`var batch = context.ItemsSource.BeginBatch();` fails the check with
+`CS1503: cannot convert from 'int' to 'T'` on the next `batch.Push(...)`, although the real
+build compiles it (#72). Typing the variable explicitly (`IBatchOperation<int> batch = ...`)
+only hid the problem.
+
+`dotnet format` has no option for MSBuild properties, but MSBuild reads environment variables
+as properties, so CI sets `Configuration: Release` in the format step's `env:` and format uses
+the Release generator built by the step before it. With that, `var` works in tests again; the
+explicit declarations that were added as a workaround can stay.
+
+Run the same sequence as CI locally. Start from a clean tree, so stale Debug outputs in `obj/`
+and `bin/` cannot hide the problem (`git clean -xfd` deletes all untracked files):
 
 ```bash
-dotnet format guacamole.sln --verify-no-changes
+git clean -xfd && dotnet restore guacamole.sln
+dotnet build guacamole.sln --no-restore -c Release
+Configuration=Release dotnet format guacamole.sln --verify-no-changes --no-restore
+# PowerShell: $env:Configuration = 'Release'; dotnet format guacamole.sln --verify-no-changes --no-restore
 ```
+
+After a plain (Debug) `dotnet build guacamole.sln`, run `dotnet format guacamole.sln --verify-no-changes`
+without the variable instead: format must evaluate the configuration you built.
 
 ## Versioning Strategy
 

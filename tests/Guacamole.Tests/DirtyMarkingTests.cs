@@ -406,8 +406,14 @@ public partial class DirtyMarkingTests
 
     private static Task Run(Action action) => Task.Run(action, TestContext.Current.CancellationToken);
 
-    [Fact]
-    public async Task ConcurrentChangesAndReads_LeaveNoStaleValues()
+    /// <param name="pausingReaders">
+    /// Readers pause between reads, so that several changes land between two reads and the later
+    /// ones stop marking early (#71), racing with the reads that re-verify and stamp.
+    /// </param>
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task ConcurrentChangesAndReads_LeaveNoStaleValues(bool pausingReaders)
     {
         for (var round = 0; round < 10; round++)
         {
@@ -425,6 +431,8 @@ public partial class DirtyMarkingTests
                     // Reads racing with changes may see any mix of old and new inputs; they must
                     // not throw, and nothing stale may survive once the changes stop.
                     _ = checks[random.Next(checks.Count)].Actual();
+                    if (pausingReaders)
+                        Thread.SpinWait(random.Next(20_000));
                 }
             })).ToArray();
 

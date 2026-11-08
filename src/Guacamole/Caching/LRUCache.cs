@@ -88,24 +88,12 @@ internal sealed class LRUCache<TKey, TValue> : ICache<TKey, TValue>, ICacheStati
         if (found)
         {
             Interlocked.Increment(ref _hitCount);
-
-            // Record cache hit metrics
-            if (MetricsConfiguration.Current.EnableCacheMetrics)
-            {
-                GuacamoleMetrics.RecordCacheOperation("get", "hit");
-            }
-
+            RecordOperation("get", "hit");
             return true;
         }
 
         Interlocked.Increment(ref _missCount);
-
-        // Record cache miss metrics
-        if (MetricsConfiguration.Current.EnableCacheMetrics)
-        {
-            GuacamoleMetrics.RecordCacheOperation("get", "miss");
-        }
-
+        RecordOperation("get", "miss");
         return false;
     }
 
@@ -119,61 +107,76 @@ internal sealed class LRUCache<TKey, TValue> : ICache<TKey, TValue>, ICacheStati
     {
         ArgumentNullException.ThrowIfNull(key);
 
+        bool updated = false;
         bool wasEvicted = false;
 
         lock (_lock)
         {
-            // Update existing key
             if (_index.TryGetValue(key, out var existingNode))
             {
+                // Update existing key
                 existingNode.Value = new CacheEntry(key, value);
                 _accessOrder.Remove(existingNode);
                 _accessOrder.AddFirst(existingNode);
-
-                // Record cache update metrics
-                if (MetricsConfiguration.Current.EnableCacheMetrics)
-                {
-                    GuacamoleMetrics.RecordCacheOperation("set", "update");
-                }
-                return;
+                updated = true;
             }
-
-            // Add new entry
-            var newEntry = new CacheEntry(key, value);
-            var newNode = new LinkedListNode<CacheEntry>(newEntry);
-
-            // Evict if at capacity
-            if (_index.Count >= _capacity)
+            else
             {
-                var lastNode = _accessOrder.Last;
-                if (lastNode != null)
+                // Evict if at capacity
+                if (_index.Count >= _capacity)
                 {
-                    _accessOrder.RemoveLast();
-                    _index.Remove(lastNode.Value.Key);
-                    Interlocked.Increment(ref _evictionCount);
-                    wasEvicted = true;
+                    var lastNode = _accessOrder.Last;
+                    if (lastNode != null)
+                    {
+                        _accessOrder.RemoveLast();
+                        _index.Remove(lastNode.Value.Key);
+                        Interlocked.Increment(ref _evictionCount);
+                        wasEvicted = true;
+                    }
                 }
-            }
 
-            _index[key] = newNode;
-            _accessOrder.AddFirst(newNode);
-            Volatile.Write(ref _count, _index.Count);
+                // Add new entry
+                var newNode = new LinkedListNode<CacheEntry>(new CacheEntry(key, value));
+                _index[key] = newNode;
+                _accessOrder.AddFirst(newNode);
+                Volatile.Write(ref _count, _index.Count);
+            }
         }
 
         // Record cache metrics outside the lock
-        if (MetricsConfiguration.Current.EnableCacheMetrics)
+        if (updated)
         {
-            GuacamoleMetrics.RecordCacheOperation("set", "insert");
+            RecordOperation("set", "update");
+            return;
+        }
 
-            if (wasEvicted)
-            {
-                GuacamoleMetrics.RecordCacheOperation("evict", "lru");
-            }
+        RecordOperation("set", "insert");
+        if (wasEvicted)
+            RecordOperation("evict", "lru");
 
-            // Update cache size metrics
-            var hitRatio = (_hitCount + _missCount) > 0 ? (double)_hitCount / (_hitCount + _missCount) * 100 : 0;
+        if ((GuacamoleMetrics.CacheHitRatio.Enabled || GuacamoleMetrics.CacheSize.Enabled)
+            && MetricsConfiguration.Current.EnableCacheMetrics)
+        {
+            var hits = Interlocked.Read(ref _hitCount);
+            var requests = hits + Interlocked.Read(ref _missCount);
+            var hitRatio = requests > 0 ? (double)hits / requests * 100 : 0;
             GuacamoleMetrics.UpdateCacheMetrics(hitRatio, Volatile.Read(ref _count));
         }
+    }
+
+    /// <summary>
+    /// Records a cache operation in <see cref="GuacamoleMetrics.CacheOperationsTotal"/> if cache
+    /// metrics are enabled and something listens to the instrument.
+    /// </summary>
+    /// <remarks>
+    /// Checking <see cref="System.Diagnostics.Metrics.Instrument.Enabled"/> first keeps the hot paths
+    /// (every cache lookup and store) to a field read when no listener is attached, which is the
+    /// common case even with <see cref="MetricsConfiguration.EnableCacheMetrics"/> on (the default).
+    /// </remarks>
+    private static void RecordOperation(string operationType, string result)
+    {
+        if (GuacamoleMetrics.CacheOperationsTotal.Enabled && MetricsConfiguration.Current.EnableCacheMetrics)
+            GuacamoleMetrics.RecordCacheOperation(operationType, result);
     }
 
     /// <summary>
