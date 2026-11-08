@@ -65,7 +65,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- **`ComputingContextBase.TrimUnusedNodes()`** (#41): removes pipeline nodes that are no longer referenced by any provider, output registration or downstream node from the context's graph, together with their cached values and version records, and returns how many it removed. The runtime node registry, the evaluation handles and cached values no longer keep nodes alive by themselves; the node-reuse cache keeps operator nodes alive until the next trim (and again whenever an identical call requests them). Pipelines built dynamically (capturing lambdas, per-request pipelines) therefore stay bounded when trimmed periodically. A node that is still referenced, and the nodes it reads, are never removed; a removed node requested again by an identical operator call is recreated with an empty cache.
 - Initial source generator implementation
 - ComputingContextBase with change tracking
 - IncrementalValueProvider and IncrementalValuesProvider
