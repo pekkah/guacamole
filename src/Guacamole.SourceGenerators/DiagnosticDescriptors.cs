@@ -4,14 +4,22 @@ using Microsoft.CodeAnalysis;
 namespace Guacamole.SourceGenerators;
 
 /// <summary>
-/// All diagnostics reported by the Guacamole source generator.
-/// Keep AnalyzerReleases.Unshipped.md in sync when adding or changing rules.
+/// All diagnostics of the Guacamole source generator package. Keep AnalyzerReleases.Unshipped.md
+/// in sync when adding or changing rules.
 /// </summary>
 /// <remarks>
+/// <para>
+/// Diagnostics that decide whether code can be generated (GUAC0003, GUAC0005-GUAC0008, all errors)
+/// are reported by <see cref="ComputingContextGenerator"/>. Warnings a user may want to suppress
+/// (GUAC0004, GUAC0009, GUAC0010) are reported by <see cref="ComputingContextAnalyzer"/>: Roslyn does
+/// not apply <c>#pragma warning disable</c> or <c>[SuppressMessage]</c> to generator diagnostics.
+/// </para>
+/// <para>
 /// GUAC0001 (duplicate property name) and GUAC0002 (conflicting type parameters) were removed:
 /// they analysed only properties declared directly on the context class, where C# already forbids
 /// duplicate member names (CS0102), so they could never be reported. Their IDs are retired and
 /// must not be reused.
+/// </para>
 /// </remarks>
 internal static class DiagnosticDescriptors
 {
@@ -30,11 +38,11 @@ internal static class DiagnosticDescriptors
     public static readonly DiagnosticDescriptor MissingEqualityImplementation = new(
         id: "GUAC0004",
         title: "Type does not implement proper equality for incremental computation",
-        messageFormat: "Type '{0}' in property '{1}' does not implement IEquatable<{0}>. For optimal incremental computation performance, use record types or implement IEquatable<T>. Without proper equality, cache invalidation will always occur even when values are logically equal.",
+        messageFormat: "Type '{0}' in property '{1}' does not implement IEquatable<{0}>, so equal values compare as different and every recomputation counts as a change. Use a record whose members all have value equality (for collection members, EquatableArray<T>), or implement IEquatable<T>.",
         category: PerformanceCategory,
         defaultSeverity: DiagnosticSeverity.Warning,
         isEnabledByDefault: true,
-        description: "Incremental computation relies on equality comparison to minimize recomputation. Types should implement IEquatable<T> or be records for structural equality.");
+        description: "Incremental computation relies on equality comparison to minimize recomputation. Provider value types should implement IEquatable<T> or be records. A record is only value-equal when all its members are: its compiler-generated Equals compares ImmutableArray<T>, arrays, lists, dictionaries and other collections by reference (see GUAC0010). Reported by an analyzer, so it can be suppressed with #pragma warning disable, [SuppressMessage] or .editorconfig.");
 
     public static readonly DiagnosticDescriptor UserManagedPropertyMustNotBePartial = new(
         id: "GUAC0005",
@@ -81,6 +89,15 @@ internal static class DiagnosticDescriptors
         isEnabledByDefault: true,
         description: "Generated sources are initialized by the generated parameterless constructor. Every other instance constructor must, directly or through other constructors, chain to ': this()'; otherwise the sources stay null and accessing them throws at runtime.");
 
+    public static readonly DiagnosticDescriptor CollectionMemberComparedByReference = new(
+        id: "GUAC0010",
+        title: "Compiler-generated equality compares collection members by reference",
+        messageFormat: "Property '{0}': '{1}' relies on compiler-generated equality, which compares {2} by reference, so equal values count as changed and recomputation below this provider is never cut off. Use EquatableArray<T> for array members, or write Equals and GetHashCode that compare the collections element by element.",
+        category: PerformanceCategory,
+        defaultSeverity: DiagnosticSeverity.Warning,
+        isEnabledByDefault: true,
+        description: "The compiler-generated Equals of a record (or the default Equals of a struct) compares each member with EqualityComparer<T>.Default, which compares ImmutableArray<T>, arrays, List<T>, dictionaries, sets, IEnumerable<T> and other collections by reference. A provider value that holds a newly built collection is then never equal to the previous one, even with the same elements, so the equality cut-off never fires. Nested records and tuples are checked too. Use Guacamole.EquatableArray<T> for such members, or declare Equals(T) and GetHashCode() that compare the collections element by element.");
+
     public static DiagnosticDescriptor GetById(string id) => id switch
     {
         "GUAC0003" => GetOnlyProviderMustBePartial,
@@ -90,6 +107,7 @@ internal static class DiagnosticDescriptors
         "GUAC0007" => ContextMustDeriveFromBase,
         "GUAC0008" => UserDeclaredParameterlessConstructor,
         "GUAC0009" => ConstructorMustChainToGeneratedConstructor,
+        "GUAC0010" => CollectionMemberComparedByReference,
         _ => throw new ArgumentOutOfRangeException(nameof(id), id, "Unknown diagnostic id"),
     };
 }

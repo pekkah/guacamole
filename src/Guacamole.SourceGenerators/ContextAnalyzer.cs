@@ -23,15 +23,17 @@ namespace Guacamole.SourceGenerators;
 /// </list>
 /// Constructors: the generator emits the public parameterless constructor that initializes the
 /// sources. A user-declared parameterless constructor is reported (GUAC0008, error) and the generated
-/// constructor is omitted, so the only error is GUAC0008 instead of CS0111 plus follow-ups. Every other
-/// instance constructor must reach <c>: this()</c>, directly or through other constructors (GUAC0009).
+/// constructor is omitted, so the only error is GUAC0008 instead of CS0111 plus follow-ups.
+/// Warnings users may want to suppress (GUAC0004, GUAC0009, GUAC0010) are reported by
+/// <see cref="ComputingContextAnalyzer"/> instead: Roslyn does not apply <c>#pragma warning disable</c>
+/// or <c>[SuppressMessage]</c> to diagnostics reported by a source generator.
 /// </remarks>
 internal static class ContextAnalyzer
 {
     public const string ComputingContextAttributeName = "Guacamole.ComputingContextAttribute";
-    private const string ComputingContextBaseName = "Guacamole.ComputingContextBase";
-    private const string ValueProviderName = "Guacamole.IncrementalValueProvider`1";
-    private const string ValuesProviderName = "Guacamole.IncrementalValuesProvider`1";
+    internal const string ComputingContextBaseName = "Guacamole.ComputingContextBase";
+    internal const string ValueProviderName = "Guacamole.IncrementalValueProvider`1";
+    internal const string ValuesProviderName = "Guacamole.IncrementalValuesProvider`1";
 
     private static readonly SymbolDisplayFormat FullyQualifiedNullableFormat =
         SymbolDisplayFormat.FullyQualifiedFormat.AddMiscellaneousOptions(
@@ -72,11 +74,6 @@ internal static class ContextAnalyzer
 
         var valueProvider = compilation.GetTypeByMetadataName(ValueProviderName);
         var valuesProvider = compilation.GetTypeByMetadataName(ValuesProviderName);
-        var equalityTypes = new EqualityTypes(
-            compilation.GetTypeByMetadataName("System.IEquatable`1"),
-            compilation.GetTypeByMetadataName("System.Collections.Immutable.ImmutableDictionary`2"),
-            compilation.GetTypeByMetadataName("System.Collections.Immutable.ImmutableSortedDictionary`2"));
-
         var sourceProperties = new List<SourcePropertyModel>();
 
         foreach (var property in classSymbol.GetMembers().OfType<IPropertySymbol>())
@@ -126,25 +123,12 @@ internal static class ContextAnalyzer
                 continue;
             }
 
-            // Both input and user-managed providers benefit from item types with value equality.
-            // Immutable dictionaries are compared entry by entry by the runtime's default comparer,
-            // so they have value equality when their value type has it; the type reported is the
-            // one lacking it (the value type of a dictionary).
-            var typeWithoutEquality = FindTypeWithoutEquality(itemType!, equalityTypes);
-            if (typeWithoutEquality is not null)
-            {
-                diagnostics.Add(CreateDiagnostic(
-                    DiagnosticDescriptors.MissingEqualityImplementation,
-                    location,
-                    typeWithoutEquality.ToDisplayString(),
-                    property.Name));
-            }
         }
 
         ContextModel? model = null;
         if (canGenerate)
         {
-            var generateConstructor = AnalyzeConstructors(context, classSymbol, diagnostics, cancellationToken);
+            var generateConstructor = AnalyzeConstructors(classSymbol, diagnostics, cancellationToken);
 
             var containingTypes = new List<ContainingTypeModel>();
             for (var type = classSymbol.ContainingType; type is not null; type = type.ContainingType)
@@ -166,93 +150,24 @@ internal static class ContextAnalyzer
     }
 
     /// <summary>
-    /// Reports GUAC0008/GUAC0009 for user-declared instance constructors.
+    /// Reports GUAC0008 for a user-declared parameterless instance constructor. Constructors that
+    /// do not chain to <c>: this()</c> (GUAC0009) are reported by <see cref="ComputingContextAnalyzer"/>.
     /// </summary>
     /// <returns>True when the generated parameterless constructor should be emitted.</returns>
     private static bool AnalyzeConstructors(
-        GeneratorAttributeSyntaxContext context,
         INamedTypeSymbol classSymbol,
         List<DiagnosticModel> diagnostics,
         CancellationToken cancellationToken)
     {
-        var constructors = classSymbol.InstanceConstructors.Where(c => !c.IsImplicitlyDeclared).ToList();
+        var parameterless = classSymbol.InstanceConstructors.FirstOrDefault(c => !c.IsImplicitlyDeclared && c.Parameters.Length == 0);
+        if (parameterless is null)
+            return true;
 
-        var parameterless = constructors.FirstOrDefault(c => c.Parameters.Length == 0);
-        if (parameterless is not null)
-        {
-            diagnostics.Add(CreateDiagnostic(
-                DiagnosticDescriptors.UserDeclaredParameterlessConstructor,
-                GetConstructorIdentifierLocation(parameterless, cancellationToken),
-                classSymbol.Name));
-
-            // Chains to ': this()' reach the user's constructor, not generated code, so GUAC0009
-            // would be misleading here; fixing GUAC0008 comes first.
-            return false;
-        }
-
-        var reaches = new Dictionary<IMethodSymbol, bool>(SymbolEqualityComparer.Default);
-        foreach (var constructor in constructors)
-        {
-            cancellationToken.ThrowIfCancellationRequested();
-            if (!ReachesGeneratedConstructor(context, constructor, reaches, cancellationToken))
-            {
-                diagnostics.Add(CreateDiagnostic(
-                    DiagnosticDescriptors.ConstructorMustChainToGeneratedConstructor,
-                    GetConstructorIdentifierLocation(constructor, cancellationToken),
-                    classSymbol.Name));
-            }
-        }
-
-        return true;
-    }
-
-    /// <summary>
-    /// Follows <c>: this(...)</c> initializers. Only <c>: this()</c> with zero arguments reaches the
-    /// generated constructor (in the final compilation it is the best overload for an empty argument
-    /// list). <c>: base(...)</c> or no initializer never reaches it. Cycles (CS0516) count as not reaching.
-    /// Unresolvable targets are given the benefit of the doubt to avoid false positives.
-    /// </summary>
-    private static bool ReachesGeneratedConstructor(
-        GeneratorAttributeSyntaxContext context,
-        IMethodSymbol constructor,
-        Dictionary<IMethodSymbol, bool> cache,
-        CancellationToken cancellationToken)
-    {
-        if (cache.TryGetValue(constructor, out var known))
-            return known;
-
-        // Provisional value guards against cycles.
-        cache[constructor] = false;
-
-        var result = Evaluate();
-        cache[constructor] = result;
-        return result;
-
-        bool Evaluate()
-        {
-            var reference = constructor.DeclaringSyntaxReferences.FirstOrDefault();
-            if (reference?.GetSyntax(cancellationToken) is not ConstructorDeclarationSyntax declaration)
-                return true; // e.g. a primary constructor: not analysed here
-
-            var initializer = declaration.Initializer;
-            if (initializer is null || !initializer.IsKind(SyntaxKind.ThisConstructorInitializer))
-                return false;
-
-            if (initializer.ArgumentList.Arguments.Count == 0)
-                return true;
-
-            var semanticModel = initializer.SyntaxTree == context.SemanticModel.SyntaxTree
-                ? context.SemanticModel
-                : context.SemanticModel.Compilation.GetSemanticModel(initializer.SyntaxTree);
-
-            if (semanticModel.GetSymbolInfo(initializer, cancellationToken).Symbol is not IMethodSymbol target)
-                return true;
-
-            if (target.IsImplicitlyDeclared)
-                return true;
-
-            return ReachesGeneratedConstructor(context, target, cache, cancellationToken);
-        }
+        diagnostics.Add(CreateDiagnostic(
+            DiagnosticDescriptors.UserDeclaredParameterlessConstructor,
+            GetConstructorIdentifierLocation(parameterless, cancellationToken),
+            classSymbol.Name));
+        return false;
     }
 
     private static Location? GetConstructorIdentifierLocation(IMethodSymbol constructor, CancellationToken cancellationToken)
@@ -267,7 +182,7 @@ internal static class ContextAnalyzer
     private static DiagnosticModel CreateDiagnostic(DiagnosticDescriptor descriptor, Location? location, params string[] arguments)
         => new(descriptor.Id, LocationModel.From(location), arguments.ToEquatableArray());
 
-    private static bool IsPartial(INamedTypeSymbol type, CancellationToken cancellationToken)
+    internal static bool IsPartial(INamedTypeSymbol type, CancellationToken cancellationToken)
     {
         foreach (var reference in type.DeclaringSyntaxReferences)
         {
@@ -290,7 +205,7 @@ internal static class ContextAnalyzer
         return type.Locations.FirstOrDefault();
     }
 
-    private static bool DerivesFrom(INamedTypeSymbol type, INamedTypeSymbol baseType)
+    internal static bool DerivesFrom(INamedTypeSymbol type, INamedTypeSymbol baseType)
     {
         for (var current = type.BaseType; current is not null; current = current.BaseType)
         {
@@ -301,7 +216,7 @@ internal static class ContextAnalyzer
         return false;
     }
 
-    private static bool TryGetProviderKind(
+    internal static bool TryGetProviderKind(
         ITypeSymbol type,
         INamedTypeSymbol? valueProvider,
         INamedTypeSymbol? valuesProvider,
@@ -355,71 +270,6 @@ internal static class ContextAnalyzer
         }
 
         return builder.ToString();
-    }
-
-    /// <summary>
-    /// Primitive types (int, bool, char, ...) have built-in equality; string is checked (and passes).
-    /// Type parameters are skipped because their equality depends on the type argument.
-    /// Everything else needs checking.
-    /// </summary>
-    /// <summary>
-    /// The well-known types the GUAC0004 check needs (null when the compilation lacks them).
-    /// </summary>
-    private sealed record EqualityTypes(
-        INamedTypeSymbol? Equatable,
-        INamedTypeSymbol? ImmutableDictionary,
-        INamedTypeSymbol? ImmutableSortedDictionary);
-
-    /// <summary>
-    /// Returns the type that makes <paramref name="type"/> lack value equality, or null when it has
-    /// value equality. <c>ImmutableDictionary&lt;TKey, TValue&gt;</c> and
-    /// <c>ImmutableSortedDictionary&lt;TKey, TValue&gt;</c> are compared entry by entry by the
-    /// runtime's default comparer (keys with the dictionary's key comparer, values with the value
-    /// type's default comparer), so they have value equality exactly when <c>TValue</c> has it;
-    /// for them the result is the offending (possibly nested) value type.
-    /// </summary>
-    private static ITypeSymbol? FindTypeWithoutEquality(ITypeSymbol type, EqualityTypes types)
-    {
-        if (type is INamedTypeSymbol { IsGenericType: true, TypeArguments.Length: 2 } named
-            && (SymbolEqualityComparer.Default.Equals(named.OriginalDefinition, types.ImmutableDictionary)
-                || SymbolEqualityComparer.Default.Equals(named.OriginalDefinition, types.ImmutableSortedDictionary)))
-        {
-            return FindTypeWithoutEquality(named.TypeArguments[1], types);
-        }
-
-        return RequiresEqualityCheck(type) && !HasProperEquality(type, types.Equatable) ? type : null;
-    }
-
-    private static bool RequiresEqualityCheck(ITypeSymbol type)
-    {
-        if (type.TypeKind == TypeKind.TypeParameter)
-            return false;
-
-        if (type.SpecialType != SpecialType.None)
-            return type.SpecialType == SpecialType.System_String;
-
-        return true;
-    }
-
-    /// <summary>
-    /// Records, IEquatable&lt;T&gt; implementations, primitives and enums have proper equality.
-    /// </summary>
-    private static bool HasProperEquality(ITypeSymbol type, INamedTypeSymbol? equatableType)
-    {
-        if (type.IsRecord)
-            return true;
-
-        if (equatableType is not null && type.AllInterfaces.Any(i =>
-                SymbolEqualityComparer.Default.Equals(i.ConstructedFrom, equatableType) &&
-                SymbolEqualityComparer.Default.Equals(i.TypeArguments[0], type)))
-        {
-            return true;
-        }
-
-        if (type.SpecialType != SpecialType.None)
-            return true;
-
-        return type.TypeKind == TypeKind.Enum;
     }
 
     private static string GetTypeKeyword(INamedTypeSymbol type)

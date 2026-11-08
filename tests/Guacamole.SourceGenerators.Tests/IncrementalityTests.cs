@@ -38,6 +38,9 @@ public class IncrementalityTests
                 public partial IncrementalValuesProvider<string> Items { get; }
 
                 public partial IncrementalValuesProvider<Person> People { get; }
+
+                // GUAC0003 (reported by the generator): get-only and not partial
+                public IncrementalValuesProvider<string> NotPartial { get; }
             }
         }
         """;
@@ -61,7 +64,7 @@ public class IncrementalityTests
         driver = driver.RunGenerators(compilation, TestContext.Current.CancellationToken);
         var firstRun = driver.GetRunResult().Results.Single();
         Assert.Single(firstRun.GeneratedSources);
-        Assert.Single(firstRun.Diagnostics); // GUAC0004 for Person
+        Assert.Single(firstRun.Diagnostics); // GUAC0003 for NotPartial
         AssertAllStepsRan(firstRun);
 
         // Edit only the unrelated file.

@@ -83,7 +83,7 @@ public partial class CacheInvalidationTests
                 {
                     var (parsed, version) = tuple;
                     var symbols = parsed.Content.Split(',');
-                    return new TypeCheckedModule(parsed.SourceFile, symbols);
+                    return new TypeCheckedModule(parsed.SourceFile, [.. symbols]);
                 });
         }
     }
@@ -94,9 +94,10 @@ public partial class CacheInvalidationTests
     private record ParsedModule(string SourceFile, string Content);
 
     /// <summary>
-    /// Record representing a type-checked module.
+    /// Record representing a type-checked module. <see cref="EquatableArray{T}"/> gives it value
+    /// equality (a <c>string[]</c> member would be compared by reference: GUAC0010).
     /// </summary>
-    private record TypeCheckedModule(string SourceFile, string[] Symbols);
+    private record TypeCheckedModule(string SourceFile, EquatableArray<string> Symbols);
 
     /// <summary>
     /// Simple record simulating file content with structural equality.
@@ -367,7 +368,7 @@ public partial class CacheInvalidationTests
             {
                 var (parsed, version) = tuple;
                 var symbols = parsed.Content.Split(',');
-                return new TypeCheckedModule(parsed.SourceFile, symbols);
+                return new TypeCheckedModule(parsed.SourceFile, [.. symbols]);
             });
 
         // Initial state: 2 files

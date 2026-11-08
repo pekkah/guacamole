@@ -133,21 +133,51 @@ Each generated file has a hint name that is unique per type: namespace, containi
 
 ## Diagnostics
 
+The package contains a source generator and an analyzer. The generator reports the errors that decide whether code can be generated (GUAC0003, GUAC0005-GUAC0008). The analyzer (`ComputingContextAnalyzer`) reports the warnings you may want to suppress (GUAC0004, GUAC0009, GUAC0010): Roslyn does not apply `#pragma warning disable` or `[SuppressMessage]` to diagnostics reported by a source generator, so these are analyzer diagnostics and support every suppression mechanism. No diagnostic is reported by both.
+
 | ID | Severity | Category | Reported when |
 |----|----------|----------|---------------|
 | GUAC0003 | Error | Guacamole.SourceGenerator | A get-only provider property is not `partial`. Make it `partial` (input) or add a setter (user-managed). |
-| GUAC0004 | Warning | Guacamole.Performance | A provider property's item type does not have value equality (not a record, does not implement `IEquatable<T>`, not a primitive, `string` or enum; type parameters are not checked). Applies to input and user-managed properties. `ImmutableDictionary<TKey, TValue>` and `ImmutableSortedDictionary<TKey, TValue>` (including what `CollectToDictionary` returns) are compared entry by entry by the runtime, in O(N) when a stage recomputes, so they are reported only when `TValue` lacks value equality (checked recursively for nested dictionaries), and the message names that value type. Every recomputation will look like a change. |
+| GUAC0004 | Warning | Guacamole.Performance | A provider property's item type does not have value equality (not a record, does not implement `IEquatable<T>` or override `Equals(object)`, not a primitive, `string` or enum; type parameters are not checked). Applies to input and user-managed properties. What the runtime compares element by element is looked into: `ImmutableArray<T>` (its `T`), `ImmutableDictionary<TKey, TValue>` and `ImmutableSortedDictionary<TKey, TValue>` (including what `CollectToDictionary` returns; their `TValue`, compared entry by entry in O(N) when a stage recomputes), `EquatableArray<T>`, and the components of value tuples, recursively; the message names the type that lacks value equality. Every recomputation will look like a change. A record is not reported here even when it is not value-equal: see GUAC0010. |
 | GUAC0005 | Error | Guacamole.SourceGenerator | A `partial` provider property has a setter. User-managed properties must not be `partial`. |
 | GUAC0006 | Error | Guacamole.SourceGenerator | The context class, or a type that contains it, is not `partial`. No code is generated. |
 | GUAC0007 | Error | Guacamole.SourceGenerator | A class marked `[ComputingContext]` does not derive from `Guacamole.ComputingContextBase`. No code is generated. |
 | GUAC0008 | Error | Guacamole.SourceGenerator | The context declares its own parameterless constructor, which would collide with the generated one. The generator omits its constructor; move the code into a constructor with parameters chaining to `: this()`. |
-| GUAC0009 | Warning | Guacamole.SourceGenerator | An instance constructor never reaches `: this()`, so the generated sources stay uninitialized. `: this(...)` chains are followed. |
+| GUAC0009 | Warning | Guacamole.SourceGenerator | An instance constructor never reaches `: this()`, so the generated sources stay uninitialized. `: this(...)` chains are followed, including partial constructors (the initializer of the implementation part); a `: this(...)` with arguments in another file of a partial class is given the benefit of the doubt. |
+| GUAC0010 | Warning | Guacamole.Performance | A record or record struct without a user-written `Equals(T)` (compiler-generated equality) is a provider property's item type, or what the runtime compares element by element in it (`ImmutableArray<T>` and `EquatableArray<T>` elements, immutable dictionary values, components of two- and three-component tuples), and it has collection members that compiler-generated equality compares by reference: `ImmutableArray<T>`, arrays, `List<T>`, `Dictionary<TKey, TValue>`, `HashSet<T>`, `ImmutableDictionary<TKey, TValue>`, `ImmutableList<T>`, collection interfaces such as `IEnumerable<T>` and `IReadOnlyList<T>`, and other collections without their own `Equals`. Fields, properties and positional parameters are checked, including inherited record members, nested records, tuple elements and the fields of structs declared in the same compilation without their own equality (up to 8 levels; recursive types are followed once). A top-level plain struct without `IEquatable<T>` is GUAC0004 instead, and structs from referenced assemblies are not followed (their private fields are not visible). Collection types that implement `IEquatable<T>` or override `Equals(object)` (other than `ImmutableArray<T>`) count as value-equal. Value tuples of one or four or more components compare their components with `EqualityComparer<T>.Default`, so an immutable array component is reported; the message names each offending member path (for example `'Module.Items' (ImmutableArray<Item>)`). A recomputed value with the same elements is never equal to the previous one, so the equality cut-off never fires below the provider. Use `EquatableArray<T>` for those members or write `Equals(T)` and `GetHashCode()` (see [Equality](performance-guide.md#equality)). Members of class types without value equality are not reported (they may be compared by identity on purpose). |
+
+### Suppressing a Warning
+
+The analyzer warnings (GUAC0004, GUAC0009, GUAC0010) can be suppressed like any other warning. For example, for a provider whose values are deliberately compared by identity (a value without value equality that is recomputed only when its inputs change, and where a recomputation should always count as a change):
+
+```csharp
+[ComputingContext]
+public partial class CompilerContext : ComputingContextBase
+{
+#pragma warning disable GUAC0004 // GlobalImplContext is compared by identity on purpose
+    public IncrementalValueProvider<GlobalImplContext> GlobalImplContextProvider { get; set; }
+#pragma warning restore GUAC0004
+
+    // or, for one member (or on the class, for all of them):
+    [SuppressMessage("Guacamole", "GUAC0004", Justification = "Compared by identity on purpose")]
+    public IncrementalValueProvider<Scope> RootScope { get; set; }
+}
+```
+
+or for a whole project or folder in `.editorconfig`:
+
+```ini
+[*.cs]
+dotnet_diagnostic.GUAC0004.severity = none   # or suggestion, warning, error
+```
+
+Before suppressing GUAC0004, consider the cost: every recomputation of such a provider counts as a change, so everything downstream of it recomputes too and its output handlers fire. An alternative is to pass a comparer to the operator that produces the value.
 
 GUAC0001 and GUAC0002 were removed before the first release (they could never be reported) and their IDs are retired. The rule list is tracked in [`AnalyzerReleases.Unshipped.md`](../src/Guacamole.SourceGenerators/AnalyzerReleases.Unshipped.md).
 
 ## How the Generator Works
 
-The generator is an `IIncrementalGenerator` that finds contexts with `ForAttributeWithMetadataName("Guacamole.ComputingContextAttribute")`. All semantic analysis happens in that step and produces an equatable model (no symbols or syntax nodes), so Roslyn can cache the pipeline and skip regeneration when a context's shape has not changed. Source output and diagnostics are produced by two separate branches of that result, so for example a diagnostic location shift does not force the source to be re-emitted.
+The generator is an `IIncrementalGenerator` that finds contexts with `ForAttributeWithMetadataName("Guacamole.ComputingContextAttribute")`. All semantic analysis happens in that step and produces an equatable model (no symbols or syntax nodes), so Roslyn can cache the pipeline and skip regeneration when a context's shape has not changed. Source output and diagnostics are produced by two separate branches of that result, so for example a diagnostic location shift does not force the source to be re-emitted. The analyzer warnings are computed by the separate `ComputingContextAnalyzer`, outside the generator pipeline.
 
 ## Viewing Generated Code
 

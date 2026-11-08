@@ -2,6 +2,7 @@
 
 This guide covers the breaking API changes made before 1.0:
 
+- [Records with collection members (#108)](#records-with-collection-members-108)
 - [API review cleanup (#83)](#api-review-cleanup-83)
 - [Source and lifecycle behaviour](#source-and-lifecycle-behaviour)
 - [Namespace consolidation](#namespace-consolidation)
@@ -10,6 +11,26 @@ This guide covers the breaking API changes made before 1.0:
 - [Removed settings and dead code](#removed-settings-and-dead-code)
 - [Collection sources keep insertion order](#collection-sources-keep-insertion-order)
 - [From mutation-based to push-based sources](#from-mutation-based-to-push-based-sources)
+
+## Records with Collection Members (#108)
+
+Not a breaking API change, but a new warning that most pipelines built from records will see. A record's compiler-generated `Equals` compares `ImmutableArray<T>`, array, `List<T>`, dictionary, set and `IEnumerable<T>` members **by reference**, so a stage that returns a record holding a newly built collection is never equal to its previous result and the equality cut-off never stops recomputation below it (GUAC0004 used to suggest "use record types", which did not help here). The analyzer now reports **GUAC0010** for such provider types and names the members, for example:
+
+```
+warning GUAC0010: Property 'ParsedModules': 'Fugu.ParsedModule' relies on compiler-generated equality, which compares 'ParsedModule.Declarations' (ImmutableArray<Declaration>) by reference, ...
+```
+
+To fix it, change array members to `EquatableArray<T>` (namespace `Guacamole`), which compares element by element:
+
+```csharp
+// Before: equal modules compare as different
+public sealed record ParsedModule(string Path, ImmutableArray<Declaration> Declarations);
+
+// After
+public sealed record ParsedModule(string Path, EquatableArray<Declaration> Declarations);
+```
+
+Construction code usually keeps compiling: `ImmutableArray<T>` converts implicitly, and collection expressions (`[.. items]`) work. Reading code that needs an `ImmutableArray<T>` calls `AsImmutableArray()` (no copy); `foreach`, `Count`, the indexer and LINQ work directly (`Length` becomes `Count`). The element types need value equality too (GUAC0010 follows nested records). For dictionary or set members, write `Equals(T)` and `GetHashCode()` that compare them element by element; see [Equality](docs/performance-guide.md#equality). GUAC0004 and GUAC0010 are reported by an analyzer, so a member deliberately compared by identity can be suppressed with `#pragma warning disable` or `[SuppressMessage]` (#107).
 
 ## API Review Cleanup (#83)
 
@@ -369,5 +390,7 @@ Assert.Contains(file, context.SourceFiles.Values);
 **"My output handler is called more often than before."** Handlers used to run once per `SaveChanges()`; now they run after every effective change. Register handlers after bulk loading, or make them cheap. Handlers are skipped when their value did not change, so make sure item and result types have value equality (records or `IEquatable<T>`).
 
 **"GUAC0008" (or CS0111 with older generator versions).** The generator emits the parameterless constructor; see [Derived properties](#derived-properties).
+
+**"GUAC0010" on a record.** A collection member is compared by reference; see [Records with collection members](#records-with-collection-members-108).
 
 **"GUAC0003 / GUAC0005."** See the property rules in the [Generated Code Reference](docs/generated-code-reference.md#property-classification).
