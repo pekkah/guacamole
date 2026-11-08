@@ -59,12 +59,27 @@ internal sealed class ComputationGraph
     /// </summary>
     /// <exception cref="ArgumentOutOfRangeException"><paramref name="cacheCapacity"/> is less than 1.</exception>
     public ComputationGraph(int cacheCapacity)
+        : this(cacheCapacity, autoTrimInterval: 0)
+    {
+    }
+
+    /// <summary>
+    /// Creates an empty computation graph whose value cache holds at most
+    /// <paramref name="cacheCapacity"/> values, and that trims unused nodes automatically after
+    /// every <paramref name="autoTrimInterval"/> newly registered runtime nodes (0 disables
+    /// automatic trimming). See <see cref="SharedGraphState.EnableAutoTrim"/>.
+    /// </summary>
+    /// <exception cref="ArgumentOutOfRangeException"><paramref name="cacheCapacity"/> is less than 1,
+    /// or <paramref name="autoTrimInterval"/> is negative.</exception>
+    public ComputationGraph(int cacheCapacity, int autoTrimInterval)
         : this(
             ImmutableDictionary<string, IComputationNode>.Empty,
             ImmutableDictionary<string, ImmutableHashSet<string>>.Empty,
             new LRUCache<string, object>(cacheCapacity),
             new SharedGraphState())
     {
+        if (autoTrimInterval != 0)
+            _sharedState.EnableAutoTrim(autoTrimInterval, ValueCache);
     }
 
     /// <summary>

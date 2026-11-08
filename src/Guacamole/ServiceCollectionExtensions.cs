@@ -11,7 +11,8 @@ namespace Guacamole;
 /// <remarks>
 /// Computing contexts are not configured through dependency injection: each context owns its
 /// computation graph and value cache. To change a context's cache size, override
-/// <see cref="ComputingContextBase.CacheCapacity"/>. Metrics are configured globally with
+/// <see cref="ComputingContextBase.CacheCapacity"/>; to trim unused pipeline nodes automatically,
+/// override <see cref="ComputingContextBase.AutoTrimInterval"/>. Metrics are configured globally with
 /// <see cref="Diagnostics.MetricsConfiguration.SetGlobal"/>.
 /// </remarks>
 public static class ServiceCollectionExtensions

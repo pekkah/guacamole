@@ -97,6 +97,24 @@ foreach (var request in requests)
 context.TrimUnusedNodes(); // the per-request nodes are removed once they have been collected
 ```
 
+In a long-running host, you can let the context trim itself instead of calling `TrimUnusedNodes()`: override `AutoTrimInterval` (off by default, `0`) with the number of new nodes after which the context trims automatically.
+
+```csharp
+[ComputingContext]
+public partial class QueryContext : ComputingContextBase
+{
+    protected override int AutoTrimInterval => 1_000; // trim after every 1,000 new pipeline nodes
+    // ...
+}
+```
+
+- Only nodes newly added to the graph count. Reading existing pipelines and identical operator calls that reuse a node cost nothing, and a context that builds its pipelines once never trims.
+- Each trim scans the registry, so when many nodes remain registered, the next trim waits for at least half as many new nodes as remained. The cost of trimming stays proportional to the number of nodes added.
+- A trim runs on the thread that added the node, but never inside a node computation (it waits for the next node added outside one) and never waits for another trim: if one is running, the next new node tries again. While a trim runs, other threads creating new nodes wait for it (reads do not).
+- Trimming is still two-phase: nodes released by one trim are removed by a later one, after the garbage collector has collected them. As long as new nodes keep being added, the graph stays bounded (roughly the live nodes plus a few intervals' worth) without explicit calls; when no new nodes are added, no trims run, but the graph does not grow either.
+- Like explicit trimming, it never affects results, but a node kept alive only by the context (for example an identical operator call in a property getter whose provider is not stored) may be collected after a trim and recreated with an empty cache. Choose an interval well above the number of nodes such calls create between reads, or store the providers.
+- Like `CacheCapacity`, the override is read once by the base constructor, so return a constant. A negative value throws `ArgumentOutOfRangeException`.
+
 ## Equality
 
 Equality is used to detect changes at every level: source contents, computed values (equality cut-off) and output handlers.
@@ -127,7 +145,7 @@ var names = context.People.Select(p => p.Name, StringComparer.OrdinalIgnoreCase)
       // ...
   }
   ```
-- Nodes created by operator calls stay registered in the graph until `TrimUnusedNodes()` removes the ones nothing references anymore (see [Build Pipelines Once](#build-pipelines-once)).
+- Nodes created by operator calls stay registered in the graph until `TrimUnusedNodes()` (called explicitly, or automatically with `AutoTrimInterval`) removes the ones nothing references anymore (see [Build Pipelines Once](#build-pipelines-once)).
 - `Dispose()` unsubscribes the context from its sources and drops its output registrations.
 
 ## Thread Safety and Performance
