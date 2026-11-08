@@ -179,4 +179,89 @@ public class BatchTests
 
         Assert.Equal([new Item("b", 2)], context.ItemsSource.GetSnapshot());
     }
+
+    [Fact]
+    public void Dispose_AfterTheContextWasDisposed_DiscardsPendingOperationsWithoutThrowing()
+    {
+        // #96: a using block that ends after the context was disposed must not throw from Dispose
+        var context = new ApiContext();
+        context.ItemsSource.Push(new Item("a", 1));
+        var changes = 0;
+        context.ItemsSource.Changed += (_, _) => changes++;
+        var batch = context.ItemsSource.BeginBatch();
+        batch.Push(new Item("b", 2));
+        batch.Remove(new Item("a", 1));
+
+        context.Dispose();
+        batch.Dispose();
+        batch.Dispose(); // idempotent
+
+        Assert.Equal([new Item("a", 1)], context.ItemsSource.GetSnapshot());
+        Assert.Equal(0, changes);
+        Assert.Throws<ObjectDisposedException>(() => batch.Push(new Item("c", 3)));
+        Assert.Throws<ObjectDisposedException>(batch.Commit);
+    }
+
+    [Fact]
+    public void UsingBlock_EndingAfterTheContextWasDisposed_DoesNotThrow()
+    {
+        var context = new ApiContext();
+
+        using (var batch = context.ItemsSource.BeginBatch())
+        {
+            batch.Push(new Item("a", 1));
+            context.Dispose();
+            batch.Push(new Item("b", 2)); // only buffered: the batch does not check the context
+        }
+
+        Assert.Empty(context.ItemsSource.GetSnapshot());
+    }
+
+    [Fact]
+    public void Commit_AfterTheContextWasDisposed_Throws_AndDisposeThenDoesNothing()
+    {
+        var context = new ApiContext();
+        var batch = context.ItemsSource.BeginBatch();
+        batch.Push(new Item("a", 1));
+
+        context.Dispose();
+
+        Assert.Throws<ObjectDisposedException>(batch.Commit);
+        batch.Dispose();
+        Assert.Empty(context.ItemsSource.GetSnapshot());
+    }
+
+    [Fact]
+    public void Rollback_AfterTheContextWasDisposed_DoesNotThrow()
+    {
+        var context = new ApiContext();
+        using var batch = context.ItemsSource.BeginBatch();
+        batch.Push(new Item("a", 1));
+
+        context.Dispose();
+
+        batch.Rollback();
+        Assert.Empty(context.ItemsSource.GetSnapshot());
+    }
+
+    [Fact]
+    public void BeginBatch_AfterTheContextWasDisposed_ThrowsObjectDisposedException()
+    {
+        // Consistent with the source's own change methods (#88): the batch could never be committed
+        var context = new ApiContext();
+        context.Dispose();
+
+        Assert.Throws<ObjectDisposedException>(() => context.ItemsSource.BeginBatch());
+    }
+
+    [Fact]
+    public void Dispose_OfAnEmptyBatch_AfterTheContextWasDisposed_DoesNotThrow()
+    {
+        var context = new ApiContext();
+        var batch = context.ItemsSource.BeginBatch();
+
+        context.Dispose();
+
+        batch.Dispose();
+    }
 }

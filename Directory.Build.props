@@ -11,12 +11,15 @@
     <Authors>Pekka Heikura</Authors>
     <Company>Guacamole</Company>
     <Product>Guacamole Framework</Product>
-    <Description>Foundation framework for incremental compilers, powering the Fugu language compiler and similar tooling</Description>
-    <Copyright>Copyright © 2025</Copyright>
+    <!-- One summary of the framework for both packages: Guacamole's Description is the summary,
+         Guacamole.SourceGenerators prefixes it with what that package contains. -->
+    <GuacamoleSummary>Incremental computation framework for .NET: push-based sources, Roslyn-style incremental providers with automatic dependency tracking, per-stage caching and equality cut-off. A foundation for incremental compilers such as the Fugu language compiler, and similar tooling.</GuacamoleSummary>
+    <Description>$(GuacamoleSummary) The [ComputingContext] source generator is in the separate Guacamole.SourceGenerators package.</Description>
+    <Copyright>Copyright © 2025 Pekka Heikura</Copyright>
     <PackageLicenseExpression>MIT</PackageLicenseExpression>
     <PackageProjectUrl>https://github.com/pekkah/guacamole</PackageProjectUrl>
     <PackageReadmeFile>README.md</PackageReadmeFile>
-    <PackageTags>incremental;query;engine;source-generators;compiler;framework;roslyn;incremental-computation;dependency-injection;caching</PackageTags>
+    <PackageTags>incremental;incremental-computation;query;engine;compiler;framework;caching;dependency-tracking</PackageTags>
     <RepositoryUrl>https://github.com/pekkah/guacamole</RepositoryUrl>
     <RepositoryType>git</RepositoryType>
 

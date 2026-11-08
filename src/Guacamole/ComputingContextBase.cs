@@ -163,8 +163,10 @@ public abstract partial class ComputingContextBase : IDisposable
     /// <see cref="IncrementalValuesProvider{T}.GetValues"/>, <see cref="IncrementalValuesProvider{T}.Values"/>),
     /// including pipelines built from them, throws <see cref="ObjectDisposedException"/>;</description></item>
     /// <item><description>changing its sources (<c>Set</c>, <c>Push</c>, <c>PushRange</c>, <c>Remove</c>,
-    /// <c>Replace</c>, <c>Clear</c>, batch <c>Commit</c>) throws <see cref="ObjectDisposedException"/>;
-    /// reading a source's own current value (<c>GetValue</c>, <c>GetSnapshot</c>) still works;</description></item>
+    /// <c>Replace</c>, <c>Clear</c>, <c>BeginBatch</c>, batch <c>Commit</c>) throws
+    /// <see cref="ObjectDisposedException"/>, while disposing a pending batch discards its operations
+    /// without throwing; reading a source's own current value (<c>GetValue</c>, <c>GetSnapshot</c>)
+    /// still works;</description></item>
     /// <item><description><see cref="RegisterOutput{T}(IncrementalValueProvider{T}, Action{T, ComputingContextBase})"/>
     /// and <see cref="TrimUnusedNodes"/> throw <see cref="ObjectDisposedException"/>, and output handlers
     /// are no longer called (as for a disposed registration, a delivery in progress on another thread

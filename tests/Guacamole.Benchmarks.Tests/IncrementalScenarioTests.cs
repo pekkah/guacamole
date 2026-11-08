@@ -126,4 +126,46 @@ public class IncrementalScenarioTests
 
         Assert.Equal(benchmarks.Direct(), benchmarks.BuildAndRead());
     }
+
+    [Fact]
+    public void SymbolLookupFanOutBenchmarks_IncrementalAndDirectAgree_AndOneEditRecomputesOneResult()
+    {
+        var incremental = new SymbolLookupFanOutBenchmarks { Files = 1_000 };
+        var direct = new SymbolLookupFanOutBenchmarks { Files = 1_000 };
+        incremental.Setup();
+        direct.Setup();
+        try
+        {
+            for (int i = 0; i < 2_500; i++) // wraps around the files, toggling each B back and forth
+            {
+                var checks = incremental.Checks;
+                Assert.Equal(direct.DirectReadAll(), incremental.ReadAll());
+                // Only the file referencing the edited B name gets a new lookup result
+                Assert.Equal(1, incremental.Checks - checks);
+            }
+        }
+        finally
+        {
+            incremental.Cleanup();
+            direct.Cleanup();
+        }
+    }
+
+    [Fact]
+    public void SymbolLookupFanOutBenchmarks_ReadOne_RecomputesTheAffectedResult()
+    {
+        var benchmarks = new SymbolLookupFanOutBenchmarks { Files = 1_000 };
+        benchmarks.Setup();
+        try
+        {
+            var first = benchmarks.ReadOne(); // file 0 loses B0, so file 999 no longer resolves its B
+            Assert.Equal(1 + 4, first);
+            Assert.Equal(1, benchmarks.Checks);
+            Assert.True(benchmarks.TableOnly() > 0);
+        }
+        finally
+        {
+            benchmarks.Cleanup();
+        }
+    }
 }

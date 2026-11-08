@@ -15,16 +15,22 @@ A .NET framework for building incremental compilers and computation pipelines, i
 - **Thread-safe building blocks**: Sources, the value cache and version bookkeeping are synchronized (see [Thread safety](#thread-safety) for what is and is not covered)
 - **Performance**: Equality-based cut-off (unchanged values do not invalidate dependents), LRU value cache, BenchmarkDotNet benchmarks
 
-## Quick Start
+## Installation
 
-Install the packages:
+Guacamole requires .NET 11 (see [Requirements](#requirements)). Install both packages:
 
 ```bash
-dotnet add package Guacamole
-dotnet add package Guacamole.SourceGenerators
+dotnet add package Guacamole --prerelease
+dotnet add package Guacamole.SourceGenerators --prerelease
 ```
 
-> **Note**: `Guacamole` is the runtime library. `Guacamole.SourceGenerators` contains the source generator that implements `[ComputingContext]` classes. The runtime package does not depend on the generator package, so **install both**.
+> **Note**: `Guacamole` is the runtime library. `Guacamole.SourceGenerators` contains the source generator that implements `[ComputingContext]` classes. The runtime package does not depend on the generator package, so **install both**. The generator is a development dependency: it runs at compile time only and is not passed on to projects that reference yours.
+
+`--prerelease` installs the latest preview: prerelease versions are published to nuget.org from `main`, and stable versions from release tags. Until the first stable release only previews exist, so `dotnet add package` without `--prerelease` finds no version; afterwards, omit it to get the latest stable version. In a `PackageReference`, give a preview version from nuget.org explicitly.
+
+The [changelog](https://github.com/pekkah/guacamole/blob/main/CHANGELOG.md) lists the changes in each version, and the [packages](#packages) table links to nuget.org.
+
+## Quick Start
 
 Define a computing context. Every `partial` get-only provider property becomes an input source:
 
@@ -63,7 +69,7 @@ if (result.IsSuccess)
 
 ### Build pipelines once
 
-Every operator call (`Select`, `Where`, `Combine`, `Collect`, ...) creates a **new computation node with a unique ID**, and cached values are stored per node. Build a pipeline once (in a constructor or at startup) and keep the resulting provider. Avoid building pipelines inside property getters or per request. Identical operator calls are reused: calling the same operator on the same input with an equal delegate (a non-capturing lambda, a lambda that only captures `this`, or a method group on the same instance) returns the existing node. Lambdas that capture locals allocate a new closure per call, so they never match and create a new node each time. Such nodes start with an empty cache and stay registered in the context's graph until you call `context.TrimUnusedNodes()` (or the context does it automatically, if it overrides `AutoTrimInterval`), which removes the nodes no provider, output registration or other node references anymore (see [Performance Guide](docs/performance-guide.md#build-pipelines-once)).
+Every operator call (`Select`, `Where`, `Combine`, `Collect`, ...) creates a **new computation node with a unique ID**, and cached values are stored per node. Build a pipeline once (in a constructor or at startup) and keep the resulting provider. Avoid building pipelines inside property getters or per request. Identical operator calls are reused: calling the same operator on the same input with an equal delegate (a non-capturing lambda, a lambda that only captures `this`, or a method group on the same instance) returns the existing node. Lambdas that capture locals allocate a new closure per call, so they never match and create a new node each time. Such nodes start with an empty cache and stay registered in the context's graph until you call `context.TrimUnusedNodes()` (or the context does it automatically, if it overrides `AutoTrimInterval`), which removes the nodes no provider, output registration or other node references anymore (see [Performance Guide](https://github.com/pekkah/guacamole/blob/main/docs/performance-guide.md#build-pipelines-once)).
 
 The generator emits the context's public parameterless constructor, so you cannot declare your own parameterless constructor. To expose derived pipelines as properties, declare them as non-partial properties with a setter and assign them in a constructor that chains to `this()`:
 
@@ -156,9 +162,9 @@ How these behave:
 - **Every stage is cached.** Each stage of a pipeline caches its result together with the versions of the inputs it read, whether or not you read that stage directly. Reading a provider first brings the stages it was computed from up to date (recursively), so a stage reruns only when one of its own inputs actually changed.
 - **Version-based invalidation** - a source change only increments that source's version; cached values are revalidated lazily on the next read. A stage whose recomputed value equals its previous value (by its comparer) keeps its version, so the stages downstream of it stay valid and are not recomputed. This equality cut-off applies at every stage, including intermediate stages that are never read themselves.
 - **Per-item memoization** - a recomputed collection `Select`/`Where`/`SelectMany` runs its lambda only for new or changed items; items equal to ones seen in the previous computation reuse the previous result (the same instance). Items should be immutable.
-- **Cross-item lookups** (e.g. a symbol table built from all files) - compute shared data from all items, with `CollectToDictionary` for a lookup table (updated in proportion to the changed items, with a deterministic rule for duplicate keys) or `Collect()` and a deterministic merge into a type with structural equality, then `Combine` it with each item; never accumulate it in a lambda, which makes results depend on processing order. See [Cross-item lookups](docs/performance-guide.md#cross-item-lookups-eg-symbol-tables).
+- **Cross-item lookups** (e.g. a symbol table built from all files) - compute shared data from all items, with `CollectToDictionary` for a lookup table (updated in proportion to the changed items, with a deterministic rule for duplicate keys) or `Collect()` and a deterministic merge into a type with structural equality, then `Combine` it with each item; never accumulate it in a lambda, which makes results depend on processing order. See [Cross-item lookups](https://github.com/pekkah/guacamole/blob/main/docs/performance-guide.md#cross-item-lookups-eg-symbol-tables).
 - **Custom equality comparers** decide whether a recomputed value counts as changed. Use records or `IEquatable<T>` types; without value equality every recomputation looks like a change.
-- **Errors are values** - exceptions thrown by your lambdas become failed `Result`s; `GetValue()`/`GetValues()` do not throw them (`.Value`/`.Values` and `TryGetValue` do, as `InvalidOperationException`). Downstream stages pass the error on without running their lambdas. Failed results (and `null` values) are cached like values: a failing stage runs again only when one of its inputs changes, and an error equal to the previous one (same messages, inner errors, location and diagnostic ID) keeps the stages downstream of it cached. See [Every stage is cached](docs/performance-guide.md#every-stage-is-cached).
+- **Errors are values** - exceptions thrown by your lambdas become failed `Result`s; `GetValue()`/`GetValues()` do not throw them (`.Value`/`.Values` and `TryGetValue` do, as `InvalidOperationException`). Downstream stages pass the error on without running their lambdas. Failed results (and `null` values) are cached like values: a failing stage runs again only when one of its inputs changes, and an error equal to the previous one (same messages, inner errors, location and diagnostic ID) keeps the stages downstream of it cached. See [Every stage is cached](https://github.com/pekkah/guacamole/blob/main/docs/performance-guide.md#every-stage-is-cached).
 - **A filtered-out single value is "no value", not an error.** When a single-value `Where` rejects its input, `GetValue()` returns a `Result` with `IsNone == true` (`IsSuccess` and `IsError` are false). Downstream `Select`/`Where`/`Combine` propagate "no value" without running their lambdas; `SelectMany` and collection `Combine` produce no items; output handlers are not called. `.Value` throws `InvalidOperationException`; use `TryGetValue(out value)`, which returns `false` for no value (and throws only if the computation failed).
 - **`Result.ValueOrDefault` never throws.** It returns the value on success and `default` for None or an error, so check `IsSuccess` (or use `Match`) first. The providers' `.Value`/`.Values` are the throwing accessors.
 
@@ -171,8 +177,9 @@ How these behave:
 
 ## Requirements
 
-- .NET 11 RC3 SDK (11.0.100-rc.3) or later
-- C# 15 (LangVersion latest; partial properties require C# 13+)
+- **.NET 11.** The `Guacamole` package targets `net11.0`, so projects that use it must target .NET 11 or later.
+- **The .NET 11 SDK** (or Visual Studio / Rider with the matching compiler): `Guacamole.SourceGenerators` is built against Roslyn 5.9 (Microsoft.CodeAnalysis 5.9.0), and an older compiler cannot load it. Use the .NET 11 RC3 SDK (`11.0.100-rc.3`) or later; the packages are currently built and tested with RC3 (pinned in this repository's `global.json`).
+- **C# 13 or later** for partial properties. Projects targeting `net11.0` default to C# 15.
 
 ## Building
 
@@ -205,16 +212,16 @@ git tag -a v0.2.0 -m "Release 0.2.0"      # or v0.2.0-beta.1 for a prerelease
 git push origin v0.2.0
 ```
 
-The tag name (without `v`) is the package version. Pushes to `main` only build, test and pack. Publishing uses nuget.org trusted publishing (no stored API key); see [docs/ci-cd.md](docs/ci-cd.md#nuget-trusted-publishing) for the one-time setup and details.
+The tag name (without `v`) is the package version. Pushes to `main` only build, test and pack. Publishing uses nuget.org trusted publishing (no stored API key); see [docs/ci-cd.md](https://github.com/pekkah/guacamole/blob/main/docs/ci-cd.md#nuget-trusted-publishing) for the one-time setup and details.
 
 ## Examples
 
-The [`examples/`](examples/) directory contains runnable console projects. They are part of `guacamole.sln`, so CI builds them:
+The [`examples/`](https://github.com/pekkah/guacamole/tree/main/examples/) directory contains runnable console projects. They are part of `guacamole.sln`, so CI builds them:
 
-- [`examples/BasicSourceUsage`](examples/BasicSourceUsage/) - Pushing items, `Where`/`Collect`/`Select`, output handlers
-- [`examples/FileWatcherExample`](examples/FileWatcherExample/) - Simulated file watcher pushing file changes
-- [`examples/DataPipelineExample`](examples/DataPipelineExample/) - Multi-stage data transformation pipeline
-- [`examples/CrossFileSymbolsExample`](examples/CrossFileSymbolsExample/) - Cross-file symbol resolution with `CollectToDictionary` and `Combine`
+- [`examples/BasicSourceUsage`](https://github.com/pekkah/guacamole/tree/main/examples/BasicSourceUsage/) - Pushing items, `Where`/`Collect`/`Select`, output handlers
+- [`examples/FileWatcherExample`](https://github.com/pekkah/guacamole/tree/main/examples/FileWatcherExample/) - Simulated file watcher pushing file changes
+- [`examples/DataPipelineExample`](https://github.com/pekkah/guacamole/tree/main/examples/DataPipelineExample/) - Multi-stage data transformation pipeline
+- [`examples/CrossFileSymbolsExample`](https://github.com/pekkah/guacamole/tree/main/examples/CrossFileSymbolsExample/) - Cross-file symbol resolution with `CollectToDictionary` and `Combine`
 
 Run an example with:
 ```bash
@@ -263,7 +270,7 @@ For each `[ComputingContext]` class the generator emits one file containing:
 - The implementation of each partial provider property (returns the source's provider)
 - A `{Property}Source` accessor typed `IIncrementalSource<T>` or `IIncrementalValueSource<T>`
 
-The generator also reports diagnostics (GUAC0003-GUAC0009) for invalid declarations; see [Generated Code Reference](docs/generated-code-reference.md#diagnostics).
+The generator also reports diagnostics (GUAC0003-GUAC0009) for invalid declarations; see [Generated Code Reference](https://github.com/pekkah/guacamole/blob/main/docs/generated-code-reference.md#diagnostics).
 
 ### Output Handlers
 
@@ -277,7 +284,7 @@ registration.Dispose();
 - A handler is invoked only if its provider computes a value (not an error, and not "no value" from a `Where`; a `null` value is delivered) and the value differs from the last value delivered to that handler; after a "no value" phase, a reappearing value is delivered again even if it equals the last one (the provider's comparer when it was created with one, e.g. `Select(selector, comparer)`, otherwise `EqualityComparer<T>.Default`; element-wise for collections). `Collect()` results compare element-wise (in order), so a handler on a collected provider does not run for a re-collect with equal items; other `ImmutableArray<T>`, list or dictionary values returned by a `Select` compare by reference.
 - All handlers run even if one throws; afterwards the exceptions are rethrown as one `AggregateException` (all handler exceptions as its inner exceptions) from the `Push`/`Set`/... call on the thread that delivered them, which is not the triggering call when the delivery was handed to another thread.
 - `RegisterOutput` returns an `IDisposable`; disposing it unregisters that handler only (thread-safe, idempotent; deliveries that start afterwards, and deliveries on the thread that disposed it, do not call the handler, but a delivery in progress on another thread may still make one call just after `Dispose` returns). Collection handlers receive an `IReadOnlyList<T>`.
-- `Dispose()` on the context unsubscribes it from its sources and drops all of its output registrations. A disposed context no longer tracks source changes, so instead of returning stale values, reading its providers (`GetValue`, `Value`, `TryGetValue`, `GetValues`, `Values`) and changing its sources (`Set`, `Push`, `PushRange`, `Remove`, `Replace`, `Clear`, batch `Commit`) throw `ObjectDisposedException`. The sources' own `GetValue`/`GetSnapshot` keep working.
+- `Dispose()` on the context unsubscribes it from its sources and drops all of its output registrations. A disposed context no longer tracks source changes, so instead of returning stale values, reading its providers (`GetValue`, `Value`, `TryGetValue`, `GetValues`, `Values`) and changing its sources (`Set`, `Push`, `PushRange`, `Remove`, `Replace`, `Clear`, `BeginBatch`, batch `Commit`) throw `ObjectDisposedException`. Disposing a batch that is still pending discards its operations without throwing, so `using` blocks end cleanly. The sources' own `GetValue`/`GetSnapshot` keep working.
 
 ### Thread Safety
 
@@ -296,18 +303,18 @@ What is not:
 
 ### Namespaces
 
-Everything a typical application uses (contexts, providers and their operators, sources, `Result`, `ComputationError`, `ProviderMetadata`, the dependency-injection extensions) is in the `Guacamole` namespace, so `using Guacamole;` is all you need. The only other public namespace is `Guacamole.Diagnostics` (`MetricsConfiguration` and the `GuacamoleMetrics` instruments). The computation graph, nodes, value cache and concrete source classes are internal implementation details. See the [Migration Guide](MIGRATION_GUIDE.md) for the old namespaces and the members that became internal.
+Everything a typical application uses (contexts, providers and their operators, sources, `Result`, `ComputationError`, `ProviderMetadata`, the dependency-injection extensions) is in the `Guacamole` namespace, so `using Guacamole;` is all you need. The only other public namespace is `Guacamole.Diagnostics` (`MetricsConfiguration` and the `GuacamoleMetrics` instruments). The computation graph, nodes, value cache and concrete source classes are internal implementation details. See the [Migration Guide](https://github.com/pekkah/guacamole/blob/main/MIGRATION_GUIDE.md) for the old namespaces and the members that became internal.
 
 ## Documentation
 
-- [Quickstart](docs/quickstart.md) - Step-by-step introduction
-- [Generated Code Reference](docs/generated-code-reference.md) - What the generator emits, and its diagnostics
-- [Performance Guide](docs/performance-guide.md) - How caching works and how to get the most out of it
-- [CI/CD](docs/ci-cd.md) - Build, test and release workflow
-- [Examples README](examples/README.md) - Guide to the examples
-- [Migration Guide](MIGRATION_GUIDE.md) - Breaking API changes: namespace consolidation, and moving from the removed mutation/`SaveChanges` API
-- [Changelog](CHANGELOG.md)
-- [Push-Based Architecture Research](PUSH_BASED_ARCHITECTURE_RESEARCH.md) - Design research (historical; parts of it differ from the implementation)
+- [Quickstart](https://github.com/pekkah/guacamole/blob/main/docs/quickstart.md) - Step-by-step introduction
+- [Generated Code Reference](https://github.com/pekkah/guacamole/blob/main/docs/generated-code-reference.md) - What the generator emits, and its diagnostics
+- [Performance Guide](https://github.com/pekkah/guacamole/blob/main/docs/performance-guide.md) - How caching works and how to get the most out of it
+- [CI/CD](https://github.com/pekkah/guacamole/blob/main/docs/ci-cd.md) - Build, test and release workflow
+- [Examples README](https://github.com/pekkah/guacamole/blob/main/examples/README.md) - Guide to the examples
+- [Migration Guide](https://github.com/pekkah/guacamole/blob/main/MIGRATION_GUIDE.md) - Breaking API changes: namespace consolidation, and moving from the removed mutation/`SaveChanges` API
+- [Changelog](https://github.com/pekkah/guacamole/blob/main/CHANGELOG.md)
+- [Push-Based Architecture Research](https://github.com/pekkah/guacamole/blob/main/PUSH_BASED_ARCHITECTURE_RESEARCH.md) - Design research (historical; parts of it differ from the implementation)
 
 ## License
 
