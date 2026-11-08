@@ -328,12 +328,14 @@ internal sealed class ComputationGraph
     /// version-based equality caching.
     /// </summary>
     /// <param name="nodeId">The source node's unique identifier</param>
-    public void MarkSourceChanged(string nodeId)
+    /// <param name="change">The source's notification, which may hold the change open since before
+    /// the source published its new contents (see <see cref="SharedGraphState.MarkSourceChanged"/>)</param>
+    public void MarkSourceChanged(string nodeId, SourceChangedEventArgs? change = null)
     {
         // Downstream nodes observe the new version via their dependency version checks and
         // recompute as needed. Their own versions are only incremented if their computed values
         // actually change, enabling equality-based cache skipping.
-        _sharedState.MarkSourceChanged(nodeId);
+        _sharedState.MarkSourceChanged(nodeId, change);
     }
 
     /// <summary>

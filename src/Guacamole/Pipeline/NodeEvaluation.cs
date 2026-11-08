@@ -94,6 +94,35 @@ internal sealed class GraphEvaluator
     // The source-change state when this pass started (read before Revision)
     private readonly long _changeState;
 
+    /// <summary>
+    /// Whether a source change was in progress when this pass started. Such a pass neither takes
+    /// values as verified by their revision nor trusts the versions of roots (issue #99).
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// A change in progress may have published its source's new contents without having advanced
+    /// the source's version or the revision yet (a source starts its change before it publishes, see
+    /// <see cref="SourceChangedEventArgs"/>). Passes at the same revision can therefore read
+    /// different contents: one that read the old contents and commits last leaves an older value
+    /// verified at that revision, under the same root version as the newer one. A pass that started
+    /// with no change in progress is not affected: every change that published before it started had
+    /// ended, so the revision it read covers them. But a pass that started during the change, for
+    /// example a read on a thread that has just returned the newer value, could take the older value
+    /// by its revision, or by the root version recorded with it, and go back in time.
+    /// </para>
+    /// <para>
+    /// Such a pass therefore verifies every value through its dependencies and treats each root
+    /// dependency as changed, so the nodes reading roots are recomputed from the current contents
+    /// (their versions only move on if the result differs). Versions of computed nodes still identify
+    /// their values (a version is assigned at commit and shared only by equal values), and stamps
+    /// are still trusted: a value stamped by a pass that started before the change read the contents
+    /// before it, and any value committed since replaced it. This costs only the passes that start
+    /// while another thread is changing a source; the output handlers a change triggers run after it
+    /// has ended.
+    /// </para>
+    /// </remarks>
+    public bool OverlapsChange => (_changeState & SharedGraphState.ActiveChangesMask) != 0;
+
     // Whether this pass may still record stamps: 0 until the first stamp decision, then 1 (yes, so
     // far) or -1 (no, for the rest of the pass)
     private int _stamping;
@@ -596,7 +625,7 @@ internal abstract class NodeHandle<TResult> : NodeHandle
         {
             // Verified since the last source change, or no source upstream has changed since it was
             // (for a gated node, once its gates are up to date: see Gates and StampHoldsAfterGates)
-            if (entry.VerifiedAtRevision >= evaluator.Revision
+            if ((entry.VerifiedAtRevision >= evaluator.Revision && !evaluator.OverlapsChange)
                 || (entry.Stamp == dirty && (Gates.Length == 0 || StampHoldsAfterGates(entry, evaluator, ref dirty))))
             {
                 entry.MarkVerified(evaluator.Revision);
@@ -642,14 +671,19 @@ internal abstract class NodeHandle<TResult> : NodeHandle
 
     private bool IsUpToDate(CachedNodeValue entry, GraphEvaluator evaluator)
     {
+        // A root's version does not tell whether a change in progress has published its new
+        // contents (see GraphEvaluator.OverlapsChange)
         if (_isRoot)
-            return entry.OutputVersion == State.Version;
+            return !evaluator.OverlapsChange && entry.OutputVersion == State.Version;
 
         foreach (var dependency in entry.Dependencies)
         {
             long current;
             if (dependency.Handle is null)
             {
+                if (evaluator.OverlapsChange)
+                    return false; // a root (see above): recompute from its current contents
+
                 current = dependency.State.Version;
             }
             else if (dependency.Handle.TryGetTarget(out var handle))
