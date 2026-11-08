@@ -2,12 +2,21 @@
 
 This guide covers the breaking API changes made before 1.0:
 
+- [API review cleanup (#83)](#api-review-cleanup-83)
 - [Namespace consolidation](#namespace-consolidation)
 - [Internal types and members](#internal-types-and-members)
 - [Single-value `Where` produces "no value"](#single-value-where-produces-no-value)
 - [Removed settings and dead code](#removed-settings-and-dead-code)
 - [Collection sources keep insertion order](#collection-sources-keep-insertion-order)
 - [From mutation-based to push-based sources](#from-mutation-based-to-push-based-sources)
+
+## API Review Cleanup (#83)
+
+An architecture review of the public API before 1.0 removed dead members and made the remaining contracts consistent. Most changes are renames that the compiler points out.
+
+### `ComputingContextAttribute` has no properties
+
+`GenerateAsyncMethods`, `GenerateBatchMethods` and `Name` were left over from the mutation-based design: the source generator never read them. Remove the arguments: `[ComputingContext(GenerateAsyncMethods = false)]` becomes `[ComputingContext]`. Generated code is unchanged.
 
 ## Namespace Consolidation
 
