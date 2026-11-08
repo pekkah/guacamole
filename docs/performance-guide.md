@@ -139,7 +139,9 @@ var lookup = context.Settings.Select(
 
 ## Batching
 
-`BeginBatch()` buffers operations, but `Commit()` still applies them one at a time, and each effective change raises its own notification, which runs all output handlers. `PushRange` behaves the same way. When loading many items with output handlers registered, consider registering the handlers after the initial load, or keeping handlers cheap.
+`PushRange` adds all its items in one step and raises a single change notification (none if every item was already present), so output handlers run once per range and downstream stages recompute once. Use it to load many items.
+
+`BeginBatch()` buffers operations, but `Commit()` still applies them one at a time, and each effective change raises its own notification, which runs all output handlers. When applying many individual changes with output handlers registered, keep handlers cheap.
 
 ## Memory
 

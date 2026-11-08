@@ -131,12 +131,24 @@ public static class IncrementalSourceExtensions
     }
 
     /// <summary>
-    /// Pushes multiple items in a batch, appending them in enumeration order.
+    /// Pushes multiple items, appending them in enumeration order (items already present are skipped).
     /// </summary>
+    /// <remarks>
+    /// For the sources created by a context the items are added in one step with a single change
+    /// notification (none if no item was added), and a <c>null</c> item is rejected before any item
+    /// is added. Other <see cref="IIncrementalSource{T}"/> implementations receive one
+    /// <see cref="IIncrementalSource{T}.Push"/> call per item.
+    /// </remarks>
     public static void PushRange<T>(this IIncrementalSource<T> source, IEnumerable<T> items)
     {
         ArgumentNullException.ThrowIfNull(source);
         ArgumentNullException.ThrowIfNull(items);
+
+        if (source is IncrementalSource<T> incremental)
+        {
+            incremental.PushRange(items);
+            return;
+        }
 
         using var batch = source.BeginBatch();
         foreach (var item in items)

@@ -61,7 +61,8 @@ public partial class SourceOrderTests
         context.ItemsSource.PushRange(["a", "b", "c"]);
         context.ItemsSource.Push("a");
 
-        Assert.Equal(3, notifications);
+        // One notification for the range (#62), none for pushing a present item
+        Assert.Equal(1, notifications);
         Assert.Equal(["a", "b", "c"], context.ItemsSource.GetSnapshot());
     }
 

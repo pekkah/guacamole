@@ -112,6 +112,37 @@ internal sealed class IncrementalSource<T> : IIncrementalSource<T>
     }
 
     /// <summary>
+    /// Appends the items that are not present yet, in order, with a single change notification
+    /// (none if nothing was added). All items are checked for <c>null</c> before any is added.
+    /// </summary>
+    /// <exception cref="ArgumentNullException"><paramref name="items"/> or one of its items is <c>null</c>.</exception>
+    internal void PushRange(IEnumerable<T> items)
+    {
+        ArgumentNullException.ThrowIfNull(items);
+
+        // Enumerate (user code) outside the lock
+        var array = items as T[] ?? items.ToArray();
+        foreach (var item in array)
+            ArgumentNullException.ThrowIfNull(item, nameof(items));
+
+        var changed = false;
+        lock (_lock)
+        {
+            _slotByItem.EnsureCapacity(_slotByItem.Count + array.Length);
+            if (_slotCount + array.Length > _slots.Length)
+                Array.Resize(ref _slots, Math.Max(_slotCount + array.Length, _slots.Length * 2));
+
+            foreach (var item in array)
+                changed |= PushCore(item);
+        }
+
+        if (changed)
+        {
+            NotifyChanged();
+        }
+    }
+
+    /// <summary>
     /// Removes an item from the source. Triggers change notification.
     /// </summary>
     public void Remove(T item)
