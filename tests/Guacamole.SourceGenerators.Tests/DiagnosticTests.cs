@@ -110,22 +110,66 @@ public class DiagnosticTests
     }
 
     [Fact]
-    public void ImmutableDictionary_ReportsGUAC0004ExceptForUserManagedValueProviders()
+    public void ImmutableDictionaryWithValueEquality_DoesNotReportGUAC0004()
     {
-        // A user-managed IncrementalValueProvider<ImmutableDictionary<,>> is what CollectToDictionary
-        // returns, which compares its dictionaries itself; inputs and collections are still reported.
+        // Issue #100: the runtime compares immutable dictionaries entry by entry (whatever produced
+        // them), so they have value equality when their value type has it, for every provider kind.
         var source = """
             using System.Collections.Immutable;
             using Guacamole;
 
             namespace Test
             {
+                public record Symbol(string Name);
+
                 [ComputingContext]
                 public partial class TestContext : ComputingContextBase
                 {
                     public partial IncrementalValueProvider<ImmutableDictionary<string, int>> Input { get; }
                     public IncrementalValueProvider<ImmutableDictionary<string, int>> Table { get; set; }
                     public IncrementalValuesProvider<ImmutableDictionary<string, int>> Tables { get; set; }
+                    public IncrementalValueProvider<ImmutableDictionary<string, Symbol>> Symbols { get; set; }
+                    public IncrementalValueProvider<ImmutableDictionary<string, string>> Strings { get; set; }
+                    public IncrementalValueProvider<ImmutableDictionary<string, ImmutableArray<Symbol>>> Groups { get; set; }
+                    public IncrementalValueProvider<ImmutableDictionary<string, ImmutableDictionary<int, Symbol>>> Nested { get; set; }
+                    public IncrementalValueProvider<ImmutableSortedDictionary<string, Symbol>> Sorted { get; set; }
+                }
+            }
+            """;
+
+        var result = TestHelper.Run(source);
+
+        Assert.Empty(result.GeneratorDiagnostics);
+        Assert.Empty(result.CompilationErrors);
+    }
+
+    [Fact]
+    public void ImmutableDictionaryWithoutValueEquality_ReportsGUAC0004ForTheValueType()
+    {
+        // Issue #100: a dictionary whose values lack value equality still compares as changed on
+        // every recomputation, whichever provider kind or operator produced it.
+        var source = """
+            using System.Collections.Generic;
+            using System.Collections.Immutable;
+            using Guacamole;
+
+            namespace Test
+            {
+                public class Plain
+                {
+                    public string Name { get; set; } = "";
+                }
+
+                [ComputingContext]
+                public partial class TestContext : ComputingContextBase
+                {
+                    public partial IncrementalValueProvider<ImmutableDictionary<string, Plain>> Input { get; }
+                    public IncrementalValueProvider<ImmutableDictionary<string, Plain>> Table { get; set; }
+                    public IncrementalValuesProvider<ImmutableDictionary<string, Plain>> Tables { get; set; }
+                    public IncrementalValueProvider<ImmutableDictionary<string, ImmutableDictionary<int, Plain>>> Nested { get; set; }
+                    public IncrementalValueProvider<ImmutableSortedDictionary<string, Plain>> Sorted { get; set; }
+                    public IncrementalValueProvider<Dictionary<string, int>> Mutable { get; set; }
+                    public IncrementalValueProvider<ImmutableList<int>> List { get; set; }
                 }
             }
             """;
@@ -134,9 +178,21 @@ public class DiagnosticTests
 
         Assert.Collection(
             result.GeneratorDiagnostics.OrderBy(d => d.Location.SourceSpan.Start),
-            d => AssertDiagnostic(d, "GUAC0004", DiagnosticSeverity.Warning, source, "Input"),
-            d => AssertDiagnostic(d, "GUAC0004", DiagnosticSeverity.Warning, source, "Tables"));
+            d => AssertValueType(d, "Input", "Test.Plain"),
+            d => AssertValueType(d, "Table", "Test.Plain"),
+            d => AssertValueType(d, "Tables", "Test.Plain"),
+            d => AssertValueType(d, "Nested", "Test.Plain"),
+            d => AssertValueType(d, "Sorted", "Test.Plain"),
+            // Other collection types are unaffected: still reported for themselves
+            d => AssertValueType(d, "Mutable", "System.Collections.Generic.Dictionary<string, int>"),
+            d => AssertValueType(d, "List", "System.Collections.Immutable.ImmutableList<int>"));
         Assert.Empty(result.CompilationErrors);
+
+        void AssertValueType(Diagnostic diagnostic, string property, string type)
+        {
+            AssertDiagnostic(diagnostic, "GUAC0004", DiagnosticSeverity.Warning, source, property);
+            Assert.StartsWith($"Type '{type}' in property '{property}'", diagnostic.GetMessage(System.Globalization.CultureInfo.InvariantCulture));
+        }
     }
 
     [Fact]
