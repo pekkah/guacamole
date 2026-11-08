@@ -1,6 +1,8 @@
 # Tasks: Incremental Value Providers
 
 > **Reconciliation (2026-11-08, #45)**: `src/Guacamole.Core` and `tests/Guacamole.Core.Tests` were merged into `src/Guacamole` and `tests/Guacamole.Tests` (#14), so the implementation lives at the paths given in the notes. Performance work moved to `benchmarks/Guacamole.Benchmarks` (spec 009); there is no `tests/Guacamole.Performance.Tests` project. Status markers: see [specs/README.md](../README.md).
+>
+> **Update (#53)**: T031-T033 are covered by `IncrementalUpdateBenchmarks`, `CollectionChangeBenchmarks` and `MemoryOverheadBenchmarks` in `benchmarks/Guacamole.Benchmarks`; results and interpretation are in [docs/performance-guide.md](../../docs/performance-guide.md#benchmark-results).
 
 **Input**: Design documents from `/home/pekkah/p/guacamole/specs/006-we-need-to/`
 **Prerequisites**: plan.md (✅), research.md (✅), data-model.md (✅), contracts/ (✅)
@@ -92,9 +94,9 @@ Single project structure from plan.md:
 
 ## Phase 3.5: Performance & Polish
 - [x] T030 [P] Performance tests: <1ms cached access validation in tests/Guacamole.Performance.Tests/CachedAccessBenchmarks.cs — done: `benchmarks/Guacamole.Benchmarks/CachingBenchmarks.cs` (warm ≈ 0.2 µs in `benchmarks/reports/results/`)
-- [ ] T031 [P] Performance tests: <10ms incremental updates validation in tests/Guacamole.Performance.Tests/IncrementalUpdateBenchmarks.cs — open: no benchmark measures re-evaluation after a source change
-- [ ] T032 [P] Performance tests: O(changes) complexity validation in tests/Guacamole.Performance.Tests/ComplexityBenchmarks.cs — open: `ComplexGraphBenchmarks` reads a cached graph; nothing measures cost vs. number of changes
-- [ ] T033 [P] Performance tests: <2x memory overhead validation in tests/Guacamole.Performance.Tests/MemoryOverheadBenchmarks.cs — open: `[MemoryDiagnoser]` reports allocations, but nothing compares them to a baseline
+- [x] T031 [P] Performance tests: <10ms incremental updates validation in tests/Guacamole.Performance.Tests/IncrementalUpdateBenchmarks.cs — done: `benchmarks/Guacamole.Benchmarks/IncrementalUpdateBenchmarks.cs` (`OneSourceChanged`, 16-4,096 sources); one change and read took 12 µs-2.6 ms in a short in-process run, under 10 ms (#53)
+- [x] T032 [P] Performance tests: O(changes) complexity validation in tests/Guacamole.Performance.Tests/ComplexityBenchmarks.cs — done: `IncrementalUpdateBenchmarks` (graph size) and `CollectionChangeBenchmarks` (K of N items), plus call-count tests in `tests/Guacamole.Benchmarks.Tests/IncrementalScenarioTests.cs`. Result: recomputation is O(changes) (one leaf lambda per change, K item lambdas for K changes), but wall time is not: verifying the unchanged stages walks the whole graph, and collection stages walk all N items (#53)
+- [x] T033 [P] Performance tests: <2x memory overhead validation in tests/Guacamole.Performance.Tests/MemoryOverheadBenchmarks.cs — done: `benchmarks/Guacamole.Benchmarks/MemoryOverheadBenchmarks.cs` compares building and reading a context against computing the results directly. The <2x target is not met: building allocates ~190-240x the direct baseline, and the context retains ~150 B per item versus 8 B per item for the direct results array (#53)
 - [x] T034 [P] Update agent context in CLAUDE.md with implementation completion — done: `CLAUDE.md` "Active Technologies" describes the runtime
 - [x] ~~T035 Run quickstart.md manual validation scenarios~~ — superseded: this spec has no `quickstart.md`; usage is covered by `docs/quickstart.md` and `examples/` (built in CI)
 
