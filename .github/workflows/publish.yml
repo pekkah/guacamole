@@ -95,6 +95,45 @@ jobs:
           echo "Prerelease: ${{ needs.build.outputs.prerelease }}"
           ls -l artifacts/
 
+      # Only the version check script is needed from the repository.
+      - name: Checkout version check script
+        uses: actions/checkout@v7
+        with:
+          sparse-checkout: .github/scripts
+          sparse-checkout-cone-mode: false
+          path: repo
+
+      # Every new package must sort above all versions already on nuget.org (listed or
+      # unlisted, e.g. the old 0.1.0-alpha.23 ... 0.1.0-alpha.41), using NuGet's SemVer 2.0
+      # ordering. The script first runs its own ordering self-test. A version that already
+      # exists for a package passes: that is a re-run, and --skip-duplicate skips it below.
+      # 404 from nuget.org (package has no versions yet) passes as well.
+      - name: Check version is higher than nuget.org
+        shell: bash
+        env:
+          VERSION: ${{ needs.build.outputs.version }}
+        run: |
+          set -euo pipefail
+          script=repo/.github/scripts/check_nuget_version.py
+          python3 -I "$script" --self-test
+
+          ids=()
+          for f in artifacts/*.nupkg; do
+            name="$(basename "$f")"
+            id="${name%".$VERSION.nupkg"}"
+            if [ "$id" = "$name" ]; then
+              echo "::error::$name does not have the expected version $VERSION"
+              exit 1
+            fi
+            ids+=("$id")
+          done
+          if [ "${#ids[@]}" -eq 0 ]; then
+            echo "::error::No .nupkg files in artifacts/"
+            exit 1
+          fi
+
+          python3 -I "$script" "$VERSION" "${ids[@]}"
+
       # .snupkg files next to the .nupkg are pushed to the symbol server automatically.
       # --skip-duplicate makes re-runs idempotent; versions never contain build metadata
       # and preview numbers grow with every commit on main, so distinct commits never

@@ -223,7 +223,7 @@ git tag -a v0.2.0 -m "Release 0.2.0"      # stable versions only; prerelease tag
 git push origin v0.2.0
 ```
 
-The tag name (without `v`) is the package version; after `v0.2.0`, `main` continues with `0.3.0-preview.N`. Pull requests are built and tested but never published. Publishing uses nuget.org trusted publishing (no stored API key); see [docs/ci-cd.md](https://github.com/pekkah/guacamole/blob/main/docs/ci-cd.md#nuget-trusted-publishing) for the one-time setup and details.
+The tag name (without `v`) is the package version. The first stable release is `v0.2.0`; until then `main` publishes `0.2.0-preview.N` (above the early `0.1.0-alpha.*` packages), and after it `main` continues with `0.3.0-preview.N`. Every published version must be higher than all versions already on nuget.org; Publish checks this before pushing. Pull requests are built and tested but never published. Publishing uses nuget.org trusted publishing (no stored API key); see [docs/ci-cd.md](https://github.com/pekkah/guacamole/blob/main/docs/ci-cd.md#nuget-trusted-publishing) for the one-time setup and details.
 
 ## Examples
 

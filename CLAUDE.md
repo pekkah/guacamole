@@ -8,7 +8,7 @@ Auto-generated from all feature plans. Last updated: 2025-09-27
 - Source generator (`src/Guacamole.SourceGenerators`, netstandard2.0): Microsoft.CodeAnalysis.CSharp 5.9.0, incremental generator using `ForAttributeWithMetadataName`; diagnostics GUAC0003-GUAC0009 (keep `AnalyzerReleases.*.md` and `DiagnosticDescriptors.cs` in sync)
 - Tests: xUnit v3 on Microsoft.Testing.Platform (selected in `global.json`); generator snapshot tests use Verify.SourceGenerators and Verify.XunitV3 33.x; Verify 33's SponsorCheck gate (SC021) is satisfied by `Verify_SponsorshipExemption=OpenSource` with `Verify_SponsorshipExemptionUntil=2027-11` (format yyyy-MM, max 12 months out) in the test csproj, which must be renewed before November 2027 or the build fails
 - Benchmarks: BenchmarkDotNet (`benchmarks/Guacamole.Benchmarks`)
-- CI/CD: GitHub Actions, GitVersion 6.8.2; every push to `main` publishes `X.Y.Z-preview.N` to nuget.org, a stable `vX.Y.Z` tag publishes `X.Y.Z` + GitHub release (prerelease tags rejected), PRs never publish (see `docs/ci-cd.md`)
+- CI/CD: GitHub Actions, GitVersion 6.8.2; every push to `main` publishes `X.Y.Z-preview.N` to nuget.org (`0.2.0-preview.N` until the first stable tag `v0.2.0`; must exceed every version already on nuget.org), a stable `vX.Y.Z` tag publishes `X.Y.Z` + GitHub release (prerelease tags rejected), PRs never publish (see `docs/ci-cd.md`)
 
 ## Project Structure
 ```

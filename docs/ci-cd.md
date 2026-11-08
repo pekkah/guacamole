@@ -66,6 +66,8 @@ the publish for `main` or a tag, e.g. after fixing the nuget.org policy).
    - Download the `nuget-packages` artifact
    - `NuGet/login@v1` exchanges the job's GitHub OIDC token for a short-lived nuget.org API
      key ([trusted publishing](#nuget-trusted-publishing))
+   - [Version guard](#version-guard): fails unless each package's version is higher than every
+     version of that package already on nuget.org (a re-run of an existing version passes)
    - `dotnet nuget push artifacts/*.nupkg --skip-duplicate` to nuget.org with that key
      (`.snupkg` symbol packages next to the `.nupkg` files are pushed alongside automatically)
    - For tag refs only: `gh release create <tag> --generate-notes --verify-tag` with the `.nupkg`
@@ -196,20 +198,20 @@ Versions are SemVer 2.0 **without build metadata**.
 |-----|---------|-----------|
 | Tag `v1.2.3` | `1.2.3` (stable) | nuget.org + GitHub release |
 | Tag `v1.3.0-beta.1` (any prerelease suffix) | - | **refused**, the build fails |
-| `main`, no tags yet | `0.1.0-preview.<commits>` | nuget.org (preview) |
+| `main`, before the first stable tag `v0.2.0` | `0.2.0-preview.<commits>` (`next-version`) | nuget.org (preview) |
 | `main`, HEAD is the tagged `v1.2.3` commit | `1.2.3` | by the tag's run only |
 | `main`, 1 commit after `v1.2.3` | `1.3.0-preview.1` | nuget.org (preview) |
 | `main`, 5 commits after `v1.2.3` | `1.3.0-preview.5` | nuget.org (preview) |
 | Pull request | `<next>-pr.<n>` | no (CI artifact only) |
 | Other branch, e.g. `feature/foo` | `<next>-foo.<n>` | no (never built by Publish) |
-| Local build | `0.1.0-dev` (`Directory.Build.props`) | no |
+| Local build | `0.2.0-dev` (`Directory.Build.props`) | no |
 
 - **Tag builds** (`refs/tags/v*`): the version is the tag name without the leading `v`, and
   must be a stable `MAJOR.MINOR.PATCH`. `v1.2.3-beta.1`, `v1.2.3+meta`, `v1.2` or `vfoo` fail
   with an `::error::` (in Publish's guard job and again in `ci.yml`).
 - **Everything else**: GitVersion's `SemVer` variable (GitVersion 6.8.2, pinned in
   `.config/dotnet-tools.json`, configured by `GitVersion.yml`).
-- **Local builds**: `Directory.Build.props` sets `0.1.0-dev`; CI overrides it with `-p:Version`.
+- **Local builds**: `Directory.Build.props` sets `0.2.0-dev`; CI overrides it with `-p:Version`.
 
 ### Version increment rule (GitVersion)
 
@@ -227,22 +229,64 @@ Versions are SemVer 2.0 **without build metadata**.
 git commit -m "feat!: new API +semver: major"
 ```
 
-This was verified with GitVersion 6.4.0 and 6.8.2 (identical results) in a scratch clone:
-`main` with no tags gives `0.1.0-preview.<commits>`; tagging that commit `v0.1.0` gives `0.1.0`
-(also for a detached checkout with `GITHUB_REF=refs/tags/v0.1.0`, as on Actions); the next
-commits give `0.2.0-preview.1`, `0.2.0-preview.2`; `feature/foo` gives `0.2.0-foo.1`; a PR
-merge ref gives `0.2.0-pr.3`; a `+semver: major` commit gives `1.0.0-preview.3`.
+**Starting at 0.2.0.** nuget.org already has `0.1.0-alpha.23` ... `0.1.0-alpha.41` (kept, not
+unlisted), so the first stable release is `v0.2.0`. `GitVersion.yml` sets `next-version: 0.2.0`,
+a floor that applies while no tag at or above it exists: before `v0.2.0`, `main` builds are
+`0.2.0-preview.N`, which sort above every `0.1.0-alpha.*` package. Once `v0.2.0` is tagged the
+tag is the version source and `main` continues with `0.3.0-preview.N`; `next-version` does not
+pin it back, so it can stay in the file (raising it later is only needed to skip versions).
+GitVersion parses `next-version` with the `tag-prefix` pattern, so the prefix is `'v?'` (with a
+mandatory `v` it fails with *Failed to parse 0.2.0*). Release tags are still always `vX.Y.Z`:
+Publish only runs for `v*` tags and rejects anything that is not `vMAJOR.MINOR.PATCH`.
+
+This was verified with GitVersion 6.8.2 in a scratch clone: `main` with no tags gives
+`0.2.0-preview.<commits>`; `feature/bar` gives `0.2.0-bar.1` and a PR merge ref
+`0.2.0-pr.<n>`; tagging `main` `v0.2.0` gives `0.2.0` (also for a detached checkout with
+`GITHUB_REF=refs/tags/v0.2.0`, as on Actions); the next commits give `0.3.0-preview.1`,
+`0.3.0-preview.2`; `feature/foo` then gives `0.3.0-foo.1` and a PR merge ref `0.3.0-pr.<n>`.
+Without `next-version` (verified earlier with 6.4.0 and 6.8.2, identical results) the same
+history gives `0.1.0-preview.N`, then `0.1.0`, then `0.2.0-preview.1`, and a `+semver: major`
+commit gives `1.0.0-preview.N`.
 
 Why not GitVersion's `FullSemVer`? On non-`main` branches it carries `+N` build metadata
-(e.g. `SemVer 0.2.0-foo.1`, `FullSemVer 0.2.0-foo.1+3`). NuGet ignores build metadata when
+(e.g. `SemVer 0.3.0-foo.1`, `FullSemVer 0.3.0-foo.1+3`). NuGet ignores build metadata when
 comparing versions, so two different builds would collide and `--skip-duplicate` would silently
 skip the newer one. GitVersion 6 no longer outputs `NuGetVersion`/`NuGetVersionV2`, so `SemVer`
 is the right variable.
 
 Why use the tag name instead of GitVersion on tags? It always matches the release exactly.
-GitVersion agrees for stable tags (`v0.1.0` -> `0.1.0`), but ignores prerelease tags whose label
+GitVersion agrees for stable tags (`v0.2.0` -> `0.2.0`), but ignores prerelease tags whose label
 differs from the branch label, which is one more reason prerelease tags are not allowed:
 prereleases come from `main`.
+
+### Version guard
+
+Before pushing, the publish job checks out `.github/scripts/check_nuget_version.py` (sparse
+checkout) and runs it with the version and the package IDs taken from the `.nupkg` file names.
+For each package it reads `https://api.nuget.org/v3-flatcontainer/<id lowercase>/index.json`,
+which lists every version ever pushed, listed or unlisted (404: no versions yet, allowed), and
+fails with an `::error::` unless the new version is **strictly higher** than the highest
+existing one under NuGet's SemVer 2.0 ordering: numeric parts and numeric prerelease
+identifiers compare numerically, other identifiers as strings ignoring case, numeric identifiers
+sort below alphanumeric ones, a release is higher than its prereleases, fewer identifiers lose
+when all preceding ones are equal, and build metadata is ignored. So `0.2.0-preview.1` passes
+against the published `0.1.0-alpha.41`, while a stale `0.1.0-alpha.24` or `0.0.9` is refused.
+
+The one exception is a version that already exists for that package: it passes, because that
+is a re-run of a publish (for example a re-run of the tag after a failed release step), and
+`--skip-duplicate` then skips the package without changing nuget.org. A partial earlier
+publish (one package pushed, the other not) is completed the same way.
+
+The script runs a self-test of the ordering first (`--self-test`, e.g.
+`0.2.0-preview.1 > 0.1.0-alpha.41`, `0.2.0 > 0.2.0-preview.9`, `0.3.0-preview.1 > 0.2.0`,
+`1.0.0-alpha.10 > 1.0.0-alpha.9`). It uses only the Python standard library; its ordering was
+cross-checked against NuGet.Versioning 6.14.0 on 398 random versions (identical order). Run it
+locally with
+
+```bash
+python3 .github/scripts/check_nuget_version.py --self-test
+python3 .github/scripts/check_nuget_version.py 0.2.0-preview.1 Guacamole Guacamole.SourceGenerators
+```
 
 ## Creating a Release
 
@@ -286,8 +330,10 @@ tagged; the push of that commit to `main` publishes one more `X.Y.Z-preview.N`, 
    `analyzers/dotnet/cs/Guacamole.SourceGenerators.dll` (PDB embedded, no `lib/` folder, marked as
    a development dependency); both contain `README.md`.
 3. Wait for that commit's Publish run on `main` to pass, then tag exactly that commit
-   (`git tag -a vX.Y.Z <sha>`). The first stable release is `v0.1.0`: until then `main` publishes
-   `0.1.0-preview.N`, which sorts above the old `0.1.0-alpha.*` packages and below `0.1.0`.
+   (`git tag -a vX.Y.Z <sha>`). The first stable release is `v0.2.0`: until then `main` publishes
+   `0.2.0-preview.N`, which sorts above the published `0.1.0-alpha.*` packages and below `0.2.0`.
+   Publish refuses any version that is not higher than what nuget.org already has (see
+   [Version guard](#version-guard)).
 
 After the tag's Publish run has pushed `X.Y.Z` to nuget.org and created the GitHub release, in a
 follow-up commit on `main` (its push publishes the first `X.(Y+1).0-preview.N`):
@@ -303,11 +349,13 @@ follow-up commit on `main` (its push publishes the first `X.(Y+1).0-preview.N`):
    `DiagnosticDescriptors.cs` in sync with them.
 3. **Set the package validation baseline** after the **first stable** tag: in
    `Directory.Build.props`, uncomment `<PackageValidationBaselineVersion>` and set it to that
-   version (for example `0.1.0`). `dotnet pack` then downloads that version of each package from
+   version (`0.2.0`). `dotnet pack` then downloads that version of each package from
    nuget.org and fails on breaking changes against it (`EnablePackageValidation` is already on).
    Raise the baseline when a later release intentionally breaks compatibility (a new major
    version, or a new minor version while the major version is 0). Previews (`-preview.N`) are
    never used as a baseline.
+4. `GitVersion.yml` `next-version: 0.2.0` can stay: once `v0.2.0` exists it no longer has any
+   effect (verified: the next commit is `0.3.0-preview.1`).
 
 ### Re-running a publish
 
@@ -367,6 +415,9 @@ started on a ref other than `main` or a `v*` tag. Nothing was published. Delete 
 - `403 Forbidden` on push: the policy's owner account doesn't own (or can't create) the
   package ID
 - A version already on nuget.org is skipped (`--skip-duplicate`), not overwritten. Bump the tag.
+- `Check version is higher than nuget.org` fails: the version is not higher than the highest
+  version of that package on nuget.org (listed or unlisted). Tag a higher version, or check
+  `next-version` in `GitVersion.yml` for `main` builds
 
 ### GitVersion shows an unexpected version
 - Checkout must use `fetch-depth: 0` and `fetch-tags: true`
