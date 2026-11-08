@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Linq;
 using System.Runtime.CompilerServices;
 using System.Threading;
@@ -133,6 +134,72 @@ public partial class AutoTrimTests
         Assert.True(context.Graph.GetRuntimeNodeCount() <= 4 * Interval, $"runtime nodes: {Sizes(context)}");
     }
 
+    /// <summary>
+    /// Builds <paramref name="pipelines"/> pipelines that are all alive at the same time (a burst of
+    /// requests in flight), then drops them all. Not inlined, so nothing stays reachable.
+    /// </summary>
+    [MethodImpl(MethodImplOptions.NoInlining)]
+    private static void BuildBurst(IncrementalValueProvider<int> number, IncrementalValuesProvider<int> items, int pipelines, int start)
+    {
+        var alive = new List<IncrementalValueProvider<string>>(pipelines);
+        for (var i = 0; i < pipelines; i++)
+        {
+            var offset = start + i;
+            var described = number.Select(x => x + offset).Where(x => x != offset - 1).Select(x => $"{x}:{offset}");
+            var count = items.Select(x => x + offset).Collect().Select(all => $"{all.Length}");
+            Assert.Equal($"{1 + offset}:{offset}", described.Value);
+            Assert.Equal("2", count.Value);
+            alive.Add(described);
+            alive.Add(count);
+        }
+
+        GC.KeepAlive(alive);
+    }
+
+    /// <summary>
+    /// Issue #86: after a burst, the registry returns to its working-set size within a few intervals
+    /// of new nodes. The burst's nodes were all alive at the burst's trims, so those trims spaced the
+    /// next ones by half the registry; once the burst has been collected, the next trims must not wait
+    /// for that many new nodes.
+    /// </summary>
+    [Fact]
+    public void AutoTrimOn_AfterABurst_RegistryReturnsToItsBaselineWithinAFewIntervals()
+    {
+        using var context = new AutoTrimContext();
+        Initialize(context.NumberSource, context.ItemsSource);
+        var kept = context.Number.Select(x => x * 100);
+        Assert.Equal(100, kept.Value);
+        var baseline = NodeReclamation.TrimUntilStable(context);
+
+        const int Burst = 1_000; // 6,000 nodes alive at once
+        BuildBurst(context.Number, context.Items, Burst, start: 0);
+        var afterBurst = context.Graph.GetRuntimeNodeCount();
+        Assert.True(afterBurst >= 6 * Burst, $"registry after the burst: {afterBurst}");
+        CollectGarbage();
+
+        // Then a steady small rate: one 6-node pipeline at a time, with a collection every 5
+        const int MaxPipelines = 10 * Interval / 6; // 10 intervals' worth of new nodes
+        var built = 0;
+        var registry = afterBurst;
+        while (built < MaxPipelines)
+        {
+            BuildAndDropPipeline(context.Number, context.Items, 1_000_000 + built++);
+            if (built % 5 == 0)
+            {
+                CollectGarbage();
+                registry = context.Graph.GetRuntimeNodeCount();
+                if (registry <= baseline + 2 * Interval)
+                    break;
+            }
+        }
+
+        Assert.True(
+            registry <= baseline + 2 * Interval,
+            $"registry {registry} (baseline {baseline}, {afterBurst} after the burst) after {built * 6} new nodes");
+        Assert.Equal(100, kept.Value);
+        GC.KeepAlive(kept);
+    }
+
     [Fact]
     public void AutoTrimOff_ByDefault_NothingIsTrimmed()
     {
@@ -221,10 +288,11 @@ public partial class AutoTrimTests
     /// <summary>
     /// Issue #79: the registry left by the workers is reclaimed deterministically (explicit trims and
     /// collections once they have been joined), not by counting on a fixed number of automatic trims.
-    /// Automatic trims are amortized (the next one waits for half as many new nodes as remain
-    /// registered) and only remove nodes released by an earlier trim and collected since, so shrinking
-    /// a registry of N nodes takes about 2N new nodes; N depends on how many pipelines the workers
-    /// built and on when the collections ran, so no fixed budget of new nodes is always enough.
+    /// Automatic trims only remove nodes released by an earlier trim and collected since, and how many
+    /// new nodes the next ones wait for depends on how many nodes the workers left alive at the last
+    /// trims and on when the collections ran (see
+    /// <see cref="AutoTrimOn_AfterABurst_RegistryReturnsToItsBaselineWithinAFewIntervals"/> for the
+    /// single-threaded bound after a burst, #86).
     /// </summary>
     [Fact]
     public async Task AutoTrimOn_ConcurrentBuildAndRead_IsSafe()
