@@ -224,6 +224,76 @@ internal abstract class NodeHandle
     /// Brings the node up to date in this pass (recomputing it if needed) and returns its output version.
     /// </summary>
     public abstract long Refresh(GraphEvaluator evaluator);
+
+    // Node types known to implement exactly one result interface (see EnsureSingleResultInterface)
+    private static readonly ConditionalWeakTable<Type, object> s_checkedNodeTypes = new();
+
+    /// <summary>
+    /// Returns the handle of <paramref name="node"/>: the one in <see cref="SharedGraphState.Handles"/>,
+    /// or a new one created by <paramref name="create"/> (after registering the node) on first use.
+    /// Every caller gets the same handle for a node, so the weak reverse edges that reference it
+    /// (<see cref="NodeState.AddDependent"/>) stay alive as long as the node does.
+    /// </summary>
+    /// <exception cref="InvalidOperationException">
+    /// The node implements more than one result interface (see <see cref="EnsureSingleResultInterface"/>).
+    /// </exception>
+    protected static THandle GetOrCreate<THandle>(
+        IComputationNode node,
+        ComputationGraph graph,
+        ConditionalWeakTable<IComputationNode, NodeHandle>.CreateValueCallback create)
+        where THandle : NodeHandle
+    {
+        var handles = graph.SharedState.Handles;
+        if (!handles.TryGetValue(node, out var handle))
+        {
+            EnsureSingleResultInterface(node);
+            graph.RegisterNodeIfNeeded(node);
+            handle = handles.GetValue(node, create);
+        }
+
+        return handle as THandle ?? throw MultipleResultInterfaces(node);
+    }
+
+    /// <summary>
+    /// Rejects a node that implements more than one of <see cref="IComputationNode{T}"/> and
+    /// <see cref="ICollectionComputationNode{T}"/> (or one of them for several <c>T</c>).
+    /// </summary>
+    /// <remarks>
+    /// A node has one ID, so one cached value, one output version and one handle. Reading such a
+    /// node through two of its interfaces would need two handles of different result types for the
+    /// same node; the second could not be stored in <see cref="SharedGraphState.Handles"/>, so the
+    /// reverse edges referencing it (weakly) would disappear with it, and changes would stop reaching
+    /// the nodes that read it (issue #73). Such a node is therefore rejected on first use, whichever
+    /// interface it is read through.
+    /// </remarks>
+    /// <exception cref="InvalidOperationException">The node implements more than one result interface.</exception>
+    internal static void EnsureSingleResultInterface(IComputationNode node)
+    {
+        var type = node.GetType();
+        if (s_checkedNodeTypes.TryGetValue(type, out _))
+            return;
+
+        var count = 0;
+        foreach (var implemented in type.GetInterfaces())
+        {
+            if (implemented.IsGenericType
+                && implemented.GetGenericTypeDefinition() is var definition
+                && (definition == typeof(IComputationNode<>) || definition == typeof(ICollectionComputationNode<>)))
+            {
+                count++;
+            }
+        }
+
+        if (count > 1)
+            throw MultipleResultInterfaces(node);
+
+        s_checkedNodeTypes.TryAdd(type, type);
+    }
+
+    private static InvalidOperationException MultipleResultInterfaces(IComputationNode node) => new(
+        $"Node '{node.Id}' ({node.GetType().Name}) implements more than one of IComputationNode<T> and " +
+        "ICollectionComputationNode<T>. A node must produce exactly one kind of result: implement one " +
+        "interface and expose the other result through a separate node.");
 }
 
 /// <summary>
@@ -511,16 +581,16 @@ internal sealed class ValueNodeHandle<T> : NodeHandle<T>
     /// <summary>
     /// Returns the handle of <paramref name="node"/>, creating (and registering the node) on first use.
     /// </summary>
+    /// <exception cref="InvalidOperationException">
+    /// The node also implements another result interface (see <see cref="NodeHandle.EnsureSingleResultInterface"/>).
+    /// </exception>
     public static ValueNodeHandle<T> For(IComputationNode<T> node, ComputationGraph graph)
     {
-        var handles = graph.SharedState.Handles;
-        if (handles.TryGetValue(node, out var existing) && existing is ValueNodeHandle<T> typed)
+        if (graph.SharedState.Handles.TryGetValue(node, out var existing) && existing is ValueNodeHandle<T> typed)
             return typed;
 
-        graph.RegisterNodeIfNeeded(node);
         var versions = graph.SharedState.Versions;
-        return handles.GetValue(node, n => new ValueNodeHandle<T>((IComputationNode<T>)n, versions.GetState(n.Id))) as ValueNodeHandle<T>
-            ?? new ValueNodeHandle<T>(node, versions.GetState(node.Id)); // a node implementing several node interfaces: not shared
+        return GetOrCreate<ValueNodeHandle<T>>(node, graph, n => new ValueNodeHandle<T>((IComputationNode<T>)n, versions.GetState(n.Id)));
     }
 
     protected override Result<T, ComputationError> ComputeCore(ComputationContext context) => _node.Compute(context);
@@ -559,16 +629,16 @@ internal sealed class CollectionNodeHandle<T> : NodeHandle<IEnumerable<T>>
     /// <summary>
     /// Returns the handle of <paramref name="node"/>, creating (and registering the node) on first use.
     /// </summary>
+    /// <exception cref="InvalidOperationException">
+    /// The node also implements another result interface (see <see cref="NodeHandle.EnsureSingleResultInterface"/>).
+    /// </exception>
     public static CollectionNodeHandle<T> For(ICollectionComputationNode<T> node, ComputationGraph graph)
     {
-        var handles = graph.SharedState.Handles;
-        if (handles.TryGetValue(node, out var existing) && existing is CollectionNodeHandle<T> typed)
+        if (graph.SharedState.Handles.TryGetValue(node, out var existing) && existing is CollectionNodeHandle<T> typed)
             return typed;
 
-        graph.RegisterNodeIfNeeded(node);
         var versions = graph.SharedState.Versions;
-        return handles.GetValue(node, n => new CollectionNodeHandle<T>((ICollectionComputationNode<T>)n, versions.GetState(n.Id))) as CollectionNodeHandle<T>
-            ?? new CollectionNodeHandle<T>(node, versions.GetState(node.Id)); // a node implementing several node interfaces: not shared
+        return GetOrCreate<CollectionNodeHandle<T>>(node, graph, n => new CollectionNodeHandle<T>((ICollectionComputationNode<T>)n, versions.GetState(n.Id)));
     }
 
     protected override Result<IEnumerable<T>, ComputationError> ComputeCore(ComputationContext context) => _node.Compute(context);
