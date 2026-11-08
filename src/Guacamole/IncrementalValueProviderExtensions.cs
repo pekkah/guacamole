@@ -262,6 +262,165 @@ public static class IncrementalValueProviderExtensions
 
         return new IncrementalValuesProvider<TResult>(selectManyNode, source.Graph, finalMetadata);
     }
+
+    /// <summary>
+    /// Looks up one key of a dictionary: the value of <paramref name="key"/>, or <b>no value</b>
+    /// (<see cref="Result{TValue, TError}.IsNone"/>, as after a rejecting <c>Where</c>) while the
+    /// dictionary has no entry for it. Only a change of that key's entry reaches the new provider and
+    /// the stages downstream of it.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>Per-key invalidation.</b> A stage that reads the whole dictionary (for example
+    /// <c>table.Select(d =&gt; d.GetValueOrDefault(key))</c>) is marked dirty and verified after every
+    /// change of the dictionary, even when its key's entry did not change. A lookup depends on its
+    /// key only: a change upstream of the dictionary marks the dictionary stage and stops there, and
+    /// when the dictionary is recomputed, it marks the lookups of the keys whose entries changed. So
+    /// with N lookups into one table, an edit that changes K entries marks and reruns the lookups of
+    /// those K keys (and what depends on them), and every other lookup stays cached and is
+    /// verified with one read of the table. For a dictionary produced by
+    /// <see cref="IncrementalValuesProviderExtensions.CollectToDictionary"/> the changed keys are known
+    /// from the item edits it applied (O(changed keys) per change); for any other dictionary
+    /// provider, the dictionary compares the looked-up keys of its previous and new values (O(looked-up
+    /// keys) per change, still without running or marking the lookups of unchanged keys). A lookup into
+    /// a source of dictionaries (a value source) depends on the whole dictionary.
+    /// </para>
+    /// <para>
+    /// Keys are compared by the dictionary's key comparer, values by
+    /// <see cref="EqualityComparer{T}.Default"/> (element-wise for immutable arrays). An error in the
+    /// dictionary (for example a <c>CollectToDictionary</c> conflict) is the lookup's error, and no
+    /// value is no value. Identical calls (same dictionary provider and an equal key) reuse their node.
+    /// </para>
+    /// <para>
+    /// Use <see cref="LookupOrDefault{TKey, TValue}"/> when a missing key should be a value (for
+    /// example to <c>Combine</c> several lookups, which has no value if any input has none).
+    /// </para>
+    /// </remarks>
+    /// <typeparam name="TKey">Key type</typeparam>
+    /// <typeparam name="TValue">Value type</typeparam>
+    /// <param name="source">Dictionary provider, typically from <c>CollectToDictionary</c></param>
+    /// <param name="key">The key to look up (not <c>null</c>)</param>
+    /// <param name="metadata">Optional metadata for the new provider</param>
+    /// <returns>A provider of the key's value, with no value while the key is absent</returns>
+    /// <example>
+    /// <code>
+    /// var symbols = parsedFiles
+    ///     .SelectMany(file =&gt; file.Declarations.Select(name =&gt; (Name: name, file.Path)))
+    ///     .CollectToDictionary(d =&gt; d.Name, d =&gt; d.Path, conflictComparer: StringComparer.Ordinal);
+    /// IncrementalValueProvider&lt;string&gt; listDeclaredIn = symbols.Lookup("List");
+    /// if (listDeclaredIn.TryGetValue(out var path)) { /* ... */ }
+    /// </code>
+    /// </example>
+    public static IncrementalValueProvider<TValue> Lookup<TKey, TValue>(
+        this IncrementalValueProvider<ImmutableDictionary<TKey, TValue>> source,
+        TKey key,
+        ProviderMetadata metadata = default)
+        where TKey : notnull => CreateLookup(source, key, orDefault: false, metadata);
+
+    /// <summary>
+    /// Looks up one key of a dictionary: the value of <paramref name="key"/>, or
+    /// <c>default(TValue)</c> (<c>null</c> for reference types) while the dictionary has no entry for
+    /// it. Like <see cref="Lookup{TKey, TValue}"/> (see there for the per-key invalidation), but a
+    /// missing key is a value, so lookups can be combined.
+    /// </summary>
+    /// <typeparam name="TKey">Key type</typeparam>
+    /// <typeparam name="TValue">Value type</typeparam>
+    /// <param name="source">Dictionary provider, typically from <c>CollectToDictionary</c></param>
+    /// <param name="key">The key to look up (not <c>null</c>)</param>
+    /// <param name="metadata">Optional metadata for the new provider</param>
+    /// <returns>A provider of the key's value, <c>default</c> while the key is absent</returns>
+    /// <example>
+    /// <code>
+    /// var resolved = symbols.LookupOrDefault("List")
+    ///     .Combine(symbols.LookupOrDefault("Option"))
+    ///     .Select(pair =&gt; (List: pair.Item1, Option: pair.Item2)); // null when unresolved
+    /// </code>
+    /// </example>
+    public static IncrementalValueProvider<TValue?> LookupOrDefault<TKey, TValue>(
+        this IncrementalValueProvider<ImmutableDictionary<TKey, TValue>> source,
+        TKey key,
+        ProviderMetadata metadata = default)
+        where TKey : notnull => CreateLookup(source, key, orDefault: true, metadata)!;
+
+    private static IncrementalValueProvider<TValue> CreateLookup<TKey, TValue>(
+        IncrementalValueProvider<ImmutableDictionary<TKey, TValue>> source,
+        TKey key,
+        bool orDefault,
+        ProviderMetadata metadata)
+        where TKey : notnull
+    {
+        ArgumentNullException.ThrowIfNull(key);
+
+        // Reuse the node of an identical earlier call (same dictionary and an equal key)
+        var lookupNode = source.Graph.GetOrCreateNode(
+            new NodeReuseKey(typeof(LookupNode<TKey, TValue>), [source.Node.Id], key, orDefault),
+            () => new LookupNode<TKey, TValue>(source.Node, key, orDefault));
+
+        // Preserve metadata from source if no metadata is explicitly provided
+        var finalMetadata = metadata == default
+            ? source.Metadata
+            : metadata;
+
+        return new IncrementalValueProvider<TValue>(lookupNode, source.Graph, finalMetadata);
+    }
+}
+
+/// <summary>
+/// <c>Lookup</c> / <c>LookupOrDefault</c>: one key of a dictionary, read with
+/// <see cref="ComputationContext.ReadKey"/> so that the node depends on that key only (see
+/// <see cref="KeyIndex{TKey, TValue}"/>).
+/// </summary>
+internal sealed class LookupNode<TKey, TValue> : IComputationNode<TValue>, IHasComparer<TValue>
+    where TKey : notnull
+{
+    private readonly IComputationNode<ImmutableDictionary<TKey, TValue>> _source;
+    private readonly TKey _key;
+    private readonly bool _orDefault;
+    private int _computations;
+
+    public LookupNode(IComputationNode<ImmutableDictionary<TKey, TValue>> source, TKey key, bool orDefault)
+    {
+        _source = source ?? throw new ArgumentNullException(nameof(source));
+        _key = key ?? throw new ArgumentNullException(nameof(key));
+        _orDefault = orDefault;
+        Id = NodeIdGenerator.Generate("Lookup");
+        Dependencies = ImmutableHashSet.Create(_source.Id);
+    }
+
+    public string Id { get; }
+    public Type OutputType => typeof(TValue);
+    public ImmutableHashSet<string> Dependencies { get; }
+    public IEqualityComparer<TValue> Comparer => DefaultEqualityComparer<TValue>.Instance;
+
+    /// <summary>
+    /// How many times the node was computed (for tests).
+    /// </summary>
+    internal int Computations => Volatile.Read(ref _computations);
+
+    public Result<TValue, ComputationError> Compute(ComputationContext context)
+    {
+        Interlocked.Increment(ref _computations);
+        try
+        {
+            var dictionaryResult = context.ReadKey(_source, _key);
+            if (dictionaryResult.IsError)
+                return Result<TValue, ComputationError>.Error(dictionaryResult.ErrorValue!);
+            if (dictionaryResult.IsNone)
+                return Result<TValue, ComputationError>.None;
+
+            // A null dictionary has no entries
+            if (dictionaryResult.ValueOrDefault is { } dictionary && dictionary.TryGetValue(_key, out var value))
+                return Result<TValue, ComputationError>.Success(value);
+
+            return _orDefault
+                ? Result<TValue, ComputationError>.Success(default!)
+                : Result<TValue, ComputationError>.None;
+        }
+        catch (Exception ex)
+        {
+            return Result<TValue, ComputationError>.Error(ComputationError.FromException(ex));
+        }
+    }
 }
 
 // Supporting node implementations for extensions

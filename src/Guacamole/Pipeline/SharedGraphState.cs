@@ -248,6 +248,90 @@ internal sealed class SharedGraphState
     }
 
     /// <summary>
+    /// Records that the entries of the keys <paramref name="keys"/> (key states of a
+    /// <see cref="KeyIndex{TKey, TValue}"/>) changed: marks every node downstream of them dirty, as a
+    /// change of its own. Called by a dictionary node's commit, with <see cref="CommitLock"/> held,
+    /// after the keys' new versions are recorded and before the dictionary value is stored.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>Per-key readers (#95).</b> A node that looks up a key in a dictionary node
+    /// (<see cref="GraphEvaluator.ReadKey"/>) depends on the key's state, not on the dictionary node:
+    /// a source change upstream of the dictionary marks the dictionary node and stops there
+    /// (<see cref="MarkSourceChanged"/> never walks from a dictionary node to its keys). Which keys
+    /// changed is only known when the dictionary node is recomputed; its commit then marks the
+    /// readers of those keys here. Such a key change follows the rules of a source change: it
+    /// increments <see cref="ChangeState"/> for its duration (so no pass overlapping it records a
+    /// stamp), reads <see cref="StampEpoch"/> after that, and walks with the same early stopping.
+    /// Unlike a source change it does not advance <see cref="Revision"/> (see below).
+    /// </para>
+    /// <para>
+    /// Between a source change and the dictionary's recomputation, the nodes downstream of a key
+    /// (the <b>gated</b> nodes, see <see cref="NodeHandle.Gates"/>) have not been marked although their
+    /// key may have changed, so their stamps cannot be trusted on their own. A pass therefore trusts
+    /// the stamp of a gated node only after bringing its gates (the dictionary nodes it reads keys of)
+    /// up to date, and compares the stamp with the node's counter read after that.
+    /// </para>
+    /// <para>
+    /// <b>Why this is sound.</b> Take a pass P that, after refreshing the gates of a node R, finds R's
+    /// stamp s equal to R's counter, and the pass Ps that wrote s. Ps verified or computed R, which
+    /// read every key R depends on through its key handle, so it brought the dictionary node D up to
+    /// date and checked each key's version against the dictionary result it found (call that commit
+    /// D1). A stamp is written only by a pass during which no change ran (<see cref="GraphEvaluator.CanStamp"/>),
+    /// so a commit of D that changed one of R's keys after D1 started its key change after Ps ended
+    /// (one that ran before Ps started would have been D1 or an earlier commit). Its walk reached R:
+    /// R's dependency path to the key state was registered before the values on it were stored, so
+    /// before Ps saw them, and an early stop at a node covered in the same epoch is the case of the
+    /// #71 argument above (pseudo source: the key state; Ps is a stamping pass that started before the
+    /// change ended), so R's counter moved past s. Every such commit marked before storing its value
+    /// (commits are serialized by <see cref="CommitLock"/>), and P's refresh of D either found the
+    /// latest stored value valid or committed one itself, so every key change before that point has
+    /// reached R's counter. Hence a counter still equal to s means none of R's keys changed after D1.
+    /// Everything else R depends on reaches it through ordinary dependency edges, which source changes
+    /// mark as before. So R's value is what verifying it would give.
+    /// </para>
+    /// <para>
+    /// One case remains: P finds an older value of D valid at its revision while another pass commits
+    /// a different one. D's inputs then differ from those its valid value was computed from, which
+    /// can only be because a source change had incremented a version but not advanced the revision
+    /// yet when P started, or started after P: P overlaps that change, and may return values from
+    /// before it, as any pass overlapping a change may. The same holds for a value verified at P's
+    /// revision before a key change at that revision, which is why key changes need not advance the
+    /// revision: a value verified at a revision was verified after D was brought up to date at that
+    /// revision (a gated value cannot be verified without refreshing D), and D's value at a revision
+    /// only changes while a source change is in progress. A dictionary recomputed after its value was
+    /// evicted (or concurrently by two passes) compares equal to the committed dictionary kept by the
+    /// index, so it changes no key.
+    /// </para>
+    /// <para>
+    /// Per-key readers also record versions safely: a key's version as of a dictionary result is
+    /// either the version at which the key last changed (when that is not later than the result, the
+    /// key reads the same in both) or a version that matches nothing (see
+    /// <see cref="KeyHandle{TKey, TValue}.VersionAt"/>), so a reader never records a version newer than
+    /// the entry it read.
+    /// </para>
+    /// <para>
+    /// Runs under <see cref="CommitLock"/>, so <see cref="OnNodeMarked"/> must not wait for anything
+    /// that commits a value while a key change is marking.
+    /// </para>
+    /// </remarks>
+    internal void MarkKeysChanged(List<NodeState> keys)
+    {
+        BeginSourceChange();
+        try
+        {
+            // After BeginSourceChange (see MarkSourceChanged)
+            var epoch = StampEpoch;
+            foreach (var key in keys)
+                MarkDependentsDirty(key, epoch);
+        }
+        finally
+        {
+            EndSourceChange();
+        }
+    }
+
+    /// <summary>
     /// Records that a source change has started (see <see cref="ChangeState"/>). Every call must be
     /// followed by <see cref="EndSourceChange"/>; internal so tests can interleave reads with a change.
     /// </summary>

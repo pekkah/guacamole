@@ -37,6 +37,7 @@ Resolving references across files, as a compiler's type checker does.
 - The table is updated from the changed files only, and an edit that leaves the declarations unchanged keeps the table's instance and version
 - `Combine` to pair each file with the table, and `Restrict` so unrelated declaration changes do not re-check a file
 - Per-item memoization: the output shows how many type checks each change runs
+- `LookupOrDefault` for one entry of the table: its output handler runs only when that entry changes, not on every table change
 
 ## Push-Based Architecture
 

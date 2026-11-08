@@ -6,7 +6,7 @@ using SourceFile = Guacamole.Benchmarks.SymbolTableBenchmarks.SourceFile;
 namespace Guacamole.Benchmarks;
 
 /// <summary>
-/// Fan-out from a shared symbol table to per-file lookups (issue #95, step 1: measure). Modelled on
+/// Fan-out from a shared symbol table to per-file lookups (issue #95). Modelled on
 /// <c>examples/CrossFileSymbolsExample</c> and <see cref="SymbolTableBenchmarks"/>: <see cref="Files"/>
 /// files each declare <c>A{i}</c>, <c>B{i}</c> and <c>Common{i % 100}</c>, collected with
 /// <c>Files.SelectMany(declarations).CollectToDictionary(name, path, StringComparer.Ordinal)</c>.
@@ -18,7 +18,10 @@ namespace Guacamole.Benchmarks;
 /// <c>B{j}x</c>), which changes the table and the lookup of exactly one other file, then reads.
 /// Every lookup stage reads the whole table, so after any edit all N lookup stages are marked dirty
 /// and rerun (three dictionary lookups each); their equality cut-off keeps all but one per-file
-/// result cached. A per-key <c>Lookup</c> operator would rerun only the readers of the changed keys.
+/// result cached. The <c>Lookup*</c> variants build each file's lookup from the per-key operator
+/// instead, <c>table.LookupOrDefault(A).Combine(table.LookupOrDefault(B)).Combine(table.LookupOrDefault(Common))</c>,
+/// which depends on the three keys only: an edit marks and reruns only the lookups of the keys
+/// whose entries changed.
 /// </para>
 /// <list type="bullet">
 /// <item><description><see cref="DirectReadAll"/>: a mutable <c>Dictionary</c> updated in place and
@@ -28,6 +31,8 @@ namespace Guacamole.Benchmarks;
 /// <item><description><see cref="ReadAll"/>: the edit, then every per-file result is read.</description></item>
 /// <item><description><see cref="ReadOne"/>: the edit, then only the affected file's result is read
 /// (the other lookups are marked dirty but not re-verified).</description></item>
+/// <item><description><see cref="LookupReadAll"/> and <see cref="LookupReadOne"/>: the same with the
+/// per-key lookups.</description></item>
 /// </list>
 /// </summary>
 [MemoryDiagnoser]
@@ -47,6 +52,12 @@ public class SymbolLookupFanOutBenchmarks
     private IncrementalValueProvider<int>[] _results = null!;
     private int _checks;
 
+    private BenchmarkContext _lookupContext = null!;
+    private IIncrementalSource<SourceFile> _lookupSource = null!;
+    private FileEdits _lookupEdits = null!;
+    private IncrementalValueProvider<int>[] _lookupResults = null!;
+    private int _lookupChecks;
+
     private BenchmarkContext _tableContext = null!;
     private IIncrementalSource<SourceFile> _tableSource = null!;
     private FileEdits _tableEdits = null!;
@@ -62,6 +73,9 @@ public class SymbolLookupFanOutBenchmarks
 
     /// <summary>How many times a per-file result was computed (for the call-count tests).</summary>
     public int Checks => _checks;
+
+    /// <summary>How many times a per-file result of the <c>Lookup*</c> variants was computed.</summary>
+    public int LookupChecks => _lookupChecks;
 
     [GlobalSetup]
     public void Setup()
@@ -88,6 +102,26 @@ public class SymbolLookupFanOutBenchmarks
         foreach (var result in _results)
             _ = result.Value;
 
+        // Fan-out through per-key lookups: table -> 3 lookups per file (shared when the key is) -> N results
+        _lookupContext = new BenchmarkContext();
+        _lookupSource = _lookupContext.AddSource<SourceFile>("Files");
+        _lookupEdits = new FileEdits(SymbolTableBenchmarks.CreateFiles(Files));
+        _lookupSource.PushRange(_lookupEdits.Files);
+        var lookupTable = BuildTable(_lookupSource);
+        _lookupResults = new IncrementalValueProvider<int>[Files];
+        for (var i = 0; i < Files; i++)
+        {
+            var references = _references[i];
+            _lookupResults[i] = lookupTable.LookupOrDefault(references.A)
+                .Combine(lookupTable.LookupOrDefault(references.B))
+                .Combine(lookupTable.LookupOrDefault(references.Common))
+                .Select(static found => new Resolved(found.Item1.Item1, found.Item1.Item2, found.Item2))
+                .Select(CheckLookup);
+        }
+
+        foreach (var result in _lookupResults)
+            _ = result.Value;
+
         // The table alone
         _tableContext = new BenchmarkContext();
         _tableSource = _tableContext.AddSource<SourceFile>("Files");
@@ -109,12 +143,14 @@ public class SymbolLookupFanOutBenchmarks
         }
 
         _checks = 0;
+        _lookupChecks = 0;
     }
 
     [GlobalCleanup]
     public void Cleanup()
     {
         _context.Dispose();
+        _lookupContext.Dispose();
         _tableContext.Dispose();
     }
 
@@ -167,6 +203,30 @@ public class SymbolLookupFanOutBenchmarks
         return _results[reader].Value;
     }
 
+    /// <summary>Edit one file, then read every file's result, looked up per key.</summary>
+    [Benchmark]
+    public long LookupReadAll()
+    {
+        var (before, after) = _lookupEdits.Next();
+        _lookupSource.Replace(before, after);
+
+        long sum = 0;
+        foreach (var result in _lookupResults)
+            sum += result.Value;
+        return sum;
+    }
+
+    /// <summary>Edit one file, then read the result of the one file whose lookup it changed, looked up per key.</summary>
+    [Benchmark]
+    public int LookupReadOne()
+    {
+        var (before, after) = _lookupEdits.Next();
+        _lookupSource.Replace(before, after);
+
+        var reader = (_lookupEdits.LastIndex + Files - 1) % Files;
+        return _lookupResults[reader].Value;
+    }
+
     private static IncrementalValueProvider<ImmutableDictionary<string, string>> BuildTable(IIncrementalSource<SourceFile> source) =>
         source.AsProvider()
             .SelectMany(static file => SymbolTableBenchmarks.Declare(file))
@@ -178,8 +238,17 @@ public class SymbolLookupFanOutBenchmarks
     private int Check(Resolved resolved)
     {
         _checks++;
-        return (resolved.A is null ? 0 : 1) + (resolved.B is null ? 0 : 2) + (resolved.Common is null ? 0 : 4);
+        return Score(resolved);
     }
+
+    private int CheckLookup(Resolved resolved)
+    {
+        _lookupChecks++;
+        return Score(resolved);
+    }
+
+    private static int Score(Resolved resolved) =>
+        (resolved.A is null ? 0 : 1) + (resolved.B is null ? 0 : 2) + (resolved.Common is null ? 0 : 4);
 
     /// <summary>
     /// The files and the next edit: files are edited in turn, and each edit toggles the file's

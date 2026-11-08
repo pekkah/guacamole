@@ -1,3 +1,4 @@
+using System.Collections.Immutable;
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 using Guacamole.Diagnostics;
@@ -202,6 +203,35 @@ internal sealed class GraphEvaluator
         }
     }
 
+    /// <summary>
+    /// Reads the entry of <paramref name="key"/> in a dictionary dependency of the node being
+    /// computed (see <see cref="KeyIndex{TKey, TValue}"/>): returns the whole dictionary result, but
+    /// records a dependency on the key only, so the reading node is invalidated only when that
+    /// key's entry (or the dictionary's success or failure) changes. A root dictionary (a source) is
+    /// read like any other dependency.
+    /// </summary>
+    public Result<ImmutableDictionary<TKey, TValue>, ComputationError> ReadKey<TKey, TValue>(IComputationNode<ImmutableDictionary<TKey, TValue>> node, TKey key)
+        where TKey : notnull
+    {
+        if (node.Dependencies.IsEmpty)
+            return Read(node);
+
+        try
+        {
+            var dictionary = ValueNodeHandle<ImmutableDictionary<TKey, TValue>>.For(node, Graph);
+            var keyHandle = KeyIndex<TKey, TValue>.GetKeyHandle(dictionary, key, Graph);
+            var result = dictionary.Evaluate(this, out var version);
+
+            // The key's version as of the dictionary result just read (see KeyHandle.VersionAt)
+            _reads.Add(new DependencyVersion(keyHandle.State, keyHandle.VersionAt(version), keyHandle.WeakSelf));
+            return result;
+        }
+        catch (Exception) when (NoteFailedRead())
+        {
+            throw; // Not reached: the filter never catches
+        }
+    }
+
     private Result<T, ComputationError> ReadCore<T>(IComputationNode<T> node)
     {
         Result<T, ComputationError> result;
@@ -311,6 +341,87 @@ internal abstract class NodeHandle
     /// </summary>
     public WeakReference<NodeHandle> WeakSelf { get; }
 
+    // The dictionary handles whose per-key changes reach this node (see Gates); grows only, under
+    // SharedGraphState.CommitLock
+    private NodeHandle[] _gates = [];
+
+    /// <summary>
+    /// The <b>gates</b> of this node: the handles of the dictionary nodes that this node depends on
+    /// through a per-key read (<see cref="GraphEvaluator.ReadKey"/>), directly or through other nodes.
+    /// Empty for most nodes.
+    /// </summary>
+    /// <remarks>
+    /// A change upstream of a dictionary node marks the dictionary node but not its per-key readers:
+    /// which keys changed is only known once the dictionary has been recomputed, and the dictionary
+    /// node then marks the readers of the keys whose entries changed (see
+    /// <see cref="KeyIndex{TKey, TValue}"/>). Until then, the stamps of the nodes downstream of a
+    /// per-key read cannot be trusted on their own, so a pass brings a node's gates up to date before
+    /// it trusts the node's stamp (see <c>NodeHandle&lt;TResult&gt;.Evaluate</c>). Read after the
+    /// stamp (see there). Grows only: a node that no longer reads through a key keeps the gate, which
+    /// costs one cached read of the dictionary per stamp check.
+    /// </remarks>
+    public NodeHandle[] Gates => Volatile.Read(ref _gates);
+
+    /// <summary>
+    /// Sets the gates of a handle that is not shared yet (a key handle's gate is its dictionary).
+    /// </summary>
+    protected void InitializeGates(NodeHandle[] gates) => _gates = gates;
+
+    /// <summary>
+    /// Adds <paramref name="gates"/> to this node's gates and to those of every node downstream of it
+    /// (through the recorded dependents). Called with <see cref="SharedGraphState.CommitLock"/> held,
+    /// by the commit of a node that newly depends on gated nodes, before its value is stored: a pass
+    /// that sees the value and stamps a node downstream on the strength of it has then seen the gates
+    /// too, and so has every pass that reads that stamp afterwards (gates are read after the stamp).
+    /// Rare: a node usually gets its gates when it is first computed, before anything depends on it.
+    /// </summary>
+    internal void AddGates(NodeHandle[] gates)
+    {
+        if (gates.Length == 0 || !TryMergeGates(gates))
+            return;
+
+        var pending = new Stack<NodeHandle>();
+        var dependents = new List<NodeHandle>();
+        pending.Push(this);
+        while (pending.TryPop(out var handle))
+        {
+            dependents.Clear();
+            handle.State.CopyDependentsTo(dependents);
+            foreach (var dependent in dependents)
+            {
+                if (dependent.TryMergeGates(gates))
+                    pending.Push(dependent);
+            }
+        }
+    }
+
+    private bool TryMergeGates(NodeHandle[] gates)
+    {
+        var current = _gates;
+
+        // Usually the first gates a node gets: share the array (gate arrays are never modified)
+        if (current.Length == 0 && Array.IndexOf(gates, this) < 0)
+        {
+            Volatile.Write(ref _gates, gates);
+            return true;
+        }
+
+        NodeHandle[]? merged = null;
+        foreach (var gate in gates)
+        {
+            if (gate == this || Array.IndexOf(merged ?? current, gate) >= 0)
+                continue;
+
+            merged = [.. merged ?? current, gate];
+        }
+
+        if (merged is null)
+            return false;
+
+        Volatile.Write(ref _gates, merged);
+        return true;
+    }
+
     /// <summary>
     /// The node this handle evaluates.
     /// </summary>
@@ -416,6 +527,19 @@ internal abstract class NodeHandle<TResult> : NodeHandle
     /// </summary>
     public string Id { get; }
 
+    private KeyIndex? _keyIndex;
+
+    /// <summary>
+    /// The per-key readers of this (dictionary) node, created by the first per-key read (see
+    /// <see cref="GraphEvaluator.ReadKey"/>); <c>null</c> for every other node. Set under
+    /// <see cref="SharedGraphState.CommitLock"/>.
+    /// </summary>
+    internal KeyIndex? KeyIndex
+    {
+        get => Volatile.Read(ref _keyIndex);
+        set => Volatile.Write(ref _keyIndex, value);
+    }
+
     /// <summary>
     /// Provider type used to tag computation metrics ("value" or "values").
     /// </summary>
@@ -471,7 +595,9 @@ internal abstract class NodeHandle<TResult> : NodeHandle
         if (TryGetEntry(evaluator.Graph, out var entry))
         {
             // Verified since the last source change, or no source upstream has changed since it was
-            if (entry.VerifiedAtRevision >= evaluator.Revision || entry.Stamp == dirty)
+            // (for a gated node, once its gates are up to date: see Gates and StampHoldsAfterGates)
+            if (entry.VerifiedAtRevision >= evaluator.Revision
+                || (entry.Stamp == dirty && (Gates.Length == 0 || StampHoldsAfterGates(entry, evaluator, ref dirty))))
             {
                 entry.MarkVerified(evaluator.Revision);
                 version = entry.OutputVersion;
@@ -490,6 +616,28 @@ internal abstract class NodeHandle<TResult> : NodeHandle
         }
 
         return Recompute(evaluator, dirty, entry, out version, metadata);
+    }
+
+    /// <summary>
+    /// For a gated node whose stamp matched its dirty counter: brings the gates up to date, then
+    /// checks the stamp against the counter again (re-read into <paramref name="dirty"/>).
+    /// </summary>
+    /// <remarks>
+    /// Refreshing a gate recomputes the dictionary node if a change upstream of it has marked it, and
+    /// the dictionary's commit marks the readers of the keys whose entries changed before it stores
+    /// its value (see <see cref="KeyIndex{TKey, TValue}"/>). So once the gates are up to date, every
+    /// key change this node has to see has reached its counter, and a stamp that still matches is as
+    /// trustworthy as an ungated node's (see the remarks of
+    /// <see cref="SharedGraphState.MarkKeysChanged"/> for the argument).
+    /// </remarks>
+    [MethodImpl(MethodImplOptions.NoInlining)]
+    private bool StampHoldsAfterGates(CachedNodeValue entry, GraphEvaluator evaluator, ref long dirty)
+    {
+        foreach (var gate in Gates)
+            gate.Refresh(evaluator);
+
+        dirty = State.Dirty;
+        return entry.Stamp == dirty;
     }
 
     private bool IsUpToDate(CachedNodeValue entry, GraphEvaluator evaluator)
@@ -605,8 +753,11 @@ internal abstract class NodeHandle<TResult> : NodeHandle
 
             if (!cacheable)
             {
-                graph.ValueCache.Remove(Id);
                 version = _isRoot ? versionBefore : State.IncrementVersion();
+
+                // Before the value is removed, like a cached value is stored after it (see below)
+                KeyIndex?.OnCommit(state, kind, stored, cacheable: false, version, changed: true);
+                graph.ValueCache.Remove(Id);
             }
             else
             {
@@ -633,6 +784,11 @@ internal abstract class NodeHandle<TResult> : NodeHandle
                         };
 
                     version = unchanged ? current : State.IncrementVersion();
+
+                    // A dictionary node with per-key readers marks the readers of the changed keys
+                    // before its value is stored, so a pass that finds the value up to date finds
+                    // those readers marked (see KeyIndex)
+                    KeyIndex?.OnCommit(state, kind, stored, cacheable: true, version, changed: !unchanged);
                 }
 
                 var stamp = evaluator.CanStamp() ? dirty : CachedNodeValue.NoStamp;
@@ -663,6 +819,10 @@ internal abstract class NodeHandle<TResult> : NodeHandle
 
             dependencyState.AddDependent(WeakSelf);
             _registeredWith = [.. _registeredWith, dependencyState];
+
+            // A dependency's later gates reach this node through AddGates (it is a dependent now)
+            if (dependency.Handle is { } weak && weak.TryGetTarget(out var handle))
+                AddGates(handle.Gates);
         }
     }
 

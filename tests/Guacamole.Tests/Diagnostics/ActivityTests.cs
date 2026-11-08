@@ -40,9 +40,14 @@ public class ActivityTests
     {
         const string Id = "activity-test-node";
         var recorded = new List<Activity>();
+        // Read the name before registering the listener: the callback runs for every ActivitySource
+        // created while it is registered, including GuacamoleMetrics' own when its static constructor
+        // first runs (possibly on another test's thread). Reading GuacamoleMetrics.ActivitySource
+        // there would see the field still null and fail that static constructor for the whole run.
+        var sourceName = GuacamoleMetrics.ActivitySource.Name;
         using var listener = new ActivityListener
         {
-            ShouldListenTo = source => source.Name == GuacamoleMetrics.ActivitySource.Name,
+            ShouldListenTo = source => source.Name == sourceName,
             Sample = (ref ActivityCreationOptions<ActivityContext> _) => ActivitySamplingResult.AllDataAndRecorded,
             ActivityStopped = activity =>
             {
