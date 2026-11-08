@@ -1,5 +1,7 @@
 # Tasks: Roslyn Incremental Source Generator API Analysis
 
+> **Reconciliation (2026-11-08, #45)**: T005–T007 were done; the documents exist in `docs/roslyn-analysis/`. Status markers: see [specs/README.md](../README.md).
+
 **Input**: Design documents from `/specs/005-roslyn-analysis-create/`
 **Prerequisites**: plan.md (required), research.md, data-model.md, contracts/
 
@@ -44,9 +46,9 @@
 
 ## Phase 3.2: Research and Content Creation
 **Core Analysis Documents (can run in parallel)**
-- [ ] T005 [P] Research and write docs/roslyn-analysis/roslyn-architecture.md covering IIncrementalGenerator core concepts, pipeline architecture, and compilation integration
-- [ ] T006 [P] Research and write docs/roslyn-analysis/roslyn-patterns.md covering common implementation patterns, CreateSyntaxProvider usage, transformation patterns, and best practices with minimal code examples
-- [ ] T007 [P] Research and write docs/roslyn-analysis/roslyn-performance.md covering caching mechanisms, optimization strategies, benchmarking approaches, and memory management patterns
+- [x] T005 [P] Research and write docs/roslyn-analysis/roslyn-architecture.md covering IIncrementalGenerator core concepts, pipeline architecture, and compilation integration
+- [x] T006 [P] Research and write docs/roslyn-analysis/roslyn-patterns.md covering common implementation patterns, CreateSyntaxProvider usage, transformation patterns, and best practices with minimal code examples
+- [x] T007 [P] Research and write docs/roslyn-analysis/roslyn-performance.md covering caching mechanisms, optimization strategies, benchmarking approaches, and memory management patterns
 
 ## Phase 3.3: Comparative Analysis (depends on T005-T007)
 - [x] T008 Research and write docs/roslyn-analysis/roslyn-vs-salsa.md providing high-level conceptual comparison between Roslyn IIncrementalGenerator and salsa-rs approaches

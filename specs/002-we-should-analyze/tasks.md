@@ -1,5 +1,7 @@
 # Tasks: Salsa-rs Analysis and .NET Adaptation
 
+> **Reconciliation (2026-11-08, #45)**: All documents exist in `docs/salsa-rs-analysis/` (78f0228); research, adaptation and navigation tasks are reflected in their content and internal links resolve. Status markers: see [specs/README.md](../README.md).
+
 **Input**: Design documents from `/home/pekkah/p/guacamole/specs/002-we-should-analyze/`
 **Prerequisites**: plan.md (required), research.md, data-model.md, contracts/, quickstart.md
 
@@ -49,29 +51,29 @@
 
 ## Phase 3.2: Research Foundation ⚠️ MUST COMPLETE BEFORE 3.3
 **CRITICAL: Research tasks provide foundation for all analysis documentation**
-- [ ] T004 [P] Research salsa-rs core architecture and incremental computation principles using web sources
-- [ ] T005 [P] Research salsa-rs query system, derived queries, and dependency tracking mechanisms
-- [ ] T006 [P] Research salsa-rs caching strategies, memoization, and invalidation algorithms
-- [ ] T007 [P] Research salsa-rs API design patterns, trait system, and ergonomic interfaces
-- [ ] T008 [P] Research Rust-specific optimizations: ownership model, zero-cost abstractions, macro system
+- [x] T004 [P] Research salsa-rs core architecture and incremental computation principles using web sources — done: findings captured in `docs/salsa-rs-analysis/` (78f0228)
+- [x] T005 [P] Research salsa-rs query system, derived queries, and dependency tracking mechanisms — done: findings captured in `docs/salsa-rs-analysis/` (78f0228)
+- [x] T006 [P] Research salsa-rs caching strategies, memoization, and invalidation algorithms — done: findings captured in `docs/salsa-rs-analysis/` (78f0228)
+- [x] T007 [P] Research salsa-rs API design patterns, trait system, and ergonomic interfaces — done: findings captured in `docs/salsa-rs-analysis/` (78f0228)
+- [x] T008 [P] Research Rust-specific optimizations: ownership model, zero-cost abstractions, macro system — done: findings captured in `docs/salsa-rs-analysis/` (78f0228)
 
 ## Phase 3.3: Core Analysis Documentation (ONLY after research complete)
-- [ ] T009 Create `docs/salsa-rs-analysis/architecture-overview.md` with high-level salsa-rs architecture analysis
-- [ ] T010 Create `docs/salsa-rs-analysis/core-concepts.md` with fundamental concepts following data model structure
-- [ ] T011 Create `docs/salsa-rs-analysis/algorithms-analysis.md` with incremental computation algorithms and O(changes) patterns
-- [ ] T012 Create `docs/salsa-rs-analysis/caching-strategies.md` with memoization and invalidation approaches
-- [ ] T013 Create `docs/salsa-rs-analysis/api-patterns.md` with interface design and query composition patterns
+- [x] T009 Create `docs/salsa-rs-analysis/architecture-overview.md` with high-level salsa-rs architecture analysis
+- [x] T010 Create `docs/salsa-rs-analysis/core-concepts.md` with fundamental concepts following data model structure
+- [x] T011 Create `docs/salsa-rs-analysis/algorithms-analysis.md` with incremental computation algorithms and O(changes) patterns
+- [x] T012 Create `docs/salsa-rs-analysis/caching-strategies.md` with memoization and invalidation approaches
+- [x] T013 Create `docs/salsa-rs-analysis/api-patterns.md` with interface design and query composition patterns
 
 ## Phase 3.4: .NET Theoretical Adaptations
-- [ ] T014 Create `docs/salsa-rs-analysis/dotnet-adaptations.md` with theoretical C# mappings following constitutional requirements
-- [ ] T015 Document theoretical integration patterns with Microsoft.Extensions.DependencyInjection in adaptations
-- [ ] T016 Document theoretical performance optimizations using spans, source generators, and value types in adaptations
+- [x] T014 Create `docs/salsa-rs-analysis/dotnet-adaptations.md` with theoretical C# mappings following constitutional requirements
+- [x] T015 Document theoretical integration patterns with Microsoft.Extensions.DependencyInjection in adaptations — done: DI section in `docs/salsa-rs-analysis/dotnet-adaptations.md`
+- [x] T016 Document theoretical performance optimizations using spans, source generators, and value types in adaptations — done: spans/source generators/value types in `dotnet-adaptations.md`
 
 ## Phase 3.5: Navigation and Validation
-- [ ] T017 [P] Add cross-references and navigation links between all analysis documents following data model patterns
-- [ ] T018 [P] Validate constitutional compliance of all theoretical .NET adaptations against project requirements
-- [ ] T019 [P] Update `docs/salsa-rs-analysis/README.md` with complete navigation, reading paths, and document summaries
-- [ ] T020 [P] Validate documentation completeness, accuracy, and cross-reference integrity across all analysis documents
+- [x] T017 [P] Add cross-references and navigation links between all analysis documents following data model patterns
+- [x] T018 [P] Validate constitutional compliance of all theoretical .NET adaptations against project requirements — done: "Constitutional Compliance" section in `docs/salsa-rs-analysis/README.md`
+- [x] T019 [P] Update `docs/salsa-rs-analysis/README.md` with complete navigation, reading paths, and document summaries
+- [x] T020 [P] Validate documentation completeness, accuracy, and cross-reference integrity across all analysis documents — done: all relative links between the analysis documents resolve
 
 ## Dependencies
 - Setup (T001-T003) before all other tasks
@@ -124,11 +126,11 @@ Task: "Validate documentation completeness, accuracy, and cross-reference integr
 ## Validation Checklist
 *GATE: Checked by main() before returning*
 
-- [ ] All planned documentation files have creation tasks
-- [ ] Research foundation tasks cover all major salsa-rs areas
-- [ ] Constitutional compliance validation included for .NET adaptations
-- [ ] Cross-reference and navigation tasks ensure documentation completeness
-- [ ] Parallel tasks truly independent (different files, no logical dependencies)
-- [ ] Each task specifies exact file path in docs/salsa-rs-analysis/
-- [ ] No task depends on executable code or implementations
-- [ ] All tasks produce markdown documentation artifacts only
+- [x] All planned documentation files have creation tasks
+- [x] Research foundation tasks cover all major salsa-rs areas
+- [x] Constitutional compliance validation included for .NET adaptations
+- [x] Cross-reference and navigation tasks ensure documentation completeness
+- [x] Parallel tasks truly independent (different files, no logical dependencies)
+- [x] Each task specifies exact file path in docs/salsa-rs-analysis/
+- [x] No task depends on executable code or implementations
+- [x] All tasks produce markdown documentation artifacts only
