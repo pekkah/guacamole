@@ -8,10 +8,12 @@ namespace Guacamole.Benchmarks;
 /// K changed items out of N (spec 006 T032): replace <see cref="Changes"/> items of an
 /// <see cref="Items"/>-item source, then read <c>Items.Select(work).Collect().Select(Sum)</c>.
 /// <para>
-/// Per-item memoization reruns the per-item computation only for the K replaced items; the
-/// <c>Select</c> still walks all N items and <c>Collect</c>/<c>Sum</c> rerun over all of them, so
-/// the cost is K computations plus an O(N) walk. <see cref="DirectRecompute"/> applies the same
-/// changes to a plain array and reruns the computation for all N items.
+/// The <c>Select</c> applies the source's item-level delta (#61): it reruns the per-item computation
+/// only for the K replaced items and copies the other results in bulk, and the change checks of the
+/// <c>Select</c> and <c>Collect</c> compare only the replaced items; the source snapshot and the
+/// result array are still copied (O(N) memory copies) and <c>Sum</c> walks all N results.
+/// <see cref="DirectRecompute"/> applies the same changes to a plain array and reruns the computation
+/// for all N items.
 /// </para>
 /// </summary>
 [MemoryDiagnoser]

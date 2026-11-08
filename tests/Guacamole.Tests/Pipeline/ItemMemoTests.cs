@@ -178,4 +178,92 @@ public class ItemMemoTests
         Assert.Equal(final.Select(i => i.ToString()), finalValues);
         Assert.Equal(300, memo.Count);
     }
+    /// <summary>An input node that hands out one given delta.</summary>
+    private sealed class FixedDeltaSource<T>(ArrayDelta<T> delta) : IDeltaSource<T>
+    {
+        public ArrayDelta<T>? GetDelta(T[] from, T[] to) => delta.Describes(from, to) ? delta : null;
+    }
+
+    [Fact]
+    public void Delta_ComputesOnlyEditedItems_AndKeepsTheMapExact()
+    {
+        var memo = new ItemMemo<string, Box>();
+        var runs = new List<string>();
+        Box Compute(string item)
+        {
+            runs.Add(item);
+            return new Box(item);
+        }
+
+        string[] first = ["a", "b", "c", "d", "b"];
+        var firstValues = memo.Apply(first, Compute);
+        runs.Clear();
+
+        // Replace c by x, remove the first b, insert c (moved) and a new y
+        string[] second = ["a", "x", "d", "c", "b", "y"];
+        var delta = new ArrayDelta<string>(first, second,
+            [new ItemEdit(1, -1), new ItemEdit(2, 1), new ItemEdit(-1, 3), new ItemEdit(-1, 5)]);
+        var secondValues = memo.Apply(second, Compute, new FixedDeltaSource<string>(delta), out var step);
+
+        Assert.Same(delta, step.InputDelta);
+        Assert.Same(first, step.PreviousItems);
+        Assert.Same(firstValues, step.PreviousValues);
+        Assert.Equal(["x", "y"], runs); // the moved c and the unchanged items reuse their values
+        Assert.Equal(second, secondValues.Select(v => v.Item));
+        Assert.Same(firstValues[0], secondValues[0]);
+        Assert.Same(firstValues[2], secondValues[3]); // c, moved
+        Assert.Same(firstValues[4], secondValues[4]);
+        Assert.Equal(6, memo.Count); // a, x, d, c, b, y
+
+        // Removing every b and d through a delta forgets them
+        string[] third = ["a", "x", "c", "y"];
+        var removal = new ArrayDelta<string>(second, third, [new ItemEdit(2, -1), new ItemEdit(4, -1)]);
+        memo.Apply(third, Compute, new FixedDeltaSource<string>(removal), out step);
+        Assert.NotNull(step.InputDelta);
+        Assert.Equal(4, memo.Count);
+
+        // Without a matching delta the items are walked
+        string[] fourth = ["a", "x", "c", "y", "z"];
+        memo.Apply(fourth, Compute, new FixedDeltaSource<string>(removal), out step);
+        Assert.Null(step.InputDelta);
+        Assert.Equal(5, memo.Count);
+    }
+
+    [Fact]
+    public void Delta_IdenticalValues_ReturnThePreviousArray()
+    {
+        var memo = new ItemMemo<string, int>();
+        string[] first = ["a", "bb", "c"];
+        var firstValues = memo.Apply(first, s => s.Length);
+
+        // bb replaced by an item with the identical value (int)
+        string[] second = ["a", "xx", "c"];
+        var delta = new ArrayDelta<string>(first, second, [new ItemEdit(1, 1)]);
+        var secondValues = memo.Apply(second, s => s.Length, new FixedDeltaSource<string>(delta), out _);
+
+        Assert.Same(firstValues, secondValues);
+        Assert.Equal(3, memo.Count);
+    }
+
+    [Fact]
+    public void Delta_LambdaThrows_LeavesTheMemoUnchanged()
+    {
+        var memo = new ItemMemo<string, Box>();
+        string[] first = ["a", "b"];
+        memo.Apply(first, s => new Box(s));
+
+        string[] second = ["a", "boom", "c"];
+        var delta = new ArrayDelta<string>(first, second, [new ItemEdit(1, 1), new ItemEdit(-1, 2)]);
+        Assert.Throws<InvalidOperationException>(() =>
+            memo.Apply(second, s => s == "boom" ? throw new InvalidOperationException() : new Box(s), new FixedDeltaSource<string>(delta), out _));
+        Assert.Equal(2, memo.Count);
+
+        // The previous computation is still the base for the next delta
+        string[] third = ["a", "b", "d"];
+        var next = new ArrayDelta<string>(first, third, [new ItemEdit(-1, 2)]);
+        var values = memo.Apply(third, s => new Box(s), new FixedDeltaSource<string>(next), out var step);
+        Assert.NotNull(step.InputDelta);
+        Assert.Equal(third, values.Select(v => v.Item));
+        Assert.Equal(3, memo.Count);
+    }
 }

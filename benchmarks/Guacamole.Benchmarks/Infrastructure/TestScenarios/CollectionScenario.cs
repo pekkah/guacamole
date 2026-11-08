@@ -8,9 +8,8 @@ public sealed record Item(int Id, int Value);
 /// <summary>
 /// One collection source of N items, a per-item computation, and a total:
 /// <c>Items.Select(work).Collect().Select(Sum)</c>. Replacing K items reruns the per-item
-/// computation K times (per-item memoization); the <c>Select</c> still walks all N items and
-/// <c>Collect</c>/<c>Sum</c> rerun over all of them. The per-item computation is a parameter so
-/// tests can count calls.
+/// computation K times (the <c>Select</c> applies the source's item-level delta); <c>Sum</c> reruns
+/// over all N results. The per-item computation is a parameter so tests can count calls.
 /// </summary>
 public sealed class CollectionScenario : IDisposable
 {
